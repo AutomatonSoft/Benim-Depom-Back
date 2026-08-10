@@ -1,0 +1,22 @@
+# Local environment and secrets
+venv/
+.venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Tests and tools
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Generated files
+media/
+staticfiles/
+
+# IDEs
+.idea/
+.vscode/
