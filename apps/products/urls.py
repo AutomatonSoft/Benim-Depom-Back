@@ -7,6 +7,7 @@ from .views import (
     ProductImageReorderView,
     ProductImageUploadView,
     ProductListCreateView,
+    ProductAvailabilityView,
 )
 
 app_name = "products"
@@ -33,5 +34,10 @@ urlpatterns = [
         "<int:product_pk>/images/<int:image_pk>/make-primary/",
         ProductImagePrimaryView.as_view(),
         name="product-image-make-primary",
+    ),
+    path(
+        "<int:product_pk>/availability/",
+        ProductAvailabilityView.as_view(),
+        name="product-availability",
     ),
 ]

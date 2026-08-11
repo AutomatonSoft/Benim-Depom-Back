@@ -67,6 +67,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "product_type",
             "category",
             "status",
+            "is_available",
+            "approved_at",
+            "availability_confirmed_at",
             "variants",
             "images",
             "total_quantity",
@@ -81,6 +84,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "total_quantity",
             "created_at",
             "updated_at",
+            "is_available",
+            "approved_at",
+            "availability_confirmed_at",
         )
 
     def get_total_quantity(self, product):
@@ -119,6 +125,8 @@ class ProductSerializer(serializers.ModelSerializer):
             variants_data=variants_data,
         )
 
+class ProductAvailabilitySerializer(serializers.Serializer):
+    is_available = serializers.BooleanField()
 
 class ProductImageUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()

@@ -12,12 +12,15 @@ from .serializers import (
     ProductImageSerializer,
     ProductImageUploadSerializer,
     ProductSerializer,
+    ProductAvailabilitySerializer,
+
 )
 from .services import (
     delete_product_image,
     make_product_image_primary,
     reorder_product_images,
     upload_product_image,
+    confirm_product_availability,
 )
 
 
@@ -178,3 +181,30 @@ class ProductImageReorderView(APIView):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProductAvailabilityView(APIView):
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    @extend_schema(
+        request=ProductAvailabilitySerializer,
+        responses={200: ProductSerializer},
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product,
+            pk=product_pk,
+            owner=request.user,
+        )
+
+        serializer = ProductAvailabilitySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product = confirm_product_availability(
+            product=product,
+            is_available=serializer.validated_data["is_available"],
+        )
+
+        return Response(
+            ProductSerializer(product, context={"request": request}).data
+        )

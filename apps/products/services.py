@@ -3,6 +3,7 @@ from typing import Any
 from django.db import transaction
 from django.db.models import F, Max
 from rest_framework.exceptions import ValidationError
+from django.utils import timezone
 
 from .models import Product, ProductImage, ProductVariant
 
@@ -213,3 +214,32 @@ def reorder_product_images(
         ).update(position=position)
 
         
+@transaction.atomic
+def confirm_product_availability(
+    *,
+    product: Product,
+    is_available: bool,
+) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {
+                "detail": (
+                    "Availability can only be confirmed "
+                    "for an approved product."
+                )
+            }
+        )
+
+    locked_product.is_available = is_available
+    locked_product.availability_confirmed_at = timezone.now()
+    locked_product.save(
+        update_fields=(
+            "is_available",
+            "availability_confirmed_at",
+            "updated_at",
+        )
+    )
+
+    return locked_product
