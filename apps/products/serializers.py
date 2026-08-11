@@ -118,3 +118,48 @@ class ProductSerializer(serializers.ModelSerializer):
             data=validated_data,
             variants_data=variants_data,
         )
+
+
+class ProductImageUploadSerializer(serializers.Serializer):
+    image = serializers.ImageField()
+    is_primary = serializers.BooleanField(default=False)
+
+    def validate_image(self, image):
+        max_size = 10 * 1024 * 1024
+
+        allowed_content_types = {
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        }
+
+        if image.size > max_size:
+            raise serializers.ValidationError(
+                "Image size must not exceed 10 MB."
+            )
+
+        content_type = getattr(image, "content_type", None)
+        if content_type and content_type not in allowed_content_types:
+            raise serializers.ValidationError(
+                "Allowed image formats: JPEG, PNG, WEBP"
+            )
+
+        return image
+
+
+class ProductImageReorderSerializer(serializers.Serializer):
+    image_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty = False,
+    )
+
+    def validate_image_ids(self, image_ids):
+        if len(image_ids) != len(set(image_ids)):
+            raise serializers.ValidationError(
+                "Image identifiers must be unique"
+            )
+
+
+        return image_ids
+
+    

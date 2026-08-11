@@ -3,6 +3,8 @@ from django.http import JsonResponse
 from django.urls import include, path
 from django.views.decorators.http import require_GET
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from django.conf import settings
+from django.conf.urls.static import static
 
 
 @require_GET
@@ -16,10 +18,23 @@ urlpatterns = [
     path("api/v1/auth/", include("apps.accounts.urls")),
     path("api/v1/catalog/", include("apps.catalog.urls")),
     path("api/v1/products/", include("apps.products.urls")),
+    path("api/v1/", include("apps.moderation.urls")),
+    path(
+        "api/v1/notifications/",
+        include("apps.notifications.urls"),
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
+    
 ]
+
+if settings.DEBUG and not settings.USE_FTP_MEDIA_STORAGE:
+    urlpatterns += static(
+        settings.MEDIA_URL,
+        document_root=settings.MEDIA_ROOT,
+    )
+

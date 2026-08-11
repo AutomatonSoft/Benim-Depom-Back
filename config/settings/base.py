@@ -31,6 +31,8 @@ LOCAL_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.catalog.apps.CatalogConfig",
     "apps.products.apps.ProductsConfig",
+    "apps.moderation.apps.ModerationConfig",
+    "apps.notifications.apps.NotificationsConfig"
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -105,6 +107,35 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+FTP_MEDIA_HOST = env("FTP_MEDIA_HOST")
+FTP_MEDIA_PORT = env.int("FTP_MEDIA_PORT", default=21)
+FTP_MEDIA_USERNAME = env("FTP_MEDIA_USERNAME")
+FTP_MEDIA_PASSWORD = env("FTP_MEDIA_PASSWORD")
+FTP_MEDIA_REMOTE_ROOT = env("FTP_MEDIA_REMOTE_ROOT")
+FTP_MEDIA_PUBLIC_BASE_URL = env("FTP_MEDIA_PUBLIC_BASE_URL")
+FTP_MEDIA_USE_TLS = env.bool("FTP_MEDIA_USE_TLS", default=True)
+FTP_MEDIA_PASSIVE_MODE = env.bool(
+    "FTP_MEDIA_PASSIVE_MODE",
+    default=True,
+)
+FTP_MEDIA_TIMEOUT_SECONDS = env.int(
+    "FTP_MEDIA_TIMEOUT_SECONDS",
+    default=30,
+)
+
+USE_FTP_MEDIA_STORAGE = True
+
+STORAGES = {
+    "default": {
+        "BACKEND": "apps.common.ftp_storage.FTPMediaStorage",
+    },
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
+    },
+}
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
@@ -138,4 +169,17 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 CORS_ALLOW_CREDENTIALS = True
 
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 120
+CELERY_TASK_SOFT_TIME_LIMIT = 110
+CELERY_RESULT_EXPIRES = 86400
 
