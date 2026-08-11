@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
 from apps.products.models import Product
+from django.utils import timezone
 
 from .models import ModerationDecision
 
@@ -53,7 +54,18 @@ def approve_product(
         )
 
     product.status = Product.Status.APPROVED
-    product.save(update_fields=("status", "updated_at"))
+    product.approved_at = timezone.now()
+    product.is_available = True
+    product.availability_reminder_sent_at = None
+    product.save(
+        update_fields=(
+            "status",
+            "approved_at",
+            "is_available",
+            "availability_reminder_sent_at",
+            "updated_at",
+        )
+    )
 
     ModerationDecision.objects.create(
         product=product,

@@ -45,6 +45,24 @@ class Product(models.Model):
         default=Status.DRAFT,
         db_index=True,
     )
+
+    is_available = models.BooleanField(default=True)
+
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    availability_reminder_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    
+    availability_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

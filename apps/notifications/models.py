@@ -42,6 +42,10 @@ class Notification(models.Model):
             "Image processing failed",
         )
         MESSAGE_RECEIVED = "message_received", "Message received"
+        PRODUCT_AVAILABILITY_REMINDER = (
+            "product_availability_reminder",
+            "Product availability reminder",
+        )
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

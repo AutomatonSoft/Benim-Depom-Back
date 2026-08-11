@@ -22,12 +22,12 @@ class DeviceTokenDeactivateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer =DeviceTokenDeactivateSerializer
+        serializer = DeviceTokenDeactivateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         DeviceToken.objects.filter(
             user=request.user,
-            token = serializer.validated_data["token"]
+            token=serializer.validated_data["token"],
         ).update(is_active=False)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
