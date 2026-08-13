@@ -5,6 +5,8 @@ from drf_spectacular.utils import (
 from rest_framework import serializers
 
 from apps.catalog.models import Category, ProductType
+from apps.common.permissions import is_manager
+from apps.ean.serializers import EanCodeSerializer
 
 from .models import (
     Product,
@@ -13,8 +15,6 @@ from .models import (
     ProductVariant,
 )
 from .services import create_product, update_product
-from apps.ean.serializers import EanCodeSerializer
-from apps.common.permissions import is_manager
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
@@ -149,6 +149,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "product_type",
             "category",
             "status",
+            "ean_jv",
+            "ean_xl",
             "is_available",
             "approved_at",
             "availability_confirmed_at",

@@ -52,6 +52,28 @@ class Product(models.Model):
         default=Status.DRAFT,
         db_index=True,
     )
+    ean_jv = models.CharField(
+        max_length=14,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\d{8,14}$",
+                message="Use an EAN containing 8 to 14 digits.",
+            )
+        ],
+        db_index=True,
+    )
+    ean_xl = models.CharField(
+        max_length=14,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^\d{8,14}$",
+                message="Use an EAN containing 8 to 14 digits.",
+            )
+        ],
+        db_index=True,
+    )
 
     is_available = models.BooleanField(default=True)
 

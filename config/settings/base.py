@@ -35,6 +35,10 @@ LOCAL_APPS = [
     "apps.moderation.apps.ModerationConfig",
     "apps.notifications.apps.NotificationsConfig",
     "apps.ean.apps.EanConfig",
+    "apps.orchestrator.apps.OrchestratorConfig",
+    "apps.marketplace.hood.apps.HoodConfig",
+    "apps.marketplace.otto.apps.OttoConfig",
+    "apps.marketplace.kaufland.apps.KauflandConfig"
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -231,6 +235,34 @@ CELERY_TASK_TIME_LIMIT = 120
 CELERY_TASK_SOFT_TIME_LIMIT = 110
 CELERY_RESULT_EXPIRES = 86400
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Direct marketplace API configuration. BENIM talks to these providers itself;
+# no WareHub service is required at runtime.
+HOOD_API_BASE_URL = env(
+    "HOOD_API_BASE_URL",
+    default="https://hoodbot.automatonsoft.de",
+).rstrip("/")
+HOOD_API_PATCH_ENDPOINT = env(
+    "HOOD_API_PATCH_ENDPOINT",
+    default="/items/by-ean/{ean}",
+)
+HOOD_API_CREATE_ENDPOINT = env(
+    "HOOD_API_CREATE_ENDPOINT",
+    default="/items/by-ean/{ean}",
+)
+HOOD_LOGIN = env("HOOD_LOGIN", default="")
+HOOD_PASSWORD = env("HOOD_PASSWORD", default="")
+KAUFLAND_API_BASE_URL = env("KAUFLAND_API_BASE_URL", default="https://kl.automatonsoft.de").rstrip("/")
+KAUFLAND_API_GET_BY_EAN_ENDPOINT = env("KAUFLAND_API_GET_BY_EAN_ENDPOINT", default="/api/products/product/ean/")
+KAUFLAND_API_CREATE_ENDPOINT = env("KAUFLAND_API_CREATE_ENDPOINT", default="/api/products/upload/")
+KAUFLAND_API_UPDATE_ENDPOINT = env("KAUFLAND_API_UPDATE_ENDPOINT", default="/api/products/ean/change/")
+OTTO_API_BASE_URL = env("OTTO_API_BASE_URL", default="https://okb.automatonsoft.de").rstrip("/")
+OTTO_API_PRODUCTS_ENDPOINT = env("OTTO_API_PRODUCTS_ENDPOINT", default="/extermal/get_products")
+OTTO_API_UPSERT_ENDPOINT = env("OTTO_API_UPSERT_ENDPOINT", default="/extermal/create_or_update_product")
+MARKETPLACE_HTTP_TIMEOUT_SECONDS = env.float(
+    "MARKETPLACE_HTTP_TIMEOUT_SECONDS",
+    default=30,
+)
 
 
 

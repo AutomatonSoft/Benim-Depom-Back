@@ -25,6 +25,7 @@ urlpatterns = [
         include("apps.notifications.urls"),
     ),
     path("api/v1/manager/eans/", include("apps.ean.urls")),
+    path("api/v1/orchestrator/", include("apps.orchestrator.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",
@@ -39,4 +40,3 @@ if settings.DEBUG and not settings.USE_FTP_MEDIA_STORAGE:
         settings.MEDIA_URL,
         document_root=settings.MEDIA_ROOT,
     )
-
