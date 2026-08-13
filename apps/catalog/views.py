@@ -1,20 +1,34 @@
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
 
-from .models import Category, Color, Material, ProductType
+from .models import Category, ProductType
+
+from rest_framework.permissions import AllowAny, IsAuthenticated
+
+from apps.common.permissions import IsManager, is_manager
 
 from .serializers import (
     CategorySerializer,
-    ColorSerializer,
-    MaterialSerializer,
     ProductTypeSerializer
 )
 
 
-class CategoryListView(generics.ListAPIView):
-    queryset = Category.objects.filter(is_active=True)
+
+    
+class CategoryListView(generics.ListCreateAPIView):
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsManager()]
+        return [AllowAny()]
+
+    def get_queryset(self):
+        queryset = Category.objects.all()
+
+        if not is_manager(self.request.user):
+            queryset = queryset.filter(is_active=True)
+
+        return queryset
 
 
 
@@ -25,18 +39,13 @@ class ProductTypeListView(generics.ListAPIView):
 
 
 
-class MaterialListView(generics.ListAPIView):
-    queryset = Material.objects.filter(is_active=True)
-    serializer_class = MaterialSerializer
-    permission_classes = [IsAuthenticated]
+class ManagerCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsManager]
 
 
-
-class ColorListView(generics.ListAPIView):
-    queryset = Color.objects.filter(is_active=True)
-    serializer_class = ColorSerializer
-    permission_classes = [IsAuthenticated]
-
-
-
-
+class ManagerProductTypeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ProductType.objects.all()
+    serializer_class = ProductTypeSerializer
+    permission_classes = [IsManager]

@@ -20,3 +20,7 @@ staticfiles/
 # IDEs
 .idea/
 .vscode/
+
+
+secrets/
+*.firebase-adminsdk-*.json

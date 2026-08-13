@@ -1,29 +1,43 @@
+from drf_spectacular.utils import (
+    extend_schema_field,
+    extend_schema_serializer,
+)
 from rest_framework import serializers
 
-from apps.catalog.models import Category, Color, Material, ProductType
+from apps.catalog.models import Category, ProductType
 
-from .models import Product, ProductImage, ProductVariant
+from .models import (
+    Product,
+    ProductGeneratedImage,
+    ProductImage,
+    ProductVariant,
+)
 from .services import create_product, update_product
+from apps.ean.serializers import EanCodeSerializer
+from apps.common.permissions import is_manager
 
 
+@extend_schema_serializer(component_name="ProductsVariant")
 class ProductVariantSerializer(serializers.ModelSerializer):
-    color = serializers.PrimaryKeyRelatedField(
-        queryset=Color.objects.filter(is_active=True),
+    color_hex = serializers.RegexField(
+        regex=r"^#[0-9A-Fa-f]{6}$",
+        max_length=7,
+        error_messages={
+            "invalid": "Use a hexadecimal color in the #RRGGBB format.",
+        },
     )
-    material = serializers.PrimaryKeyRelatedField(
-        queryset=Material.objects.filter(is_active=True),
+    materials = serializers.ListField(
+        child=serializers.CharField(max_length=100, trim_whitespace=True),
+        min_length=1,
+        max_length=2,
     )
-    color_name = serializers.CharField(source="color.name", read_only=True)
-    material_name = serializers.CharField(source="material.name", read_only=True)
 
     class Meta:
         model = ProductVariant
         fields = (
             "id",
-            "color",
-            "color_name",
-            "material",
-            "material_name",
+            "color_hex",
+            "materials",
             "width_cm",
             "height_cm",
             "length_cm",
@@ -31,8 +45,45 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
+    def validate_color_hex(self, value):
+        return value.upper()
 
+    def validate_materials(self, values):
+        normalized = [value.strip() for value in values]
+
+        if any(not value for value in normalized):
+            raise serializers.ValidationError(
+                "Material names must not be empty."
+            )
+
+        if len({value.casefold() for value in normalized}) != len(normalized):
+            raise serializers.ValidationError(
+                "Material names must be unique within one variant."
+            )
+
+        return normalized
+
+
+@extend_schema_serializer(component_name="ProductsGeneratedImage")
+class ProductGeneratedImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductGeneratedImage
+        fields = (
+            "id",
+            "mode",
+            "image",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="ProductsImage")
 class ProductImageSerializer(serializers.ModelSerializer):
+
+    generated_images = ProductGeneratedImageSerializer(
+        many=True,
+        read_only=True,
+    )
     class Meta:
         model = ProductImage
         fields = (
@@ -42,9 +93,39 @@ class ProductImageSerializer(serializers.ModelSerializer):
             "position",
             "is_primary",
             "processing_status",
+            "processing_error",
+            "processing_result",
+            "generated_images",
+        )
+        read_only_fields = (
+            "id",
+            "image",
+            "processed_image",
+            "position",
+            "is_primary",
+            "processing_status",
+            "processing_error",
+            "processing_result",
         )
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
 
+        if request and not is_manager(request.user):
+            for field in (
+                "processed_image",
+                "processing_status",
+                "processing_error",
+                "processing_result",
+                "generated_images",
+            ):
+                data.pop(field, None)
+
+        return data
+
+
+@extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
     product_type = serializers.PrimaryKeyRelatedField(
         queryset=ProductType.objects.filter(is_active=True),
@@ -57,6 +138,7 @@ class ProductSerializer(serializers.ModelSerializer):
     variants = ProductVariantSerializer(many=True, required=False)
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
+    ean_codes = EanCodeSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
@@ -70,6 +152,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "is_available",
             "approved_at",
             "availability_confirmed_at",
+            "deactivation_requested_at",
+            "deactivated_at",
+            "ean_codes",
             "variants",
             "images",
             "total_quantity",
@@ -87,10 +172,23 @@ class ProductSerializer(serializers.ModelSerializer):
             "is_available",
             "approved_at",
             "availability_confirmed_at",
+            "deactivation_requested_at",
+            "deactivated_at",
+            "ean_codes",
         )
 
-    def get_total_quantity(self, product):
+    @extend_schema_field(serializers.IntegerField)
+    def get_total_quantity(self, product) -> int:
         return sum(variant.quantity for variant in product.variants.all())
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+
+        if request and not is_manager(request.user):
+            data.pop("ean_codes", None)
+
+        return data
 
     def validate(self, attrs):
         variants = attrs.get("variants")
@@ -125,9 +223,11 @@ class ProductSerializer(serializers.ModelSerializer):
             variants_data=variants_data,
         )
 
+@extend_schema_serializer(component_name="ProductsAvailability")
 class ProductAvailabilitySerializer(serializers.Serializer):
     is_available = serializers.BooleanField()
 
+@extend_schema_serializer(component_name="ProductsImageUpload")
 class ProductImageUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
     is_primary = serializers.BooleanField(default=False)
@@ -155,6 +255,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
         return image
 
 
+@extend_schema_serializer(component_name="ProductsImageReorder")
 class ProductImageReorderSerializer(serializers.Serializer):
     image_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),

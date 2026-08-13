@@ -6,6 +6,9 @@ from .views import (
     ManagerRejectProductView,
     ProductModerationHistoryView,
     SubmitProductView,
+    ManagerSendProductNotificationView,
+    ManagerRequestProductAvailabilityView,
+    ManagerDeactivateProductView,
 )
 
 app_name = "moderation"
@@ -35,5 +38,20 @@ urlpatterns = [
         "manager/products/<int:product_pk>/reject/",
         ManagerRejectProductView.as_view(),
         name="manager-product-reject",
+    ),
+    path(
+        "manager/products/<int:product_pk>/notifications/",
+        ManagerSendProductNotificationView.as_view(),
+        name="manager-product-notification",
+    ),
+    path(
+        "manager/products/<int:product_pk>/availability-request/",
+        ManagerRequestProductAvailabilityView.as_view(),
+        name="manager-product-availability-request",
+    ),
+    path(
+        "manager/products/<int:product_pk>/deactivate/",
+        ManagerDeactivateProductView.as_view(),
+        name="manager-product-deactivate",
     ),
 ]

@@ -1,8 +1,10 @@
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from .models import DeviceToken, Notification
 
 
+@extend_schema_serializer(component_name="NotificationsDeviceToken")
 class DeviceTokenSerializer(serializers.ModelSerializer):
     token = serializers.CharField(write_only=True)
 
@@ -36,13 +38,20 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
         return device_token
 
 
+@extend_schema_serializer(component_name="NotificationsDeviceDeactivate")
 class DeviceTokenDeactivateSerializer(serializers.Serializer):
     token = serializers.CharField()
 
 
+@extend_schema_serializer(component_name="NotificationsNotification")
 class NotificationSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(
         source="product.id",
+        read_only=True,
+    )
+
+    sender_id = serializers.IntegerField(
+        source="sender.id",
         read_only=True,
     )
 
@@ -56,5 +65,25 @@ class NotificationSerializer(serializers.ModelSerializer):
             "is_read",
             "created_at",
             "read_at",
+            "sender_id",
+            "title",
+            "body",
         )
         read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="WebManagerProductNotification")
+class ManagerProductNotificationSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=150,
+        required=False,
+        allow_blank=True,
+    )
+    body = serializers.CharField(max_length=1500)
+
+    def validate_body(self, value):
+        if not value.strip():
+            raise serializers.ValidationError(
+                "Message text cannot be empty."
+            )
+        return value

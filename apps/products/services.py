@@ -234,12 +234,183 @@ def confirm_product_availability(
 
     locked_product.is_available = is_available
     locked_product.availability_confirmed_at = timezone.now()
+    locked_product.availability_reminder_sent_at = timezone.now()
     locked_product.save(
         update_fields=(
             "is_available",
             "availability_confirmed_at",
+            "availability_reminder_sent_at",
             "updated_at",
         )
     )
 
     return locked_product
+
+
+@transaction.atomic
+def request_product_deactivation(*, product: Product) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can be requested for deactivation."}
+        )
+
+    if locked_product.deactivation_requested_at is not None:
+        raise ValidationError(
+            {"detail": "A deactivation request is already pending."}
+        )
+
+    locked_product.deactivation_requested_at = timezone.now()
+    locked_product.save(
+        update_fields=("deactivation_requested_at", "updated_at")
+    )
+    return locked_product
+
+
+@transaction.atomic
+def deactivate_product(*, product: Product) -> Product:
+    """Confirm a seller's deactivation request from the manager web panel."""
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can be deactivated."}
+        )
+
+    if locked_product.deactivation_requested_at is None:
+        raise ValidationError(
+            {"detail": "The seller has not requested deactivation."}
+        )
+
+    locked_product.status = Product.Status.DEACTIVATED
+    locked_product.is_available = False
+    locked_product.deactivated_at = timezone.now()
+    locked_product.save(
+        update_fields=(
+            "status",
+            "is_available",
+            "deactivation_requested_at",
+            "deactivated_at",
+            "updated_at",
+        )
+    )
+    return locked_product
+
+
+@transaction.atomic
+def withdraw_product_submission(*, product: Product) -> Product:
+    """Hide a not-yet-approved product without notifying managers.
+
+    EANs are normally assigned only during approval. Releasing any attached
+    codes also makes withdrawal safe for products submitted by an older app
+    version that reserved them earlier.
+    """
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status not in {
+        Product.Status.SUBMITTED,
+        Product.Status.UNDER_REVIEW,
+    }:
+        raise ValidationError(
+            {
+                "detail": (
+                    "Only a submitted or under-review product can be withdrawn."
+                )
+            }
+        )
+
+    from apps.ean.models import EanCode
+
+    EanCode.objects.filter(product=locked_product).update(
+        product=None,
+        assigned_at=None,
+    )
+    locked_product.status = Product.Status.ARCHIVED
+    locked_product.save(update_fields=("status", "updated_at"))
+    return locked_product
+
+
+@transaction.atomic
+def request_product_availability(*, product: Product, manager) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can receive an availability request."}
+        )
+
+    locked_product.availability_reminder_sent_at = timezone.now()
+    locked_product.save(
+        update_fields=("availability_reminder_sent_at", "updated_at")
+    )
+
+    from apps.notifications.models import Notification
+    from apps.notifications.services import create_notification
+
+    transaction.on_commit(
+        lambda: create_notification(
+            user=locked_product.owner,
+            sender=manager,
+            product=locked_product,
+            notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
+            title="Product availability",
+            body="Please confirm whether this product is still available.",
+            data={"product_id": locked_product.id},
+        )
+    )
+    return locked_product
+
+
+@transaction.atomic
+def request_product_image_processing(
+    *,
+    product: Product,
+    image: ProductImage
+) -> ProductImage:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status not in {
+        Product.Status.SUBMITTED,
+        Product.Status.UNDER_REVIEW,
+        Product.Status.APPROVED,
+    }:
+        raise ValidationError(
+            {"detail": "Images can be generated only after product submission."}
+        )
+
+    locked_image = ProductImage.objects.select_for_update().get(
+        pk=image.pk,
+        product=locked_product,
+    )
+
+    if (
+        locked_image.processing_status == ProductImage.ProcessingStatus.PROCESSING
+    ):
+        raise ValidationError(
+            {"detail": "Image processing is already in progress"}
+        )
+
+    locked_image.processing_status = (
+        ProductImage.ProcessingStatus.PENDING
+    )
+    locked_image.processing_error = ""
+    locked_image.processing_result = {}
+    locked_image.save(
+        update_fields=(
+            "processing_status",
+            "processing_error",
+            "processing_result"
+        )
+    ) 
+
+    from apps.notifications.tasks import process_product_image
+
+    transaction.on_commit(
+        lambda: process_product_image.delay(locked_image.id)
+    )
+
+    return locked_image
+
+
+    

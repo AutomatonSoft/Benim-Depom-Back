@@ -33,7 +33,8 @@ LOCAL_APPS = [
     "apps.catalog.apps.CatalogConfig",
     "apps.products.apps.ProductsConfig",
     "apps.moderation.apps.ModerationConfig",
-    "apps.notifications.apps.NotificationsConfig"
+    "apps.notifications.apps.NotificationsConfig",
+    "apps.ean.apps.EanConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -148,7 +149,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "apps.common.schema.MarketplaceAutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
 }
@@ -162,8 +163,54 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Marketplace Backend API",
-    "DESCRIPTION": "API for mobile sellers and manager web application.",
+    "DESCRIPTION": (
+        "API for the seller mobile application and manager web panel. "
+        "Operations are grouped by client and business domain."
+    ),
     "VERSION": "1.0.0",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {
+            "name": "Mobile — Authentication",
+            "description": "Seller registration, profile and Firebase phone verification.",
+        },
+        {
+            "name": "Authentication — Shared",
+            "description": "JWT login, refresh and logout for both clients.",
+        },
+        {
+            "name": "Catalog",
+            "description": "Product categories and product types.",
+        },
+        {
+            "name": "Products",
+            "description": "Seller products, variants and source images.",
+        },
+        {
+            "name": "Moderation",
+            "description": "Seller submission and moderation history.",
+        },
+        {
+            "name": "Web — Moderation",
+            "description": "Manager approval, rejection and seller communication.",
+        },
+        {
+            "name": "Web — EAN pool",
+            "description": "Manager EAN import, allocation overview and list.",
+        },
+        {
+            "name": "Web — Manager accounts",
+            "description": "Create manager accounts from the protected web panel.",
+        },
+        {
+            "name": "Notifications",
+            "description": "In-app notifications and Firebase device tokens.",
+        },
+        {
+            "name": "Service",
+            "description": "Service health checks.",
+        },
+    ],
 }
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
@@ -183,6 +230,7 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 120
 CELERY_TASK_SOFT_TIME_LIMIT = 110
 CELERY_RESULT_EXPIRES = 86400
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 
 
@@ -205,3 +253,36 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=10, minute=0),
     },
 }
+
+FIREBASE_ENABLED = env.bool("FIREBASE_ENABLED", default=False)
+
+FIREBASE_SERVICE_ACCOUNT_FILE = env(
+    "FIREBASE_SERVICE_ACCOUNT_FILE",
+    default="",
+)
+
+BULK_WHITE_IMAGE_SERVICE_URL = env(
+    "BULK_WHITE_IMAGE_SERVICE_URL",
+    default="",
+)
+BULK_WHITE_IMAGE_SERVICE_TOKEN = env(
+    "BULK_WHITE_IMAGE_SERVICE_TOKEN",
+    default="",
+)
+BULK_WHITE_IMAGE_SERVICE_TIMEOUT_SECONDS = env.int(
+    "BULK_WHITE_IMAGE_SERVICE_TIMEOUT_SECONDS",
+    default=120,
+)
+BULK_WHITE_IMAGE_SERVICE_RESULTS_URL = env(
+    "BULK_WHITE_IMAGE_SERVICE_RESULTS_URL",
+    default="",
+)
+BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS = env.int(
+    "BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS",
+    default=10,
+)
+BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS = env.int(
+    "BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS",
+    default=60,
+)
+EAN_LOW_STOCK_THRESHOLD = env.int("EAN_LOW_STOCK_THRESHOLD", default=20)

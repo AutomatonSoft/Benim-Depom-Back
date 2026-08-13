@@ -1,0 +1,51 @@
+import pytest
+
+from apps.products.serializers import ProductImageReorderSerializer, ProductVariantSerializer
+
+
+def valid_variant(**overrides):
+    data = {
+        "color_hex": "#5b91c8",
+        "materials": [" Wood ", "Fabric"],
+        "width_cm": "50.00",
+        "height_cm": "90.00",
+        "length_cm": "55.00",
+        "quantity": 3,
+    }
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.unit
+def test_variant_normalizes_hex_and_materials():
+    serializer = ProductVariantSerializer(data=valid_variant())
+
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["color_hex"] == "#5B91C8"
+    assert serializer.validated_data["materials"] == ["Wood", "Fabric"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "overrides, field",
+    [
+        ({"color_hex": "5B91C8"}, "color_hex"),
+        ({"materials": []}, "materials"),
+        ({"materials": ["Wood", "wood"]}, "materials"),
+        ({"materials": [" "]}, "materials"),
+        ({"quantity": 0}, "quantity"),
+    ],
+)
+def test_variant_rejects_invalid_business_data(overrides, field):
+    serializer = ProductVariantSerializer(data=valid_variant(**overrides))
+
+    assert serializer.is_valid() is False
+    assert field in serializer.errors
+
+
+@pytest.mark.unit
+def test_image_reorder_rejects_duplicate_ids():
+    serializer = ProductImageReorderSerializer(data={"image_ids": [1, 1]})
+
+    assert serializer.is_valid() is False
+    assert "image_ids" in serializer.errors

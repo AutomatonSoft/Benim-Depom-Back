@@ -3,13 +3,19 @@ from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
 
 
 def product_image_upload_to(instance, filename: str) -> str:
     extension = Path(filename).suffix.lower()
     return f"products/{instance.product.owner_id}/{uuid4().hex}{extension}"
+
+
+def generated_image_upload_to(instance, filename: str) -> str:
+    extension = Path(filename).suffix.lower() or ".jpg"
+    owner_id = instance.source_image.product.owner_id
+    return f"products/{owner_id}/generated/{uuid4().hex}{extension}"
 
 
 class Product(models.Model):
@@ -20,6 +26,7 @@ class Product(models.Model):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         ARCHIVED = "archived", "Archived"
+        DEACTIVATED = "deactivated", "Deactivated"
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -62,6 +69,11 @@ class Product(models.Model):
         null=True,
         blank=True,
     )
+    deactivation_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    deactivated_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -89,16 +101,20 @@ class ProductVariant(models.Model):
         on_delete=models.CASCADE,
         related_name="variants",
     )
-    color = models.ForeignKey(
-        "catalog.Color",
-        on_delete=models.PROTECT,
-        related_name="product_variants",
+    # The mobile app sends a colour selected in its picker and one or two
+    # free-form material names. Keeping these values on the variant avoids an
+    # unnecessary catalog CRUD workflow for sellers.
+    color_hex = models.CharField(
+        max_length=7,
+        validators=[
+            RegexValidator(
+                regex=r"^#[0-9A-Fa-f]{6}$",
+                message="Use a hexadecimal color in the #RRGGBB format.",
+            )
+        ],
+        db_index=True,
     )
-    material = models.ForeignKey(
-        "catalog.Material",
-        on_delete=models.PROTECT,
-        related_name="product_variants",
-    )
+    materials = models.JSONField(default=list)
     width_cm = models.DecimalField(
         max_digits=8,
         decimal_places=2,
@@ -122,7 +138,7 @@ class ProductVariant(models.Model):
         ordering = ("id",)
 
     def __str__(self) -> str:
-        return f"{self.product.title} — {self.color} / {self.material}"
+        return f"{self.product.title} — {self.color_hex} / {', '.join(self.materials)}"
 
 
 class ProductImage(models.Model):
@@ -131,6 +147,7 @@ class ProductImage(models.Model):
         PROCESSING = "processing", "Processing"
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
+        RESULT_RECEIVED = "result_received", "Result received"
 
     product = models.ForeignKey(
         Product,
@@ -151,6 +168,10 @@ class ProductImage(models.Model):
         default=ProcessingStatus.PENDING,
     )
     processing_error = models.TextField(blank=True)
+    processing_result = models.JSONField(
+        default=dict,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -169,3 +190,35 @@ class ProductImage(models.Model):
 
     def __str__(self) -> str:
         return f"Image #{self.id} for {self.product.title}"
+
+
+class ProductGeneratedImage(models.Model):
+    
+    class Mode(models.TextChoices):
+        WHITE = "white", "White background"
+        INTERIOR = "interior", "Interior"
+        HUMAN = "human", "Human"
+
+    source_image = models.ForeignKey(
+        ProductImage,
+        on_delete=models.CASCADE,
+        related_name="generated_images",
+    )
+    mode = models.CharField(
+        max_length=20,
+        choices=Mode.choices,
+    )
+    image = models.ImageField(upload_to=generated_image_upload_to)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("mode",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("source_image", "mode"),
+                name="unique_generated_image_mode",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source_image_id}: {self.mode}"

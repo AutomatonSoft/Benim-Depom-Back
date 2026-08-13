@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -21,6 +22,10 @@ class DeviceTokenRegisterView(generics.CreateAPIView):
 class DeviceTokenDeactivateView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=DeviceTokenDeactivateSerializer,
+        responses={204: None},
+    )
     def post(self, request):
         serializer = DeviceTokenDeactivateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -47,6 +52,7 @@ class NotificationListView(generics.ListAPIView):
 class NotificationReadView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=None, responses={200: NotificationSerializer})
     def post(self, request, notification_pk: int):
         notification = get_object_or_404(
             Notification,
@@ -71,6 +77,7 @@ class NotificationReadView(APIView):
 class NotificationReadAllView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=None, responses={204: None})
     def post(self, request):
         Notification.objects.filter(
             user=request.user,

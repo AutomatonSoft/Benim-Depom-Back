@@ -46,6 +46,23 @@ class Notification(models.Model):
             "product_availability_reminder",
             "Product availability reminder",
         )
+        MANAGER_MESSAGE = "manager_message", "Manager message"
+        PRODUCT_DEACTIVATED = "product_deactivated", "Product deactivated"
+        PRODUCT_DEACTIVATION_REQUESTED = (
+            "product_deactivation_requested",
+            "Product deactivation requested",
+        )
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="sent_notifications",
+        null=True,
+        blank=True,
+    )
+
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

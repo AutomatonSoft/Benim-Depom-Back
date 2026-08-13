@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
 from apps.products.models import Product
+from apps.ean.services import assign_ean_codes_to_product
 from django.utils import timezone
 
 from .models import ModerationDecision
@@ -52,6 +53,10 @@ def approve_product(
         raise ValidationError(
             {"detail": "Only submitted products can be approved."}
         )
+
+    # EANs are consumed only for a product the manager actually approves.
+    # The same transaction prevents a partial approval if a pool is empty.
+    assign_ean_codes_to_product(product=product)
 
     product.status = Product.Status.APPROVED
     product.approved_at = timezone.now()

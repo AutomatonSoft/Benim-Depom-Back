@@ -16,6 +16,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/health/", healthcheck, name="healthcheck"),
     path("api/v1/auth/", include("apps.accounts.urls")),
+    path("api/v1/manager/users/", include("apps.accounts.manager_urls")),
     path("api/v1/catalog/", include("apps.catalog.urls")),
     path("api/v1/products/", include("apps.products.urls")),
     path("api/v1/", include("apps.moderation.urls")),
@@ -23,6 +24,7 @@ urlpatterns = [
         "api/v1/notifications/",
         include("apps.notifications.urls"),
     ),
+    path("api/v1/manager/eans/", include("apps.ean.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

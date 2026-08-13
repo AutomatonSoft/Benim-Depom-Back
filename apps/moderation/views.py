@@ -1,14 +1,17 @@
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics, status
+
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.permissions import IsAuthenticated
+from apps.common.permissions import IsManager, IsSeller, is_manager
 from apps.products.models import Product
-from apps.products.permissions import IsSeller, is_manager
 from apps.products.serializers import ProductSerializer
-
+from apps.products.services import request_product_availability
+from apps.products.services import deactivate_product
+from apps.products.filters import filter_products
 from .models import ModerationDecision
 from .serializers import (
     ApproveProductSerializer,
@@ -20,19 +23,21 @@ from .services import (
     reject_product,
     submit_product_for_moderation,
 )
+from apps.notifications.models import Notification
+from apps.notifications.serializers import (
+    ManagerProductNotificationSerializer,
+    NotificationSerializer,
+)
+from apps.notifications.services import create_notification
 
 
-class IsManager(IsAuthenticated):
-    def has_permission(self, request, view):
-        return super().has_permission(request, view) and is_manager(
-            request.user
-        )
+
 
 
 class SubmitProductView(APIView):
     permission_classes = [IsAuthenticated, IsSeller]
 
-    @extend_schema(responses={200: ProductSerializer})
+    @extend_schema(request=None, responses={200: ProductSerializer})
     def post(self, request, product_pk: int):
         product = get_object_or_404(
             Product,
@@ -79,23 +84,73 @@ class ManagerProductListView(generics.ListAPIView):
         queryset = (
             Product.objects.select_related("owner", "product_type", "category")
             .prefetch_related(
-                "variants__color",
-                "variants__material",
+                "variants",
                 "images",
+                "images__generated_images",
+                "ean_codes",
             )
             .exclude(status=Product.Status.ARCHIVED)
         )
 
-        status_value = self.request.query_params.get("status")
-        if status_value:
-            queryset = queryset.filter(status=status_value)
-
         owner_id = self.request.query_params.get("owner_id")
+
         if owner_id:
-            queryset = queryset.filter(owner_id=owner_id)
+            try:
+                queryset = queryset.filter(owner_id=int(owner_id))
+            except ValueError as error:
+                from rest_framework.exceptions import ValidationError
 
-        return queryset
+                raise ValidationError(
+                    {"owner_id": "This value must be an integer."}
+                ) from error
 
+        return filter_products(
+            queryset=queryset,
+            query_params=self.request.query_params,
+        )
+
+
+class ManagerSendProductNotificationView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=ManagerProductNotificationSerializer,
+        responses={201: NotificationSerializer}
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("owner").exclude(
+                status=Product.Status.ARCHIVED
+            ),
+            pk=product_pk,
+        )
+
+        serializer = ManagerProductNotificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        notification = create_notification(
+            user=product.owner,
+            sender=request.user,
+            product=product,
+            notification_type=Notification.Type.MANAGER_MESSAGE,
+            title=serializer.validated_data.get(
+                "title",
+                "Product update",
+            ),
+            body=serializer.validated_data["body"],
+            data={
+                "product_id": product.id,
+                "product_title": product.title,
+            },
+        )
+
+        return Response(
+            NotificationSerializer(
+                notification,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 class ManagerApproveProductView(APIView):
     permission_classes = [IsManager]
@@ -140,6 +195,47 @@ class ManagerRejectProductView(APIView):
             comment=serializer.validated_data["comment"],
         )
 
+        return Response(
+            ProductSerializer(product, context={"request": request}).data
+        )
+
+
+class ManagerRequestProductAvailabilityView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(request=None, responses={200: ProductSerializer})
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("owner"),
+            pk=product_pk,
+        )
+        product = request_product_availability(
+            product=product,
+            manager=request.user,
+        )
+        return Response(
+            ProductSerializer(product, context={"request": request}).data
+        )
+
+
+class ManagerDeactivateProductView(APIView):
+    """Manager confirms a seller's pending deactivation request."""
+    permission_classes = [IsManager]
+
+    @extend_schema(request=None, responses={200: ProductSerializer})
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        product = deactivate_product(product=product)
+
+        create_notification(
+            user=product.owner,
+            sender=request.user,
+            product=product,
+            notification_type=Notification.Type.PRODUCT_DEACTIVATED,
+            title="Product deactivated",
+            body=f"Manager confirmed deactivation for '{product.title}'.",
+            data={"product_id": product.id},
+        )
         return Response(
             ProductSerializer(product, context={"request": request}).data
         )
