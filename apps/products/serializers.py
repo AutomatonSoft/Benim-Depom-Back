@@ -4,7 +4,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers
 
-from apps.catalog.models import Category, ProductType
+from apps.catalog.models import Category
 
 from .models import (
     Product,
@@ -13,8 +13,8 @@ from .models import (
     ProductVariant,
 )
 from .services import create_product, update_product
-from apps.ean.serializers import EanCodeSerializer
 from apps.common.permissions import is_manager
+from apps.ean.serializers import EanCodeSerializer
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
@@ -127,9 +127,7 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
-    product_type = serializers.PrimaryKeyRelatedField(
-        queryset=ProductType.objects.filter(is_active=True),
-    )
+    product_type = serializers.CharField(max_length=255, trim_whitespace=True)
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.filter(is_active=True),
         required=False,
@@ -191,6 +189,12 @@ class ProductSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, attrs):
+        product_type = attrs.get("product_type")
+        if product_type is not None and not product_type.strip():
+            raise serializers.ValidationError(
+                {"product_type": "Product type must not be empty."}
+            )
+
         variants = attrs.get("variants")
 
         if self.instance is None and not variants:

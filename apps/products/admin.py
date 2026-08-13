@@ -25,7 +25,7 @@ class ProductAdmin(admin.ModelAdmin):
 
     list_filter = ("status", "product_type", "category")
     search_fields = ("title", "owner__username", "owner__email")
-    list_select_related = ("owner", "product_type", "category")
+    list_select_related = ("owner", "category")
     readonly_fields = ("created_at", "updated_at")
     inlines = (ProductVariantInLine, ProductImageInline)
 

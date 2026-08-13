@@ -54,7 +54,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         queryset = (
-            Product.objects.select_related("owner", "product_type", "category")
+            Product.objects.select_related("owner", "category")
             .prefetch_related(
                 "variants",
                 "images",
@@ -80,7 +80,7 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         queryset = (
-            Product.objects.select_related("owner", "product_type", "category")
+            Product.objects.select_related("owner", "category")
             .prefetch_related(
                 "variants",
                 "images",

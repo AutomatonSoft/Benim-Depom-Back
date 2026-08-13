@@ -82,7 +82,7 @@ class ManagerProductListView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = (
-            Product.objects.select_related("owner", "product_type", "category")
+            Product.objects.select_related("owner", "category")
             .prefetch_related(
                 "variants",
                 "images",

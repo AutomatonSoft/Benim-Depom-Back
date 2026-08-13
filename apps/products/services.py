@@ -327,7 +327,11 @@ def withdraw_product_submission(*, product: Product) -> Product:
         assigned_at=None,
     )
     locked_product.status = Product.Status.ARCHIVED
-    locked_product.save(update_fields=("status", "updated_at"))
+    locked_product.ean_jv = ""
+    locked_product.ean_xl = ""
+    locked_product.save(
+        update_fields=("status", "ean_jv", "ean_xl", "updated_at")
+    )
     return locked_product
 
 

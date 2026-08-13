@@ -62,8 +62,12 @@ def import_ean_codes(*, account: str, raw_codes: str, imported_by) -> dict:
 
 @transaction.atomic
 def assign_ean_codes_to_product(*, product) -> list[EanCode]:
-    if product.ean_codes.exists():
-        return list(product.ean_codes.order_by("account"))
+    if product.ean_jv and product.ean_xl:
+        return list(
+            EanCode.objects.filter(
+                code__in=(product.ean_jv, product.ean_xl)
+            ).order_by("account")
+        )
 
     assigned_codes: list[EanCode] = []
 
@@ -89,6 +93,11 @@ def assign_ean_codes_to_product(*, product) -> list[EanCode]:
         ean_code.assigned_at = timezone.now()
         ean_code.save(update_fields=("product", "assigned_at"))
         assigned_codes.append(ean_code)
+
+    codes_by_account = {code.account: code.code for code in assigned_codes}
+    product.ean_jv = codes_by_account[EanCode.Account.JV]
+    product.ean_xl = codes_by_account[EanCode.Account.XL]
+    product.save(update_fields=("ean_jv", "ean_xl", "updated_at"))
 
     return assigned_codes
 

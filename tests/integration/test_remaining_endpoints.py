@@ -13,15 +13,12 @@ def authenticate(client, user):
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_health_catalog_type_and_ean_list_access(api_client, manager, seller, product_type):
+def test_health_category_and_ean_list_access(api_client, manager, seller, category):
     assert api_client.get("/api/v1/health/").json() == {"status": "ok"}
-    assert api_client.get("/api/v1/catalog/types/").status_code == 401
-    authenticate(api_client, seller)
-    assert api_client.get("/api/v1/catalog/types/").status_code == 200
-
+    assert api_client.get("/api/v1/catalog/types/").status_code == 404
     authenticate(api_client, manager)
     response = api_client.patch(
-        f"/api/v1/catalog/product-types/{product_type.id}/", {"name": "Armchair"}, format="json"
+        f"/api/v1/catalog/categories/{category.id}/", {"name": "Office"}, format="json"
     )
     assert response.status_code == 200
     EanCode.objects.create(code="4006381333931", account="jv", imported_by=manager)

@@ -45,9 +45,9 @@ def filter_products(*, queryset, query_params):
 
         queryset = queryset.filter(status=status_value)
 
-    product_type_id = _get_integer(query_params, "product_type")
-    if product_type_id is not None:
-        queryset = queryset.filter(product_type_id=product_type_id)
+    product_type = query_params.get("product_type", "").strip()
+    if product_type:
+        queryset = queryset.filter(product_type__iexact=product_type)
 
     category_id = _get_integer(query_params, "category")
     if category_id is not None:

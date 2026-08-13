@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from apps.accounts.models import User
-from apps.catalog.models import Category, ProductType
+from apps.catalog.models import Category
 from rest_framework.exceptions import ValidationError
 
 
@@ -141,7 +141,6 @@ def test_phone_verification_binds_only_verified_firebase_phone(api_client, selle
 def test_catalog_public_visibility_and_manager_write_access(api_client, manager, seller):
     inactive = Category.objects.create(name="Hidden", is_active=False)
     visible = Category.objects.create(name="Visible", is_active=True)
-    ProductType.objects.create(name="Chair", is_active=True)
 
     response = api_client.get("/api/v1/catalog/categories/")
     assert response.status_code == 200

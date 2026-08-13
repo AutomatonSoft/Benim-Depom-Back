@@ -1,7 +1,6 @@
 import pytest
 
 from apps.accounts.models import User
-from apps.catalog.models import ProductType
 from apps.ean.models import EanCode
 from apps.notifications.models import Notification
 from apps.products.models import Product
@@ -14,7 +13,6 @@ def bearer(client, token):
 @pytest.mark.e2e
 @pytest.mark.django_db(transaction=True)
 def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_file, password):
-    product_type = ProductType.objects.create(name="Chair")
     registration = {
         "username": "journey_seller",
         "password": password,
@@ -32,7 +30,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_f
         "/api/v1/products/",
         {
             "title": "Journey chair",
-            "product_type": product_type.id,
+            "product_type": "Chair",
             "variants": [{
                 "color_hex": "#112233", "materials": ["Wood"],
                 "width_cm": "50", "height_cm": "90", "length_cm": "55", "quantity": 2,
@@ -69,7 +67,8 @@ def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_f
     )
     assert approval.status_code == 200
     assert approval.data["status"] == Product.Status.APPROVED
-    assert len(approval.data["ean_codes"]) == 2
+    assert approval.data["ean_jv"] == "4006381333931"
+    assert approval.data["ean_xl"] == "9501101530003"
 
     seller_login = api_client.post(
         "/api/v1/auth/login/", {"username": "journey_seller", "password": password}, format="json"
@@ -99,7 +98,6 @@ def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_f
 @pytest.mark.e2e
 @pytest.mark.django_db(transaction=True)
 def test_seller_can_withdraw_before_manager_approval(api_client, image_file, password):
-    product_type = ProductType.objects.create(name="Table")
     user = User.objects.create_user(username="withdraw_seller", password=password)
     login = api_client.post(
         "/api/v1/auth/login/", {"username": user.username, "password": password}, format="json"
@@ -108,7 +106,7 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
     create = api_client.post(
         "/api/v1/products/",
         {
-            "title": "Wrong table", "product_type": product_type.id,
+            "title": "Wrong table", "product_type": "Table",
             "variants": [{
                 "color_hex": "#FFFFFF", "materials": ["Metal"],
                 "width_cm": "1", "height_cm": "1", "length_cm": "1", "quantity": 1,

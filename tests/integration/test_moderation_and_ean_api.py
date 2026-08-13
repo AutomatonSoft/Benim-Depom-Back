@@ -25,7 +25,7 @@ def test_submit_requires_image_and_does_not_reserve_eans(api_client, seller, pro
     assert response.status_code == 200
     product.refresh_from_db()
     assert product.status == Product.Status.SUBMITTED
-    assert product.ean_codes.count() == 0
+    assert product.ean_jv == "" and product.ean_xl == ""
 
 
 @pytest.mark.integration
@@ -47,12 +47,13 @@ def test_manager_approval_requires_two_pool_codes_then_assigns_one_per_account(
     response = api_client.post(f"/api/v1/manager/products/{product.id}/approve/", {"comment": "ok"}, format="json")
     assert response.status_code == 200
     assert response.data["status"] == Product.Status.APPROVED
-    assert {code["account"] for code in response.data["ean_codes"]} == {"jv", "xl"}
+    assert response.data["ean_jv"] == "4006381333931"
+    assert response.data["ean_xl"] == "9501101530003"
 
     authenticate(api_client, seller)
     response = api_client.get(f"/api/v1/products/{product.id}/")
     assert response.status_code == 200
-    assert "ean_codes" not in response.data
+    assert "ean_jv" not in response.data and "ean_xl" not in response.data
 
 
 @pytest.mark.integration

@@ -34,11 +34,9 @@ class Product(models.Model):
         related_name="products",
     )
     title = models.CharField(max_length=255)
-    product_type = models.ForeignKey(
-        "catalog.ProductType",
-        on_delete=models.PROTECT,
-        related_name="products",
-    )
+    # Seller enters a free-form product type selected or suggested by mobile UI.
+    # Marketplace-specific mappings will be introduced with marketplace adapters.
+    product_type = models.CharField(max_length=255, db_index=True)
     category = models.ForeignKey(
         "catalog.Category",
         on_delete=models.SET_NULL,
@@ -74,7 +72,7 @@ class Product(models.Model):
         blank=True,
     )
     deactivated_at = models.DateTimeField(null=True, blank=True)
-
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

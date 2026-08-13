@@ -5,7 +5,7 @@ from django.views.decorators.http import require_GET
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from django.conf import settings
 from django.conf.urls.static import static
-
+from django.views.generic import TemplateView
 
 @require_GET
 def healthcheck(request):
@@ -31,7 +31,16 @@ urlpatterns = [
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
-    
+    path(
+        "api/scalar/",
+        TemplateView.as_view(
+            template_name="scalar.html",
+            extra_context={
+                "schema_url": "/api/schema/",
+            },
+        ),
+        name="scalar-ui",
+    ),
 ]
 
 if settings.DEBUG and not settings.USE_FTP_MEDIA_STORAGE:
