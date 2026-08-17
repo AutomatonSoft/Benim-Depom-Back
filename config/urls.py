@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 from django.views.decorators.http import require_GET
+from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from django.conf import settings
 from django.conf.urls.static import static
@@ -26,11 +27,21 @@ urlpatterns = [
     ),
     path("api/v1/manager/eans/", include("apps.ean.urls")),
     path("api/v1/orchestrator/", include("apps.orchestrator.urls")),
+    path(
+        "api/demo/otto-form/",
+        TemplateView.as_view(template_name="otto_form_demo.html"),
+        name="otto-form-demo",
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="swagger-ui",
+    ),
+    path(
+        "api/scalar/",
+        TemplateView.as_view(template_name="scalar.html"),
+        name="scalar-ui",
     ),
     
 ]

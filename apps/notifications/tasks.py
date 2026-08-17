@@ -193,7 +193,6 @@ def process_product_image(image_id: int) -> dict:
     image = (
         ProductImage.objects.select_related(
             "product",
-            "product__product_type",
         )
         .filter(id=image_id)
         .first()
@@ -215,7 +214,7 @@ def process_product_image(image_id: int) -> dict:
         result = generate_white_background(
             image_file=image.image,
             title=image.product.title,
-            product_type=image.product.product_type.name,
+            product_type=image.product.product_type,
         )
     except (WhiteImageServiceError, ImproperlyConfigured) as error:
         image.processing_status = ProductImage.ProcessingStatus.FAILED

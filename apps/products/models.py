@@ -28,16 +28,29 @@ class Product(models.Model):
         ARCHIVED = "archived", "Archived"
         DEACTIVATED = "deactivated", "Deactivated"
 
+    class Currency(models.TextChoices):
+        TRY = "TRY", "Turkish lira"
+        EUR = "EUR", "Euro"
+        USD = "USD", "US dollar"
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="products",
     )
     title = models.CharField(max_length=255)
-    product_type = models.ForeignKey(
-        "catalog.ProductType",
-        on_delete=models.PROTECT,
-        related_name="products",
+    # A free-form type entered by the seller. The mobile UI may suggest values
+    # in the selected language, but the backend does not maintain a type catalog.
+    product_type = models.CharField(max_length=255, db_index=True)
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    currency = models.CharField(
+        max_length=3,
+        choices=Currency.choices,
+        default=Currency.TRY,
     )
     category = models.ForeignKey(
         "catalog.Category",
@@ -45,6 +58,28 @@ class Product(models.Model):
         related_name="products",
         null=True,
         blank=True,
+    )
+    otto_category_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    otto_category_group_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    otto_category_name = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+    otto_category_group_name = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+    otto_attributes = models.JSONField(
+        default=dict,
+        blank=True
     )
     status = models.CharField(
         max_length=20,

@@ -1,12 +1,17 @@
+from decimal import Decimal
+
 from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
 from rest_framework import serializers
 
-from apps.catalog.models import Category, ProductType
+from apps.catalog.models import Category
+from apps.catalog.otto_catalog import (
+    OttoCatalogError,
+    get_otto_catalog,
+)
 from apps.common.permissions import is_manager
-from apps.ean.serializers import EanCodeSerializer
 
 from .models import (
     Product,
@@ -127,18 +132,43 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
-    product_type = serializers.PrimaryKeyRelatedField(
-        queryset=ProductType.objects.filter(is_active=True),
+    product_type = serializers.CharField(max_length=255, trim_whitespace=True)
+    unit_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=True,
+    )
+    currency = serializers.ChoiceField(
+        choices=Product.Currency.choices,
+        required=False,
+        default=Product.Currency.TRY,
     )
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.filter(is_active=True),
         required=False,
         allow_null=True,
     )
+    otto_category_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+    )
+    otto_category_group_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+    )
+    otto_category_name = serializers.CharField(read_only=True)
+    otto_category_group_name = serializers.CharField(read_only=True)
+    otto_attributes = serializers.DictField(
+        required=False,
+        default=dict,
+    )
     variants = ProductVariantSerializer(many=True, required=False)
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
-    ean_codes = EanCodeSerializer(many=True, read_only=True)
+    total_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -147,7 +177,15 @@ class ProductSerializer(serializers.ModelSerializer):
             "owner",
             "title",
             "product_type",
+            "unit_price",
+            "currency",
+            "total_amount",
             "category",
+            "otto_category_id",
+            "otto_category_group_id",
+            "otto_category_name",
+            "otto_category_group_name",
+            "otto_attributes",
             "status",
             "ean_jv",
             "ean_xl",
@@ -156,10 +194,10 @@ class ProductSerializer(serializers.ModelSerializer):
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
-            "ean_codes",
             "variants",
             "images",
             "total_quantity",
+            "total_amount",
             "created_at",
             "updated_at",
         )
@@ -169,6 +207,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "status",
             "images",
             "total_quantity",
+            "otto_category_name",
+            "otto_category_group_name",
             "created_at",
             "updated_at",
             "is_available",
@@ -176,23 +216,39 @@ class ProductSerializer(serializers.ModelSerializer):
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
-            "ean_codes",
         )
 
     @extend_schema_field(serializers.IntegerField)
     def get_total_quantity(self, product) -> int:
         return sum(variant.quantity for variant in product.variants.all())
 
+    @extend_schema_field(
+        serializers.DecimalField(max_digits=14, decimal_places=2)
+    )
+    def get_total_amount(self, product):
+        total = product.unit_price * sum(
+            variant.quantity for variant in product.variants.all()
+        )
+        return f"{total:.2f}"
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
 
         if request and not is_manager(request.user):
-            data.pop("ean_codes", None)
+            data.pop("ean_jv", None)
+            data.pop("ean_xl", None)
 
         return data
 
     def validate(self, attrs):
+        """Validate draft data without requiring a complete OTTO form."""
+        product_type = attrs.get("product_type")
+        if product_type is not None and not product_type.strip():
+            raise serializers.ValidationError(
+                {"product_type": "Product type must not be empty."}
+            )
+
         variants = attrs.get("variants")
 
         if self.instance is None and not variants:
@@ -205,7 +261,192 @@ class ProductSerializer(serializers.ModelSerializer):
                 {"variants": "At least one variant is required."}
             )
 
+        self._validate_otto_catalog_data(attrs)
         return attrs
+
+    def _validate_otto_catalog_data(self, attrs):
+        """Validate supplied OTTO category data against the local catalog."""
+        category_id = attrs.get(
+            "otto_category_id",
+            getattr(self.instance, "otto_category_id", None),
+        )
+        group_id = attrs.get(
+            "otto_category_group_id",
+            getattr(self.instance, "otto_category_group_id", None),
+        )
+        attributes = attrs.get(
+            "otto_attributes",
+            getattr(self.instance, "otto_attributes", {}),
+        )
+        attributes_were_sent = "otto_attributes" in attrs
+
+        if category_id is None and group_id is None and not attributes_were_sent:
+            return
+
+        if category_id is None or group_id is None:
+            raise serializers.ValidationError(
+                {
+                    "otto_category_id": (
+                        "otto_category_id and otto_category_group_id "
+                        "must be supplied together."
+                    )
+                }
+            )
+
+        if not isinstance(attributes, dict):
+            raise serializers.ValidationError(
+                {"otto_attributes": "Expected an object with attribute values."}
+            )
+
+        try:
+            catalog = get_otto_catalog()
+        except OttoCatalogError as exc:
+            raise serializers.ValidationError(
+                {"detail": "OTTO catalog is temporarily unavailable."}
+            ) from exc
+
+        category = catalog["categories_by_id"].get(category_id)
+        if category is None:
+            raise serializers.ValidationError(
+                {"otto_category_id": "Unknown OTTO category ID."}
+            )
+
+        actual_group_id = int(category["category_group_id"])
+        if actual_group_id != group_id:
+            raise serializers.ValidationError(
+                {
+                    "otto_category_group_id": (
+                        "The selected category does not belong to this "
+                        "OTTO category group."
+                    )
+                }
+            )
+
+        definitions = catalog["attributes_by_id_by_group_id"].get(
+            group_id,
+            {},
+        )
+        normalized_attributes = {}
+
+        for raw_attribute_id, value in attributes.items():
+            try:
+                attribute_id = int(raw_attribute_id)
+            except (TypeError, ValueError) as exc:
+                raise serializers.ValidationError(
+                    {
+                        "otto_attributes": (
+                            "Attribute keys must contain numeric OTTO IDs."
+                        )
+                    }
+                ) from exc
+
+            definition = definitions.get(attribute_id)
+            if definition is None:
+                raise serializers.ValidationError(
+                    {
+                        "otto_attributes": (
+                            f"Attribute {attribute_id} does not belong to "
+                            "the selected category group."
+                        )
+                    }
+                )
+
+            normalized_attributes[str(attribute_id)] = (
+                self._validate_otto_attribute_value(
+                    definition=definition,
+                    value=value,
+                )
+            )
+
+        attrs["otto_attributes"] = normalized_attributes
+        attrs["otto_category_name"] = category["name"]
+        attrs["otto_category_group_name"] = category["category_group"]
+
+    @staticmethod
+    def _validate_otto_attribute_value(*, definition, value):
+        """Validate one single- or multi-value OTTO catalog attribute."""
+        if definition["multiValue"] and not isinstance(value, list):
+            raise serializers.ValidationError(
+                {
+                    str(definition["attributeId"]): (
+                        "This attribute accepts multiple values and must "
+                        "be sent as an array."
+                    )
+                }
+            )
+
+        if not definition["multiValue"] and isinstance(value, list):
+            raise serializers.ValidationError(
+                {
+                    str(definition["attributeId"]): (
+                        "This attribute accepts only one value."
+                    )
+                }
+            )
+
+        values = value if definition["multiValue"] else [value]
+        if not values:
+            raise serializers.ValidationError(
+                {str(definition["attributeId"]): "Attribute value must not be empty."}
+            )
+
+        validated_values = [
+            ProductSerializer._validate_single_otto_value(
+                definition=definition,
+                value=item,
+            )
+            for item in values
+        ]
+
+        allowed_values = definition.get("allowedValues") or []
+        if allowed_values:
+            invalid_values = [
+                item for item in validated_values if item not in allowed_values
+            ]
+            if invalid_values:
+                raise serializers.ValidationError(
+                    {
+                        str(definition["attributeId"]): (
+                            "Value is not allowed for this OTTO attribute."
+                        )
+                    }
+                )
+
+        return validated_values if definition["multiValue"] else validated_values[0]
+
+    @staticmethod
+    def _validate_single_otto_value(*, definition, value):
+        """Validate one primitive value from the current OTTO schema."""
+        attribute_type = definition["type"]
+
+        if attribute_type == "STRING":
+            if not isinstance(value, str) or not value.strip():
+                raise serializers.ValidationError(
+                    {str(definition["attributeId"]): "Expected a non-empty string."}
+                )
+            return value.strip()
+
+        if attribute_type == "INTEGER":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise serializers.ValidationError(
+                    {str(definition["attributeId"]): "Expected an integer."}
+                )
+            return value
+
+        if attribute_type == "FLOAT":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise serializers.ValidationError(
+                    {str(definition["attributeId"]): "Expected a number."}
+                )
+            return value
+
+        raise serializers.ValidationError(
+            {
+                str(definition["attributeId"]): (
+                    f"Unsupported OTTO attribute type: {attribute_type}."
+                )
+            }
+        )
 
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")

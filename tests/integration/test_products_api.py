@@ -8,10 +8,10 @@ def authenticate(client, user):
     return client
 
 
-def product_payload(product_type_id, **overrides):
+def product_payload(product_type, **overrides):
     payload = {
         "title": "API chair",
-        "product_type": product_type_id,
+        "product_type": product_type,
         "variants": [
             {
                 "color_hex": "#5B91C8",
@@ -33,7 +33,7 @@ def test_seller_creates_product_and_other_seller_cannot_access_it(
     api_client, seller, second_seller, product_type
 ):
     authenticate(api_client, seller)
-    response = api_client.post("/api/v1/products/", product_payload(product_type.id), format="json")
+    response = api_client.post("/api/v1/products/", product_payload(product_type), format="json")
     assert response.status_code == 201
     product_id = response.data["id"]
     assert response.data["status"] == Product.Status.DRAFT
@@ -52,20 +52,20 @@ def test_product_api_rejects_invalid_variant_and_non_seller_create(api_client, m
     authenticate(api_client, seller)
     response = api_client.post(
         "/api/v1/products/",
-        product_payload(product_type.id, variants=[]),
+        product_payload(product_type, variants=[]),
         format="json",
     )
     assert response.status_code == 400
 
     response = api_client.post(
         "/api/v1/products/",
-        product_payload(product_type.id, variants=[{**product_payload(product_type.id)["variants"][0], "color_hex": "blue"}]),
+        product_payload(product_type, variants=[{**product_payload(product_type)["variants"][0], "color_hex": "blue"}]),
         format="json",
     )
     assert response.status_code == 400
 
     authenticate(api_client, manager)
-    assert api_client.post("/api/v1/products/", product_payload(product_type.id), format="json").status_code == 403
+    assert api_client.post("/api/v1/products/", product_payload(product_type), format="json").status_code == 403
 
 
 @pytest.mark.integration

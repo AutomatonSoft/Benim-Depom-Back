@@ -24,6 +24,9 @@ def test_ean_import_assignment_is_atomic_and_summary_is_correct(seller, manager,
     EanCode.objects.create(code="9501101530003", account=EanCode.Account.XL, imported_by=manager)
     assigned = assign_ean_codes_to_product(product=product)
     assert {code.account for code in assigned} == {"jv", "xl"}
+    product.refresh_from_db()
+    assert product.ean_jv == "4006381333931"
+    assert product.ean_xl == "9501101530003"
     assert assign_ean_codes_to_product(product=product) == assigned
     summary = get_ean_summary()
     assert summary["requires_attention"] is True

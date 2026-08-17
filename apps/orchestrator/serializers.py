@@ -1,6 +1,26 @@
-from rest_framework import serializers
+from decimal import Decimal
 
-from .models import MarketplaceJob
+from rest_framework import serializers
+from django.utils.dateparse import parse_datetime
+from .models import (
+    MarketplaceJob,
+    MarketplaceListingConfiguration,
+    MarketplacePublication,
+)
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
+from .capabilities import supports_operation
+from apps.marketplace.otto.payload_builder import (
+    OTTO_DELIVERY_TYPES,
+    OTTO_VAT_VALUES,
+)
+
+class MarketplaceTargetSerializer(serializers.Serializer):
+    marketplace = serializers.ChoiceField(
+        choices=("hood", "otto", "kaufland")
+    )
+    account = serializers.ChoiceField(
+        choices=("jv", "xl")
+    )
 
 
 class MarketplaceJobRequestSerializer(serializers.Serializer):
@@ -11,33 +31,396 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
     )
     payloads = serializers.DictField(child=serializers.DictField(), required=False)
     accounts = serializers.DictField(child=serializers.CharField(), required=False)
+    targets = serializers.ListField(
+        child=MarketplaceTargetSerializer(),
+        required=False,
+        allow_empty=False,
+    )
+
 
     def validate(self, attrs):
         operation = self.context["operation"]
-        channels = list(dict.fromkeys(attrs.get("channels", ["hood", "otto", "kaufland"])))
+        targets = attrs.get("targets", [])
+
+        if targets:
+            unique_pairs = set()
+
+            for target in targets:
+                pair = (target["marketplace"], target["account"])
+
+                if pair in unique_pairs:
+                    raise serializers.ValidationError(
+                        {
+                            "targets": (
+                                "Each marketplace and account pair "
+                                "must be unique."
+                            )
+                        }
+                    )
+
+                unique_pairs.add(pair)
+
+            channels = list(
+                dict.fromkeys(
+                    target["marketplace"]
+                    for target in targets
+                )
+            )
+        else:
+            channels = list(
+                dict.fromkeys(
+                    attrs.get(
+                        "channels",
+                        ["hood", "otto", "kaufland"],
+                    )
+                )
+            )
+
         attrs["channels"] = channels
+        unsupported_marketplaces = [
+            marketplace
+            for marketplace in channels
+            if not supports_operation(
+                marketplace=marketplace,
+                operation=operation,
+            )
+        ]
+
+        if unsupported_marketplaces:
+            field_name = "targets" if targets else "channels"
+
+            raise serializers.ValidationError(
+                {
+                    field_name: (
+                        f"Operation '{operation}' is not supported by: "
+                        f"{', '.join(sorted(unsupported_marketplaces))}."
+                    )
+                }
+            )
         payloads = attrs.get("payloads", {})
-        if operation in {MarketplaceJob.Operation.PUBLISH, MarketplaceJob.Operation.UPDATE}:
-            missing = [channel for channel in channels if channel not in payloads]
+
+        if operation in {
+            MarketplaceJob.Operation.PUBLISH,
+            MarketplaceJob.Operation.UPDATE,
+        }:
+            missing = [
+                channel
+                for channel in channels
+                if channel != "otto" and channel not in payloads
+            ]
+
             if missing:
                 raise serializers.ValidationError(
-                    {"payloads": f"Payload is required for: {', '.join(missing)}."}
+                    {
+                        "payloads": (
+                            "Payload is required for: "
+                            f"{', '.join(missing)}."
+                        )
+                    }
                 )
-        unknown = set(payloads) - set(channels)
-        if unknown:
+
+        unknown_payload_channels = set(payloads) - set(channels)
+
+        if unknown_payload_channels:
             raise serializers.ValidationError(
-                {"payloads": f"Channels were not requested: {', '.join(sorted(unknown))}."}
+                {
+                    "payloads": (
+                        "Channels were not requested: "
+                        f"{', '.join(sorted(unknown_payload_channels))}."
+                    )
+                }
             )
+
+        accounts = attrs.get("accounts", {})
+
+        unknown_account_channels = set(accounts) - set(channels)
+
+        if unknown_account_channels:
+            raise serializers.ValidationError(
+                {
+                    "accounts": (
+                        "Channels were not requested: "
+                        f"{', '.join(sorted(unknown_account_channels))}."
+                    )
+                }
+            )
+
+        invalid_accounts = {
+            channel: account
+            for channel, account in accounts.items()
+            if account not in {"jv", "xl"}
+        }
+
+        if invalid_accounts:
+            raise serializers.ValidationError(
+                {
+                    "accounts": (
+                        "Account values must be either 'jv' or 'xl'."
+                    )
+                }
+            )
+
         return attrs
 
 
 class MarketplaceJobSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(read_only=True)
+    requested_targets = serializers.SerializerMethodField()
 
+    @extend_schema_field(MarketplaceTargetSerializer(many=True))
+    def get_requested_targets(self, job):
+        return job.request_payload.get("targets", [])
+    
     class Meta:
         model = MarketplaceJob
         fields = (
-            "id", "product_id", "operation", "status", "request_id",
-            "requested_channels", "results", "error", "created_at",
-            "started_at", "finished_at",
+            "id", 
+            "product_id", 
+            "operation", 
+            "status", 
+            "request_id",
+            "requested_channels", 
+            "requested_targets",
+            "results", 
+            "error", 
+            "created_at",
+            "started_at", 
+            "finished_at",
         )
+
+class MarketplacePublicationFilterSerializer(serializers.Serializer):
+    marketplace = serializers.ChoiceField(
+        choices=MarketplacePublication.Marketplace.choices,
+        required=False,
+    )
+    account = serializers.ChoiceField(
+        choices=MarketplacePublication.Account.choices,
+        required=False,
+    )
+    status = serializers.ChoiceField(
+        choices=MarketplacePublication.Status.choices,
+        required=False,
+    )
+    product_id = serializers.IntegerField(
+        min_value=1,
+        required=False,
+    )
+
+@extend_schema_serializer(component_name="MarketplacePublication")
+class MarketplacePublicationSerializer(serializers.ModelSerializer):
+    product_id = serializers.IntegerField(read_only=True)
+    product_title = serializers.CharField(
+        source="product.title",
+        read_only=True,
+    )
+    owner_id = serializers.IntegerField(
+        source="product.owner_id",
+        read_only=True,
+    )
+    last_job_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = MarketplacePublication
+        fields = (
+            "id",
+            "product_id",
+            "product_title",
+            "owner_id",
+            "marketplace",
+            "account",
+            "ean",
+            "status",
+            "external_id",
+            "external_reference",
+            "last_job_id",
+            "attempt_count",
+            "last_response",
+            "last_error",
+            "published_at",
+            "deactivated_at",
+            "deleted_at",
+            "last_attempt_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="OttoListingConfiguration")
+class OttoListingConfigurationSerializer(serializers.Serializer):
+    """Editable OTTO content shown in the manager web panel.
+
+    These names are API-stable; the web frontend should render human labels,
+    such as "OTTO selling price (€)" rather than the JSON key itself.
+    """
+
+    product_line = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="German product name / product line.",
+    )
+    standard_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        help_text="OTTO selling price in EUR.",
+    )
+    vat = serializers.ChoiceField(
+        choices=OTTO_VAT_VALUES,
+        required=False,
+        help_text="VAT class for OTTO: FULL, REDUCED, or FREE.",
+    )
+    shipping_profile_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="OTTO shipping profile ID for the selected account.",
+    )
+    delivery_type = serializers.ChoiceField(
+        choices=OTTO_DELIVERY_TYPES,
+        required=False,
+        help_text="OTTO delivery method.",
+    )
+    delivery_time = serializers.IntegerField(
+        min_value=1,
+        max_value=99,
+        required=False,
+        help_text="Delivery time in days.",
+    )
+    media_urls = serializers.ListField(
+        child=serializers.URLField(),
+        required=False,
+        allow_empty=True,
+        help_text="Public FTP image URLs selected by the manager.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="German product description. It can later be suggested by AI and edited by a manager.",
+    )
+    bullet_points = serializers.ListField(
+        child=serializers.CharField(max_length=1000, allow_blank=False),
+        max_length=5,
+        required=False,
+        allow_empty=True,
+        help_text="Up to five German product highlights.",
+    )
+    brand_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Brand ID registered in the selected OTTO account.",
+    )
+    manufacturer = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
+    isbn = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: ISBN, used for books.",
+    )
+    upc = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: UPC barcode.",
+    )
+    pzn = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: German pharmaceutical product number.",
+    )
+    mpn = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: manufacturer part number.",
+    )
+    moin = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: OTTO/internal product identifier.",
+    )
+    offering_start_date = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: date and time when the offer becomes available.",
+    )
+    release_date = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: product release date, for example for pre-orders.",
+    )
+    order_max_quantity = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Optional: maximum number of units one customer may order.",
+    )
+    order_period_in_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Optional: period in days for the purchase limit.",
+    )
+    product_url = serializers.URLField(required=False, allow_blank=True)
+    bundle = serializers.BooleanField(required=False, allow_null=True)
+    multi_pack = serializers.BooleanField(required=False, allow_null=True)
+    fsc_certified = serializers.BooleanField(required=False, allow_null=True)
+    disposal = serializers.BooleanField(required=False, allow_null=True)
+
+    @staticmethod
+    def to_storage(validated_data):
+        """Convert non-JSON values before storing configuration as JSON."""
+        result = dict(validated_data)
+
+        if "standard_price" in result:
+            result["standard_price"] = format(result["standard_price"], "f")
+
+        for field in ("offering_start_date", "release_date"):
+            value = result.get(field)
+            if value is not None:
+                result[field] = value.isoformat()
+
+        return result
+
+    def to_representation(self, instance):
+        data = dict(instance)
+
+        for field in ("offering_start_date", "release_date"):
+            value = data.get(field)
+            if isinstance(value, str):
+                parsed_value = parse_datetime(value)
+                if parsed_value is not None:
+                    data[field] = parsed_value
+
+        return super().to_representation(data)
+
+
+    
+@extend_schema_serializer(component_name="OttoListingConfigurationResponse")
+class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
+    configuration = OttoListingConfigurationSerializer(read_only=True)
+
+    class Meta:
+        model = MarketplaceListingConfiguration
+        fields = (
+            "id",
+            "product",
+            "marketplace",
+            "account",
+            "configuration",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields

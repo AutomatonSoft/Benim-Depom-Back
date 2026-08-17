@@ -322,8 +322,12 @@ def withdraw_product_submission(*, product: Product) -> Product:
 
     from apps.ean.models import EanCode
 
-    EanCode.objects.filter(product=locked_product).update(
+    EanCode.objects.filter(
+        product=locked_product,
+        state=EanCode.State.RESERVED,
+    ).update(
         product=None,
+        state=EanCode.State.AVAILABLE,
         assigned_at=None,
     )
     locked_product.status = Product.Status.ARCHIVED

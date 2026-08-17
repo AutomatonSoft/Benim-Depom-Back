@@ -122,11 +122,11 @@ def test_product_filters_apply_all_business_fields_and_reject_bad_values(
     other = product_factory(owner=seller, title="Red table", status=Product.Status.APPROVED)
     other.variants.update(color_hex="#000000", materials=["Metal"])
     params = QueryDict(
-        f"search=chair&status=draft&product_type={product_type.id}&category={category.id}"
+        f"search=chair&status=draft&product_type={product_type}&category={category.id}"
         "&color_hex=%235B91C8&material=Fabric&is_available=true&ordering=title"
     )
     assert list(filter_products(queryset=Product.objects.all(), query_params=params)) == [matching]
 
-    for key, value in (("status", "unknown"), ("product_type", "x"), ("color_hex", "blue"), ("is_available", "yes"), ("ordering", "price")):
+    for key, value in (("status", "unknown"), ("color_hex", "blue"), ("is_available", "yes"), ("ordering", "price")):
         with pytest.raises(ValidationError):
             filter_products(queryset=Product.objects.all(), query_params=QueryDict(f"{key}={value}"))

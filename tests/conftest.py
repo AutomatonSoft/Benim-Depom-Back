@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category, ProductType
+from apps.catalog.models import Category
 from apps.products.models import Product, ProductImage, ProductVariant
 
 
@@ -81,8 +81,8 @@ def admin_user(user_factory):
 
 
 @pytest.fixture
-def product_type(db):
-    return ProductType.objects.create(name="Chair")
+def product_type():
+    return "Chair"
 
 
 @pytest.fixture

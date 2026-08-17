@@ -1,9 +1,9 @@
 from django.contrib import admin
 
-from .models import Category, Color, Material, ProductType
+from .models import Category
 
 
-@admin.register(Category, ProductType, Material, Color)
+@admin.register(Category)
 class CatalogAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "is_active", "sort_order")
     list_filter = ("is_active",)

@@ -7,6 +7,11 @@ class EanCode(models.Model):
         JV = "jv", "JV"
         XL = "xl", "XL"
 
+    class State(models.TextChoices):
+        AVAILABLE = "available", "Available"
+        RESERVED = "reserved", "Reserved"
+        CONSUMED = "consumed", "Consumed"
+
     code = models.CharField(max_length=14, unique=True)
     account = models.CharField(max_length=2, choices=Account.choices)
     product = models.ForeignKey(
@@ -15,6 +20,11 @@ class EanCode(models.Model):
         related_name="ean_codes",
         null=True,
         blank=True,
+    )
+    state = models.CharField(
+        max_length=16,
+        choices=State.choices,
+        default=State.AVAILABLE
     )
     imported_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -25,7 +35,8 @@ class EanCode(models.Model):
     )
     imported_at = models.DateTimeField(auto_now_add=True)
     assigned_at = models.DateTimeField(null=True, blank=True)
-
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    
     class Meta:
         ordering = ("id",)
         indexes = [

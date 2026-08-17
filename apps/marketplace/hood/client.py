@@ -22,27 +22,61 @@ class HoodClient:
         *,
         account: str,
         payload: dict | None = None,
+        query_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not settings.HOOD_API_BASE_URL:
-            return {"ok": False, "status_code": 503, "details": {"code": "hood_api_not_configured"}}
-        headers = {"Accept": "application/json", "X-Request-Id": self.request_id}
+            return {
+                "ok": False,
+                "status_code": 503,
+                "details": {"code": "hood_api_not_configured"},
+            }
+
+        headers = {
+            "Accept": "application/json",
+            "X-Request-Id": self.request_id,
+        }
+
         if payload is not None:
             headers["Content-Type"] = "application/json"
-        auth = (settings.HOOD_LOGIN, settings.HOOD_PASSWORD) if settings.HOOD_LOGIN and settings.HOOD_PASSWORD else None
+
+        auth = None
+        if settings.HOOD_LOGIN and settings.HOOD_PASSWORD:
+            auth = (settings.HOOD_LOGIN, settings.HOOD_PASSWORD)
+
+        # account is always explicit and cannot be overwritten by caller.
+        params = {
+            **(query_params or {}),
+            "account": account,
+        }
+
         try:
             response = requests.request(
-                method,
-                f"{settings.HOOD_API_BASE_URL}{path}",
+                method=method,
+                url=f"{settings.HOOD_API_BASE_URL}{path}",
                 headers=headers,
-                params={"account": account},
+                params=params,
                 json=payload,
                 auth=auth,
                 timeout=settings.MARKETPLACE_HTTP_TIMEOUT_SECONDS,
             )
+
             try:
                 body: Any = response.json()
             except ValueError:
                 body = {"raw": response.text[:1500]}
-            return {"ok": response.ok, "status_code": response.status_code, "details": body}
+
+            return {
+                "ok": response.ok,
+                "status_code": response.status_code,
+                "details": body,
+            }
+
         except requests.RequestException as exc:
-            return {"ok": False, "status_code": 502, "details": {"code": "hood_api_unreachable", "reason": str(exc)}}
+            return {
+                "ok": False,
+                "status_code": 502,
+                "details": {
+                    "code": "hood_api_unreachable",
+                    "reason": str(exc),
+                },
+            }

@@ -62,15 +62,23 @@ def import_ean_codes(*, account: str, raw_codes: str, imported_by) -> dict:
 
 @transaction.atomic
 def assign_ean_codes_to_product(*, product) -> list[EanCode]:
-    if product.ean_codes.exists():
-        return list(product.ean_codes.order_by("account"))
+    if product.ean_jv and product.ean_xl:
+        return list(
+            EanCode.objects.filter(
+                code__in=(product.ean_jv, product.ean_xl)
+            ).order_by("account")
+        )
 
     assigned_codes: list[EanCode] = []
 
     for account in (EanCode.Account.JV, EanCode.Account.XL):
         ean_code = (
             EanCode.objects.select_for_update(skip_locked=True)
-            .filter(account=account, product__isnull=True)
+            .filter(
+                account=account,
+                state=EanCode.State.AVAILABLE,
+                product__isnull=True,
+            )
             .order_by("?")
             .first()
         )
@@ -86,11 +94,64 @@ def assign_ean_codes_to_product(*, product) -> list[EanCode]:
             )
 
         ean_code.product = product
+        ean_code.state = EanCode.State.RESERVED
         ean_code.assigned_at = timezone.now()
-        ean_code.save(update_fields=("product", "assigned_at"))
+        ean_code.save(update_fields=("product", "state", "assigned_at"))
         assigned_codes.append(ean_code)
 
+    assigned_by_account = {
+        ean_code.account: ean_code.code
+        for ean_code in assigned_codes
+    }
+    product.ean_jv = assigned_by_account[EanCode.Account.JV]
+    product.ean_xl = assigned_by_account[EanCode.Account.XL]
+    product.save(update_fields=("ean_jv", "ean_xl", "updated_at"))
+
     return assigned_codes
+
+@transaction.atomic
+def consume_ean_code(*, product, account: str) -> bool:
+    """
+    Делает EAN одноразовым после первой успешной публикации.
+
+    Возвращает True, если код был впервые помечен использованным.
+    """
+    expected_code = (
+        product.ean_jv
+        if account == EanCode.Account.JV
+        else product.ean_xl
+    )
+
+    if not expected_code:
+        raise ValidationError(
+            {"ean": f"Product has no EAN for account '{account}'."}
+        )
+
+    ean_code = EanCode.objects.select_for_update().get(
+        product=product,
+        account=account,
+        code=expected_code,
+    )
+
+    if ean_code.state == EanCode.State.CONSUMED:
+        return False
+
+    if ean_code.state != EanCode.State.RESERVED:
+        raise ValidationError(
+            {
+                "ean": (
+                    f"EAN '{ean_code.code}' has invalid state "
+                    f"'{ean_code.state}'."
+                )
+            }
+        )
+
+    ean_code.state = EanCode.State.CONSUMED
+    ean_code.consumed_at = timezone.now()
+    ean_code.save(update_fields=("state", "consumed_at"))
+
+    return True
+
 
 
 def get_ean_summary() -> dict:
@@ -100,7 +161,7 @@ def get_ean_summary() -> dict:
     for account in EanCode.Account.values:
         available_count = EanCode.objects.filter(
             account=account,
-            product__isnull=True,
+            state=EanCode.State.AVAILABLE,
         ).count()
         accounts.append(
             {
