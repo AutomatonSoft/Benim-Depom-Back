@@ -303,14 +303,47 @@ OTTO_API_DEACTIVATE_ENDPOINT = env(
     "OTTO_API_DEACTIVATE_ENDPOINT",
     default="/extermal/deactivate",
 )
+OTTO_API_PROCESS_FAILED_ENDPOINT = env(
+    "OTTO_API_PROCESS_FAILED_ENDPOINT",
+    default="/v1/products/otto/update-tasks/{process_id}/failed",
+)
+OTTO_API_PROCESS_SUCCESS_ENDPOINT = env(
+    "OTTO_API_PROCESS_SUCCESS_ENDPOINT",
+    default="/v1/products/otto/update-tasks/{process_id}/succeeded",
+)
+OTTO_API_PROCESS_UNCHANGED_ENDPOINT = env(
+    "OTTO_API_PROCESS_UNCHANGED_ENDPOINT",
+    default="/v1/products/otto/update-tasks/{process_id}/unchanged",
+)
+OTTO_PROCESS_POLL_INTERVAL_SECONDS = env.int(
+    "OTTO_PROCESS_POLL_INTERVAL_SECONDS",
+    default=30,
+)
+OTTO_PROCESS_MAX_POLL_ATTEMPTS = env.int(
+    "OTTO_PROCESS_MAX_POLL_ATTEMPTS",
+    default=120,
+)
 
 MARKETPLACE_HTTP_TIMEOUT_SECONDS = env.float(
     "MARKETPLACE_HTTP_TIMEOUT_SECONDS",
     default=30,
 )
 
+OTTO_API_MARKETPLACE_STATUS_ENDPOINT = env(
+    "OTTO_API_MARKETPLACE_STATUS_ENDPOINT",
+    default="/v1/products/marketplace_status",
+)
 
+# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 24 часа.
+OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
+    "OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS",
+    default=300,
+)
 
+OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
+    "OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS",
+    default=288,
+)
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_DAYS",
@@ -319,6 +352,39 @@ PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
 PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE",
     default=500,
+)
+OPENAI_ENABLED = env.bool(
+    "OPENAI_ENABLED",
+    default=False,
+)
+
+OPENAI_API_KEY = env(
+    "OPENAI_API_KEY",
+    default="",
+)
+
+OPENAI_TEXT_MODELS = tuple(
+    model.strip()
+    for model in env(
+        "OPENAI_TEXT_MODELS",
+        default="",
+    ).split(",")
+    if model.strip()
+)
+
+OPENAI_TEXT_TIMEOUT_SECONDS = env.float(
+    "OPENAI_TEXT_TIMEOUT_SECONDS",
+    default=60,
+)
+
+OPENAI_TEXT_MAX_RETRIES_PER_MODEL = env.int(
+    "OPENAI_TEXT_MAX_RETRIES_PER_MODEL",
+    default=2,
+)
+
+OPENAI_TEXT_RETRY_DELAY_SECONDS = env.float(
+    "OPENAI_TEXT_RETRY_DELAY_SECONDS",
+    default=1.5,
 )
 
 CELERY_BEAT_SCHEDULE = {

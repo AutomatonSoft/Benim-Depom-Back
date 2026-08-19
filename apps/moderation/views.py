@@ -218,7 +218,7 @@ class ManagerRequestProductAvailabilityView(APIView):
 
 
 class ManagerDeactivateProductView(APIView):
-    """Manager confirms a seller's pending deactivation request."""
+    """Manager or admin deactivates an approved product."""
     permission_classes = [IsManager]
 
     @extend_schema(request=None, responses={200: ProductSerializer})
@@ -232,7 +232,7 @@ class ManagerDeactivateProductView(APIView):
             product=product,
             notification_type=Notification.Type.PRODUCT_DEACTIVATED,
             title="Product deactivated",
-            body=f"Manager confirmed deactivation for '{product.title}'.",
+            body=f"A manager deactivated '{product.title}'.",
             data={"product_id": product.id},
         )
         return Response(

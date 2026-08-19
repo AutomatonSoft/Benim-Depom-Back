@@ -7,15 +7,19 @@ external request is sent.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urlparse
 
-from datetime import datetime
-
 from django.utils.dateparse import parse_datetime
-from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 
+from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
+from apps.catalog.otto_shipping_profiles import (
+    OttoShippingProfilesError,
+    get_otto_shipping_profile,
+)
+from apps.marketplace.colors import german_color_name
 
 OTTO_DELIVERY_TYPES = (
     "PARCEL",
@@ -124,6 +128,25 @@ def _normalize_attribute_values(value: Any) -> list[str]:
     return result
 
 
+def _is_color_attribute(definition: dict[str, Any]) -> bool:
+    """Whether this OTTO category attribute represents a product color."""
+
+    name = str(definition.get("name", "")).casefold()
+    return "farbe" in name or "color" in name
+
+
+def _get_product_color_name(product) -> str | None:
+    """Resolve the internal HEX only when the product has exactly one variant."""
+
+    if product.variants.count() != 1:
+        return None
+
+    try:
+        return german_color_name(product.variants.get().color_hex)
+    except (AttributeError, ValueError):
+        return None
+
+
 def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str, Any]]:
     if not product.otto_category_group_id:
         return []
@@ -139,6 +162,7 @@ def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str
         {},
     )
     attributes = []
+    product_color_name = _get_product_color_name(product)
 
     for raw_id, raw_value in (product.otto_attributes or {}).items():
         try:
@@ -155,6 +179,12 @@ def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str
             continue
 
         values = _normalize_attribute_values(raw_value)
+
+        # OTTO does not have one universal `color` field.  It is a category
+        # attribute, therefore replace its value only when that category has
+        # an explicitly selected color attribute.
+        if product_color_name and _is_color_attribute(definition):
+            values = [product_color_name]
         if values:
             attributes.append(
                 {
@@ -209,17 +239,42 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
     if vat not in OTTO_VAT_VALUES:
         errors["vat"] = "Select VAT: FULL, REDUCED, or FREE."
 
-    shipping_profile_id = str(configuration.get("shipping_profile_id", "")).strip()
+    shipping_profile_id = str(
+        configuration.get("shipping_profile_id", "")
+    ).strip()
+    shipping_profile = None
+
     if not shipping_profile_id:
-        errors["shipping_profile_id"] = "Select the OTTO shipping profile."
-
-    delivery_type = configuration.get("delivery_type")
-    if delivery_type not in OTTO_DELIVERY_TYPES:
-        errors["delivery_type"] = "Select a supported OTTO delivery type."
-
-    delivery_time = _as_positive_int(configuration.get("delivery_time"))
-    if delivery_time is None:
-        errors["delivery_time"] = "Enter a delivery time of at least one day."
+        errors["shipping_profile_id"] = (
+            "Select the OTTO shipping profile."
+        )
+    else:
+        try:
+            shipping_profile = get_otto_shipping_profile(
+                account=account,
+                shipping_profile_id=shipping_profile_id,
+            )
+        except OttoShippingProfilesError as exc:
+            errors["shipping_profile_id"] = str(exc)
+        else:
+            if shipping_profile is None:
+                errors["shipping_profile_id"] = (
+                    "The selected shipping profile does not belong "
+                    "to this OTTO account."
+                )
+            elif (
+                shipping_profile["deliveryType"]
+                not in OTTO_DELIVERY_TYPES
+            ):
+                errors["shipping_profile_id"] = (
+                    "The selected profile has an unsupported delivery type."
+                )
+            elif not isinstance(shipping_profile["transportTime"], int) or (
+                shipping_profile["transportTime"] < 1
+            ):
+                errors["shipping_profile_id"] = (
+                    "The selected profile has an invalid transport time."
+                )
 
     media_urls = configuration.get("media_urls", [])
     if not isinstance(media_urls, list) or not media_urls:
@@ -316,8 +371,8 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
             for url in cleaned_media_urls
         ],
         "delivery": {
-            "type": delivery_type,
-            "deliveryTime": delivery_time,
+            "type": shipping_profile["deliveryType"],
+            "deliveryTime": shipping_profile["transportTime"],
         },
         "pricing": {
             "standardPrice": {

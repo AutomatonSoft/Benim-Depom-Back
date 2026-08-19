@@ -63,9 +63,6 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
 @pytest.mark.django_db(transaction=True)
 def test_seller_deactivation_creates_manager_approval_request(api_client, seller, manager, product_factory):
     product = product_factory(owner=seller, status=Product.Status.APPROVED)
-    authenticate(api_client, manager)
-    assert api_client.post(f"/api/v1/manager/products/{product.id}/deactivate/").status_code == 400
-
     authenticate(api_client, seller)
     response = api_client.post(f"/api/v1/products/{product.id}/deactivate/")
     assert response.status_code == 202
@@ -84,6 +81,33 @@ def test_seller_deactivation_creates_manager_approval_request(api_client, seller
     assert response.status_code == 200
     product.refresh_from_db()
     assert product.status == Product.Status.DEACTIVATED
+    assert Notification.objects.filter(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_DEACTIVATED,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
+def test_manager_can_deactivate_without_a_seller_request(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    authenticate(api_client, manager)
+
+    response = api_client.post(
+        f"/api/v1/manager/products/{product.id}/deactivate/"
+    )
+
+    assert response.status_code == 200
+    product.refresh_from_db()
+    assert product.status == Product.Status.DEACTIVATED
+    assert product.is_available is False
+    assert product.deactivation_requested_at is None
     assert Notification.objects.filter(
         user=seller,
         product=product,

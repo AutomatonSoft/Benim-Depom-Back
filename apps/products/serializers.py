@@ -35,6 +35,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         child=serializers.CharField(max_length=100, trim_whitespace=True),
         min_length=1,
         max_length=2,
+        help_text=(
+            "Materials in priority order. The first item is the primary "
+            "material and is sent to Kaufland."
+        ),
     )
 
     class Meta:

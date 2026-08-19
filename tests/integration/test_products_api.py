@@ -12,6 +12,10 @@ def product_payload(product_type, **overrides):
     payload = {
         "title": "API chair",
         "product_type": product_type,
+        "unit_price": "1000.00",
+        "currency": "TRY",
+        "otto_category_id": 26822,
+        "otto_category_group_id": 3593,
         "variants": [
             {
                 "color_hex": "#5B91C8",

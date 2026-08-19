@@ -1,0 +1,23 @@
+{
+  "accounts": {
+    "jv": [
+      {"shippingProfileId":"786c6468-3baf-52e0-88b5-13757eb7f873","shippingProfileName":"(4-8 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":37,"transportTime":3},
+      {"shippingProfileId":"360835cf-4962-59bb-ae66-78e8a41c8948","shippingProfileName":"(6-10 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":47,"transportTime":3},
+      {"shippingProfileId":"28e3b4f8-12aa-5994-a7e9-26027baede55","shippingProfileName":"2-4 Wochen","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":30,"transportTime":4},
+      {"shippingProfileId":"ad6009b9-a82f-5284-ac64-5627575655ac","shippingProfileName":"Express Chesterfield","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":10,"transportTime":5},
+      {"shippingProfileId":"571dd076-4e59-5216-a86f-3e5f30319e9c","shippingProfileName":"Express-Produktion","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":20,"transportTime":5},
+      {"shippingProfileId":"935a75b0-ac88-55a8-98df-8556306f1386","shippingProfileName":"LIEFERZEIT (8-12 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":56,"transportTime":3},
+      {"shippingProfileId":"b4139e65-603f-52f7-9b99-393cf6b2461f","shippingProfileName":"SOFORT LIEFERBAR","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":5,"transportTime":5},
+      {"shippingProfileId":"83feaefc-c110-5b39-af53-49344b77ae89","shippingProfileName":"WUNSCHORT - 2 MANN SERVICE - SOFORT","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_PREFERREDLOCATION","defaultProcessingTime":3,"transportTime":5}
+    ],
+    "xl": [
+      {"shippingProfileId":"c8173da0-65d1-5265-824a-857875ff9c3b","shippingProfileName":"2-4 Wochen","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":30,"transportTime":4},
+      {"shippingProfileId":"33af076b-6876-53ee-889d-517fc7e84ed7","shippingProfileName":"Express Chesterfield","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":10,"transportTime":5},
+      {"shippingProfileId":"d8646bd8-8983-5cbd-8ee9-57d78abf58d7","shippingProfileName":"Express-Produktion","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"12:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":20,"transportTime":5},
+      {"shippingProfileId":"d045a64d-59e6-57fb-9f69-6370dc7c9d40","shippingProfileName":"LIEFERZEIT (4-8 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":37,"transportTime":5},
+      {"shippingProfileId":"5b1087dc-d7d4-5c68-8ba4-81e3bc5b6f1d","shippingProfileName":"LIEFERZEIT (6-10 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":47,"transportTime":3},
+      {"shippingProfileId":"027a1a46-cf60-56f4-917b-81661569f016","shippingProfileName":"LIEFERZEIT (8-12 WOCHEN)","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":56,"transportTime":3},
+      {"shippingProfileId":"9d2ac737-22dc-5bfa-8a5f-a2cef07b7efd","shippingProfileName":"SOFORT LIEFERBAR","workingDays":["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY"],"orderCutoff":"15:00","deliveryType":"FORWARDER_CURBSIDE","defaultProcessingTime":5,"transportTime":5}
+    ]
+  }
+}

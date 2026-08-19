@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
 
+class OttoShippingProfileSerializer(serializers.Serializer):
+    shipping_profile_id = serializers.CharField(
+        source="shippingProfileId"
+    )
+    shipping_profile_name = serializers.CharField(
+        source="shippingProfileName"
+    )
+
 class OttoCategoryGroupSerializer(serializers.Serializer):
     category_group_id = serializers.IntegerField()
     category_group = serializers.CharField()

@@ -10,6 +10,7 @@ from apps.common.permissions import IsManager, is_manager
 from apps.products.models import Product
 
 from .models import (
+    MarketplaceContentGeneration,
     MarketplaceJob,
     MarketplaceListingConfiguration,
     MarketplacePublication,
@@ -21,13 +22,35 @@ from .serializers import (
     MarketplacePublicationFilterSerializer,
     OttoListingConfigurationResponseSerializer,
     OttoListingConfigurationSerializer,
+    HoodListingConfigurationResponseSerializer,
+    HoodListingConfigurationSerializer,
+    KauflandListingConfigurationResponseSerializer,
+    KauflandListingConfigurationSerializer,
+    MarketplaceContentGenerationApplyRequestSerializer,
+    MarketplaceContentGenerationRequestSerializer,
+    MarketplaceContentGenerationSerializer,
 )
-from .tasks import execute_marketplace_job
+from .tasks import (
+    execute_marketplace_job,
+    generate_marketplace_content,
+)
 from apps.marketplace.otto.payload_builder import (
     OttoPayloadValidationError,
     build_otto_payload,
 )
-
+from apps.marketplace.hood.payload_builder import (
+    HoodPayloadValidationError,
+    build_hood_payload,
+)
+from apps.marketplace.kaufland.payload_builder import (
+    KauflandPayloadValidationError,
+    build_kaufland_create_payload,
+    build_kaufland_update_payload,
+)
+from .ai_content import (
+    build_product_snapshot,
+    universal_content_to_marketplace_configuration,
+)
 
 def resolve_requested_targets(data) -> list[dict[str, str]]:
     """
@@ -96,32 +119,92 @@ class ProductMarketplaceJobCreateView(APIView):
             MarketplaceJob.Operation.UPDATE,
         }:
             for target in resolve_requested_targets(data):
-                if target["marketplace"] != "otto":
+                marketplace = target["marketplace"]
+                account = target["account"]
+
+                if marketplace not in {"otto", "hood", "kaufland"}:
                     continue
 
                 configuration = MarketplaceListingConfiguration.objects.filter(
                     product=product,
-                    marketplace=MarketplacePublication.Marketplace.OTTO,
-                    account=target["account"],
+                    marketplace=marketplace,
+                    account=account,
                 ).first()
 
+                configuration_data = (
+                    configuration.configuration
+                    if configuration is not None
+                    else {}
+                )
+
                 try:
-                    target_payloads[
-                        f"{target['marketplace']}:{target['account']}"
-                    ] = build_otto_payload(
-                        product=product,
-                        account=target["account"],
-                        configuration=(
-                            configuration.configuration
-                            if configuration is not None
-                            else {}
-                        ),
-                    )
+                    if marketplace == "otto":
+                        payload = build_otto_payload(
+                            product=product,
+                            account=account,
+                            configuration=configuration_data,
+                        )
+
+                    elif marketplace == "hood":
+                        payload = build_hood_payload(
+                            product=product,
+                            account=account,
+                            configuration=configuration_data,
+                        )
+
+                    elif operation == MarketplaceJob.Operation.PUBLISH:
+                        payload = build_kaufland_create_payload(
+                            product=product,
+                            account=account,
+                            configuration=configuration_data,
+                        )
+
+                    else:
+                        payload = build_kaufland_update_payload(
+                            product=product,
+                            account=account,
+                            configuration=configuration_data,
+                        )
+
+                    target_payloads[f"{marketplace}:{account}"] = payload
+
                 except OttoPayloadValidationError as exc:
                     return Response(
                         {
                             "detail": (
                                 "OTTO listing is not ready for publication. "
+                                "Fix the manager configuration first."
+                            ),
+                            "target": target,
+                            "errors": exc.errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                except HoodPayloadValidationError as exc:
+                    return Response(
+                        {
+                            "detail": (
+                                "Hood listing is not ready for publication. "
+                                "Fix the manager configuration first."
+                            ),
+                            "target": target,
+                            "errors": exc.errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                except KauflandPayloadValidationError as exc:
+                    action = (
+                        "publication"
+                        if operation == MarketplaceJob.Operation.PUBLISH
+                        else "update"
+                    )
+
+                    return Response(
+                        {
+                            "detail": (
+                                f"Kaufland listing is not ready for {action}. "
                                 "Fix the manager configuration first."
                             ),
                             "target": target,
@@ -285,6 +368,7 @@ class ProductOttoListingConfigurationView(APIView):
         serializer = OttoListingConfigurationSerializer(
             data=request.data,
             partial=True,
+            context={"account": account},
         )
         serializer.is_valid(raise_exception=True)
 
@@ -345,3 +429,529 @@ class ProductOttoPayloadPreviewView(APIView):
             )
 
         return Response({"payload": payload})
+
+
+class ProductHoodListingConfigurationView(APIView):
+    """Manager configuration for one future Hood listing/account pair."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    def _get_configuration(self, product_pk: int, account: str):
+        if account not in MarketplacePublication.Account.values:
+            return None
+
+        product = get_object_or_404(Product, pk=product_pk)
+
+        configuration, _ = MarketplaceListingConfiguration.objects.get_or_create(
+            product=product,
+            marketplace=MarketplacePublication.Marketplace.HOOD,
+            account=account,
+            defaults={"configuration": {}},
+        )
+        return configuration
+
+    @extend_schema(
+        responses={200: HoodListingConfigurationResponseSerializer},
+        description=(
+            "Returns manager-editable Hood content for one account. "
+            "It can be prepared before publication."
+        ),
+    )
+    def get(self, request, product_pk: int, account: str):
+        configuration = self._get_configuration(product_pk, account)
+
+        if configuration is None:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            HoodListingConfigurationResponseSerializer(configuration).data
+        )
+
+    @extend_schema(
+        request=HoodListingConfigurationSerializer,
+        responses={200: HoodListingConfigurationResponseSerializer},
+        description=(
+            "Partially updates manager-owned Hood content. "
+            "Use the payload preview endpoint to validate the final request."
+        ),
+    )
+    def patch(self, request, product_pk: int, account: str):
+        configuration = self._get_configuration(product_pk, account)
+
+        if configuration is None:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = HoodListingConfigurationSerializer(
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        updated_configuration = dict(configuration.configuration or {})
+        updated_configuration.update(
+            serializer.to_storage(serializer.validated_data)
+        )
+
+        configuration.configuration = updated_configuration
+        configuration.save(update_fields=("configuration", "updated_at"))
+
+        return Response(
+            HoodListingConfigurationResponseSerializer(configuration).data
+        )
+
+
+class ProductHoodPayloadPreviewView(APIView):
+    """Builds Hood payload but never sends it to Hood."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        responses={200: dict, 400: dict},
+        description=(
+            "Builds and validates the final Hood create/update payload "
+            "without making an external request."
+        ),
+    )
+    def get(self, request, product_pk: int, account: str):
+        if account not in MarketplacePublication.Account.values:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product = get_object_or_404(
+            Product.objects.prefetch_related("variants"),
+            pk=product_pk,
+        )
+
+        configuration = MarketplaceListingConfiguration.objects.filter(
+            product=product,
+            marketplace=MarketplacePublication.Marketplace.HOOD,
+            account=account,
+        ).first()
+
+        try:
+            payload = build_hood_payload(
+                product=product,
+                account=account,
+                configuration=(
+                    configuration.configuration if configuration else {}
+                ),
+            )
+        except HoodPayloadValidationError as exc:
+            return Response(
+                {
+                    "detail": "Hood listing is not ready for publication.",
+                    "errors": exc.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({"payload": payload})
+
+
+class ProductKauflandListingConfigurationView(APIView):
+    """Manager configuration for one future Kaufland listing/account pair."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    def _get_configuration(self, product_pk: int, account: str):
+        if account not in MarketplacePublication.Account.values:
+            return None
+
+        product = get_object_or_404(Product, pk=product_pk)
+
+        configuration, _ = MarketplaceListingConfiguration.objects.get_or_create(
+            product=product,
+            marketplace=MarketplacePublication.Marketplace.KAUFLAND,
+            account=account,
+            defaults={"configuration": {}},
+        )
+        return configuration
+
+    @extend_schema(
+        responses={200: KauflandListingConfigurationResponseSerializer},
+        description=(
+            "Returns manager-editable Kaufland content for one account."
+        ),
+    )
+    def get(self, request, product_pk: int, account: str):
+        configuration = self._get_configuration(product_pk, account)
+
+        if configuration is None:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            KauflandListingConfigurationResponseSerializer(
+                configuration
+            ).data
+        )
+
+    @extend_schema(
+        request=KauflandListingConfigurationSerializer,
+        responses={200: KauflandListingConfigurationResponseSerializer},
+        description=(
+            "Partially updates manager-owned Kaufland listing content."
+        ),
+    )
+    def patch(self, request, product_pk: int, account: str):
+        configuration = self._get_configuration(product_pk, account)
+
+        if configuration is None:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = KauflandListingConfigurationSerializer(
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        updated_configuration = dict(configuration.configuration or {})
+        updated_configuration.update(
+            serializer.to_storage(serializer.validated_data)
+        )
+
+        configuration.configuration = updated_configuration
+        configuration.save(update_fields=("configuration", "updated_at"))
+
+        return Response(
+            KauflandListingConfigurationResponseSerializer(
+                configuration
+            ).data
+        )
+
+
+class ProductKauflandCreatePayloadPreviewView(APIView):
+    """Builds Kaufland create payload but never sends it."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        responses={200: dict, 400: dict},
+        description=(
+            "Builds and validates PUT /api/products/upload/ payload "
+            "without making an external request."
+        ),
+    )
+    def get(self, request, product_pk: int, account: str):
+        if account not in MarketplacePublication.Account.values:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product = get_object_or_404(
+            Product.objects.prefetch_related("variants"),
+            pk=product_pk,
+        )
+
+        configuration = MarketplaceListingConfiguration.objects.filter(
+            product=product,
+            marketplace=MarketplacePublication.Marketplace.KAUFLAND,
+            account=account,
+        ).first()
+
+        try:
+            payload = build_kaufland_create_payload(
+                product=product,
+                account=account,
+                configuration=(
+                    configuration.configuration if configuration else {}
+                ),
+            )
+        except KauflandPayloadValidationError as exc:
+            return Response(
+                {
+                    "detail": "Kaufland listing is not ready for publication.",
+                    "errors": exc.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({"payload": payload})
+
+
+class ProductKauflandUpdatePayloadPreviewView(APIView):
+    """Builds Kaufland update payload but never sends it."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        responses={200: dict, 400: dict},
+        description=(
+            "Builds and validates PATCH /api/products/{ean}/change/ payload "
+            "without making an external request."
+        ),
+    )
+    def get(self, request, product_pk: int, account: str):
+        if account not in MarketplacePublication.Account.values:
+            return Response(
+                {"detail": "Account must be 'jv' or 'xl'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        product = get_object_or_404(
+            Product.objects.prefetch_related("variants"),
+            pk=product_pk,
+        )
+
+        configuration = MarketplaceListingConfiguration.objects.filter(
+            product=product,
+            marketplace=MarketplacePublication.Marketplace.KAUFLAND,
+            account=account,
+        ).first()
+
+        try:
+            payload = build_kaufland_update_payload(
+                product=product,
+                account=account,
+                configuration=(
+                    configuration.configuration if configuration else {}
+                ),
+            )
+        except KauflandPayloadValidationError as exc:
+            return Response(
+                {
+                    "detail": "Kaufland update is not ready.",
+                    "errors": exc.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({"payload": payload})
+
+
+
+class ProductMarketplaceContentGenerationCreateView(APIView):
+    """Creates one asynchronous universal German AI-content draft."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    allowed_statuses = {
+        Product.Status.SUBMITTED,
+        Product.Status.UNDER_REVIEW,
+        Product.Status.APPROVED,
+        Product.Status.DEACTIVATED,
+    }
+
+    @extend_schema(
+        request=MarketplaceContentGenerationRequestSerializer,
+        responses={202: MarketplaceContentGenerationSerializer},
+        description=(
+            "Starts one AI generation request for a product. "
+            "The result is a draft only and is not applied automatically."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("category").prefetch_related(
+                "variants"
+            ),
+            pk=product_pk,
+        )
+
+        if product.status not in self.allowed_statuses:
+            return Response(
+                {
+                    "detail": (
+                        "AI content can be generated only for submitted, "
+                        "under-review, or approved products."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MarketplaceContentGenerationRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            generation = MarketplaceContentGeneration.objects.create(
+                product=product,
+                requested_by=request.user,
+                targets=serializer.validated_data["targets"],
+                language="de",
+                input_snapshot=build_product_snapshot(product),
+            )
+
+            generation_id = str(generation.id)
+            transaction.on_commit(
+                lambda: generate_marketplace_content.delay(generation_id)
+            )
+
+        return Response(
+            MarketplaceContentGenerationSerializer(generation).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class MarketplaceContentGenerationDetailView(APIView):
+    """Returns the current state and generated draft."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        responses={200: MarketplaceContentGenerationSerializer},
+        description="Returns the status and result of an AI content generation.",
+    )
+    def get(self, request, generation_id):
+        generation = get_object_or_404(
+            MarketplaceContentGeneration.objects.select_related(
+                "product",
+                "requested_by",
+            ),
+            pk=generation_id,
+        )
+
+        return Response(
+            MarketplaceContentGenerationSerializer(generation).data
+        )
+
+
+class ProductMarketplaceContentGenerationApplyView(APIView):
+    """
+    Explicitly copies generated text into marketplace configurations.
+
+    A manager may safely review the result before this endpoint is called.
+    """
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        request=MarketplaceContentGenerationApplyRequestSerializer,
+        responses={200: dict},
+        description=(
+            "Applies a completed AI draft to selected marketplace "
+            "configurations. Existing values remain unchanged unless "
+            "overwrite=true."
+        ),
+    )
+    def post(self, request, product_pk: int, generation_id):
+        serializer = MarketplaceContentGenerationApplyRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        targets = serializer.validated_data["targets"]
+        overwrite = serializer.validated_data["overwrite"]
+
+        with transaction.atomic():
+            product = get_object_or_404(Product, pk=product_pk)
+
+            generation = get_object_or_404(
+                MarketplaceContentGeneration.objects.select_for_update(),
+                pk=generation_id,
+                product=product,
+            )
+
+            if generation.status != MarketplaceContentGeneration.Status.SUCCEEDED:
+                return Response(
+                    {
+                        "detail": (
+                            "Only a successfully completed AI generation "
+                            "can be applied."
+                        )
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            content = (
+                generation.result.get("universal", {})
+                .get("content", {})
+            )
+
+            if not content:
+                return Response(
+                    {"detail": "The AI generation has no usable result."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            allowed_targets = {
+                (target["marketplace"], target["account"])
+                for target in generation.targets
+            }
+
+            requested_targets = {
+                (target["marketplace"], target["account"])
+                for target in targets
+            }
+
+            if not requested_targets.issubset(allowed_targets):
+                return Response(
+                    {
+                        "targets": (
+                            "You may apply content only to targets selected "
+                            "when the generation was started."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            updated_targets = []
+            skipped_fields = {}
+
+            for target in targets:
+                marketplace = target["marketplace"]
+                account = target["account"]
+                target_key = f"{marketplace}:{account}"
+
+                patch = universal_content_to_marketplace_configuration(
+                    marketplace=marketplace,
+                    content=content,
+                )
+
+                configuration, _ = (
+                    MarketplaceListingConfiguration.objects.get_or_create(
+                        product=product,
+                        marketplace=marketplace,
+                        account=account,
+                        defaults={"configuration": {}},
+                    )
+                )
+
+                values = dict(configuration.configuration or {})
+                skipped = []
+                changed = False
+
+                for field_name, value in patch.items():
+                    if not overwrite and values.get(field_name):
+                        skipped.append(field_name)
+                        continue
+
+                    if values.get(field_name) != value:
+                        values[field_name] = value
+                        changed = True
+
+                if changed:
+                    configuration.configuration = values
+                    configuration.save(
+                        update_fields=("configuration", "updated_at")
+                    )
+                    updated_targets.append(target)
+
+                if skipped:
+                    skipped_fields[target_key] = skipped
+
+        return Response(
+            {
+                "generation_id": str(generation.id),
+                "updated_targets": updated_targets,
+                "skipped_fields": skipped_fields,
+                "overwrite": overwrite,
+            }
+        )
+
+

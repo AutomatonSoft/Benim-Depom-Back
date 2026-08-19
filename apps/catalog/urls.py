@@ -6,6 +6,7 @@ from .views import (
     OttoCategoryGroupAttributesView,
     OttoCategoryGroupCategoriesView,
     OttoCategoryGroupListView,
+    OttoShippingProfileListView,
 )
 
 app_name = "catalog"
@@ -32,5 +33,10 @@ urlpatterns = [
         "categories/<int:pk>/",
         ManagerCategoryDetailView.as_view(),
         name="manager-category-detail",
+    ),
+    path(
+        "otto/shipping-profiles/",
+        OttoShippingProfileListView.as_view(),
+        name="otto-shipping-profile-list",
     ),
 ]

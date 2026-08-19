@@ -155,6 +155,61 @@ def start_publication_attempt(
 
 
 @transaction.atomic
+def mark_publication_awaiting_confirmation(
+    *,
+    publication: MarketplacePublication,
+    job: MarketplaceJob,
+    response_payload: dict[str, Any],
+    external_reference: str = "",
+) -> MarketplacePublication:
+    """
+    OTTO accepted an asynchronous request, but has not confirmed publication yet.
+    """
+    publication = MarketplacePublication.objects.select_for_update().get(
+        pk=publication.pk
+    )
+
+    status_by_operation = {
+        MarketplaceJob.Operation.PUBLISH: (
+            MarketplacePublication.Status.PUBLISHING
+        ),
+        MarketplaceJob.Operation.UPDATE: (
+            MarketplacePublication.Status.PUBLISHING
+        ),
+        MarketplaceJob.Operation.ACTIVATE: (
+            MarketplacePublication.Status.PUBLISHING
+        ),
+        MarketplaceJob.Operation.DEACTIVATE: (
+            MarketplacePublication.Status.DEACTIVATING
+        ),
+    }
+
+    target_status = status_by_operation.get(job.operation)
+
+    if target_status is not None:
+        publication.status = target_status
+
+    publication.last_job = job
+    publication.last_response = response_payload
+    publication.last_error = {}
+    if external_reference:
+        publication.external_reference = external_reference
+
+    publication.save(
+        update_fields=(
+            "status",
+            "last_job",
+            "last_response",
+            "last_error",
+            "external_reference",
+            "updated_at",
+        )
+    )
+
+    return publication
+
+
+@transaction.atomic
 def mark_publication_succeeded(
     *,
     publication: MarketplacePublication,
@@ -252,7 +307,10 @@ def mark_publication_failed(
     # it has no confirmed external state, so mark it as failed.
     if (
         job.operation == MarketplaceJob.Operation.PUBLISH
-        and publication.status == MarketplacePublication.Status.PENDING
+        and publication.status in {
+            MarketplacePublication.Status.PENDING,
+            MarketplacePublication.Status.PUBLISHING,
+        }
     ):
         publication.status = MarketplacePublication.Status.FAILED
 

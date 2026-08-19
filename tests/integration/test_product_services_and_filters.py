@@ -38,7 +38,16 @@ def variant_data(**overrides):
 def test_product_create_update_and_status_guards(seller, product_type):
     product = create_product(
         owner=seller,
-        data={"title": "Initial", "product_type": product_type},
+        data={
+            "title": "Initial",
+            "product_type": product_type,
+            "unit_price": "1000.00",
+            "currency": Product.Currency.TRY,
+            "otto_category_id": 26822,
+            "otto_category_group_id": 3593,
+            "otto_category_name": "Esszimmerstuhl",
+            "otto_category_group_name": "Stühle",
+        },
         variants_data=[variant_data()],
     )
     assert product.variants.count() == 1

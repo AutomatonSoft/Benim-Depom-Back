@@ -7,11 +7,16 @@ from rest_framework.views import APIView
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.common.permissions import IsManager, is_manager
 
+from apps.catalog.otto_shipping_profiles import (
+    OttoShippingProfilesError,
+    get_otto_shipping_profiles,
+)
 from .models import Category
 from .otto_serializers import (
     OttoCategoryAttributeSerializer,
     OttoCategoryGroupSerializer,
     OttoCategorySerializer,
+    OttoShippingProfileSerializer,
 )
 from .serializers import CategorySerializer
 
@@ -205,8 +210,8 @@ class OttoCategoryGroupAttributesView(APIView):
         summary="Get attributes for an OTTO category group",
         description=(
             "Returns attribute definitions for the selected group. "
-            "HIGH fields are required when submitting a product for moderation; "
-            "MEDIUM and LOW fields are optional."
+            "HIGH, MEDIUM and LOW relevance values are used only to order "
+            "the manager/mobile UI; all attributes are optional."
         ),
         responses={200: OttoCategoryAttributeSerializer(many=True)},
     )
@@ -229,6 +234,54 @@ class OttoCategoryGroupAttributesView(APIView):
         return Response(
             OttoCategoryAttributeSerializer(
                 attributes,
+                many=True,
+            ).data
+        )
+
+
+class OttoShippingProfileListView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        tags=["OTTO shipping profiles"],
+        summary="List OTTO shipping profiles for an account",
+        description=(
+            "Returns selectable shipping profile names for JV or XL. "
+            "The frontend displays only shipping_profile_name and keeps "
+            "shipping_profile_id as a hidden technical value."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="account",
+                type=str,
+                required=True,
+                description="OTTO account: jv or xl.",
+            ),
+        ],
+        responses={200: OttoShippingProfileSerializer(many=True)},
+    )
+    def get(self, request):
+        account = request.query_params.get("account")
+
+        if account not in {"jv", "xl"}:
+            return Response(
+                {"detail": "Query parameter account must be 'jv' or 'xl'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            catalog = get_otto_shipping_profiles()
+        except OttoShippingProfilesError:
+            return Response(
+                {"detail": "OTTO shipping profiles are temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        profiles = catalog["profiles_by_account"][account]
+
+        return Response(
+            OttoShippingProfileSerializer(
+                profiles,
                 many=True,
             ).data
         )

@@ -31,6 +31,10 @@ def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_f
         {
             "title": "Journey chair",
             "product_type": "Chair",
+            "unit_price": "1000.00",
+            "currency": "TRY",
+            "otto_category_id": 26822,
+            "otto_category_group_id": 3593,
             "variants": [{
                 "color_hex": "#112233", "materials": ["Wood"],
                 "width_cm": "50", "height_cm": "90", "length_cm": "55", "quantity": 2,
@@ -107,6 +111,10 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
         "/api/v1/products/",
         {
             "title": "Wrong table", "product_type": "Table",
+            "unit_price": "1000.00",
+            "currency": "TRY",
+            "otto_category_id": 26822,
+            "otto_category_group_id": 3593,
             "variants": [{
                 "color_hex": "#FFFFFF", "materials": ["Metal"],
                 "width_cm": "1", "height_cm": "1", "length_cm": "1", "quantity": 1,

@@ -270,7 +270,11 @@ def request_product_deactivation(*, product: Product) -> Product:
 
 @transaction.atomic
 def deactivate_product(*, product: Product) -> Product:
-    """Confirm a seller's deactivation request from the manager web panel."""
+    """Deactivate an approved product on behalf of a manager or admin.
+
+    A seller request is useful as a notification, but it is not a
+    prerequisite: managers must be able to deactivate proactively.
+    """
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
     if locked_product.status != Product.Status.APPROVED:
@@ -278,13 +282,9 @@ def deactivate_product(*, product: Product) -> Product:
             {"detail": "Only approved products can be deactivated."}
         )
 
-    if locked_product.deactivation_requested_at is None:
-        raise ValidationError(
-            {"detail": "The seller has not requested deactivation."}
-        )
-
     locked_product.status = Product.Status.DEACTIVATED
     locked_product.is_available = False
+    locked_product.deactivation_requested_at = None
     locked_product.deactivated_at = timezone.now()
     locked_product.save(
         update_fields=(

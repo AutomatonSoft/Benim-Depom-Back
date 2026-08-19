@@ -3,15 +3,20 @@ from decimal import Decimal
 from rest_framework import serializers
 from django.utils.dateparse import parse_datetime
 from .models import (
+    MarketplaceContentGeneration,
     MarketplaceJob,
     MarketplaceListingConfiguration,
     MarketplacePublication,
 )
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from .capabilities import supports_operation
-from apps.marketplace.otto.payload_builder import (
-    OTTO_DELIVERY_TYPES,
-    OTTO_VAT_VALUES,
+from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
+from apps.catalog.otto_shipping_profiles import (
+    OttoShippingProfilesError,
+    get_otto_shipping_profile,
+)
+from apps.marketplace.kaufland.payload_builder import (
+    KAUFLAND_STOREFRONTS,
 )
 
 class MarketplaceTargetSerializer(serializers.Serializer):
@@ -106,7 +111,7 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
             missing = [
                 channel
                 for channel in channels
-                if channel != "otto" and channel not in payloads
+                if channel not in {"otto", "hood", "kaufland"} and channel not in payloads
             ]
 
             if missing:
@@ -188,6 +193,69 @@ class MarketplaceJobSerializer(serializers.ModelSerializer):
             "finished_at",
         )
 
+
+@extend_schema_serializer(component_name="MarketplaceContentGenerationRequest")
+class MarketplaceContentGenerationRequestSerializer(serializers.Serializer):
+    targets = MarketplaceTargetSerializer(
+        many=True,
+        allow_empty=False,
+        help_text="Marketplace/account pairs that will receive the generated draft.",
+    )
+
+    def validate_targets(self, targets):
+        unique_pairs = {
+            (target["marketplace"], target["account"])
+            for target in targets
+        }
+
+        if len(unique_pairs) != len(targets):
+            raise serializers.ValidationError(
+                "Each marketplace/account pair must be unique."
+            )
+
+        return targets
+
+
+@extend_schema_serializer(component_name="MarketplaceContentGenerationApplyRequest")
+class MarketplaceContentGenerationApplyRequestSerializer(
+    MarketplaceContentGenerationRequestSerializer
+):
+    overwrite = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "If false, AI fills only empty fields. "
+            "If true, it replaces existing manager text."
+        ),
+    )
+
+
+@extend_schema_serializer(component_name="MarketplaceContentGeneration")
+class MarketplaceContentGenerationSerializer(serializers.ModelSerializer):
+    product_id = serializers.IntegerField(read_only=True)
+    requested_by_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = MarketplaceContentGeneration
+        fields = (
+            "id",
+            "product_id",
+            "requested_by_id",
+            "targets",
+            "language",
+            "status",
+            "input_snapshot",
+            "result",
+            "error",
+            "model",
+            "celery_task_id",
+            "created_at",
+            "started_at",
+            "finished_at",
+        )
+        read_only_fields = fields
+
+
+
 class MarketplacePublicationFilterSerializer(serializers.Serializer):
     marketplace = serializers.ChoiceField(
         choices=MarketplacePublication.Marketplace.choices,
@@ -205,6 +273,7 @@ class MarketplacePublicationFilterSerializer(serializers.Serializer):
         min_value=1,
         required=False,
     )
+
 
 @extend_schema_serializer(component_name="MarketplacePublication")
 class MarketplacePublicationSerializer(serializers.ModelSerializer):
@@ -280,17 +349,6 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="OTTO shipping profile ID for the selected account.",
-    )
-    delivery_type = serializers.ChoiceField(
-        choices=OTTO_DELIVERY_TYPES,
-        required=False,
-        help_text="OTTO delivery method.",
-    )
-    delivery_time = serializers.IntegerField(
-        min_value=1,
-        max_value=99,
-        required=False,
-        help_text="Delivery time in days.",
     )
     media_urls = serializers.ListField(
         child=serializers.URLField(),
@@ -379,6 +437,29 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
     fsc_certified = serializers.BooleanField(required=False, allow_null=True)
     disposal = serializers.BooleanField(required=False, allow_null=True)
 
+
+    def validate_shipping_profile_id(self, value):
+        account = self.context.get("account")
+
+        if account not in {"jv", "xl"}:
+            return value
+
+        try:
+            profile = get_otto_shipping_profile(
+                account=account,
+                shipping_profile_id=value,
+            )
+        except OttoShippingProfilesError as exc:
+            raise serializers.ValidationError(
+                "OTTO shipping profiles are temporarily unavailable."
+            ) from exc
+
+        if profile is None:
+            raise serializers.ValidationError(
+                "This shipping profile does not belong to the selected account."
+            )
+
+        return value
     @staticmethod
     def to_storage(validated_data):
         """Convert non-JSON values before storing configuration as JSON."""
@@ -411,6 +492,175 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
 @extend_schema_serializer(component_name="OttoListingConfigurationResponse")
 class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
     configuration = OttoListingConfigurationSerializer(read_only=True)
+
+    class Meta:
+        model = MarketplaceListingConfiguration
+        fields = (
+            "id",
+            "product",
+            "marketplace",
+            "account",
+            "configuration",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="HoodListingConfiguration")
+class HoodListingConfigurationSerializer(serializers.Serializer):
+    """
+    Настройки менеджера для одного Hood-объявления.
+    Финальный JSON для Hood строится автоматически из товара и этих полей.
+    """
+
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Название товара для Hood.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="HTML-описание товара для Hood.",
+    )
+    price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        help_text="Цена одного товара для Hood.",
+    )
+    category_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="ID категории Hood.",
+    )
+    image_urls = serializers.ListField(
+        child=serializers.URLField(),
+        required=False,
+        allow_empty=True,
+        help_text="Публичные FTP URL изображений, выбранных менеджером.",
+    )
+    property_overrides = serializers.DictField(
+        child=serializers.CharField(
+            max_length=1000,
+            allow_blank=False,
+        ),
+        required=False,
+        help_text=(
+            "Дополнительные или исправленные свойства Hood. "
+            "Формат: {\"Farbe\": \"Braun\", \"Stil\": \"Modern\"}."
+        ),
+    )
+
+    @staticmethod
+    def to_storage(validated_data):
+        result = dict(validated_data)
+
+        if "price" in result:
+            result["price"] = format(result["price"], "f")
+
+        return result
+
+
+@extend_schema_serializer(component_name="HoodListingConfigurationResponse")
+class HoodListingConfigurationResponseSerializer(serializers.ModelSerializer):
+    configuration = HoodListingConfigurationSerializer(read_only=True)
+
+    class Meta:
+        model = MarketplaceListingConfiguration
+        fields = (
+            "id",
+            "product",
+            "marketplace",
+            "account",
+            "configuration",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="KauflandListingConfiguration")
+class KauflandListingConfigurationSerializer(serializers.Serializer):
+    """Настройки менеджера для одного Kaufland-объявления."""
+
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Название товара для Kaufland.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Описание товара для Kaufland.",
+    )
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        help_text="Цена одного товара.",
+    )
+    image_urls = serializers.ListField(
+        child=serializers.URLField(),
+        required=False,
+        allow_empty=False,
+        help_text="Публичные URL картинок на FTP.",
+    )
+    delivery = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Срок доставки в днях.",
+    )
+    storefronts = serializers.ListField(
+        child=serializers.ChoiceField(choices=KAUFLAND_STOREFRONTS),
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "Страны публикации. По умолчанию — ['de']. "
+            "Допустимые: de, cz, sk, pl, at, fr, it."
+        ),
+    )
+    storefront = serializers.ChoiceField(
+        choices=KAUFLAND_STOREFRONTS,
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Одна страна для update. Если не указана, "
+            "используется первая из storefronts или de."
+        ),
+    )
+    id_offer = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Необязательный внутренний ID предложения.",
+    )
+    unit_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Необязательный unit ID для Kaufland update.",
+    )
+
+    @staticmethod
+    def to_storage(validated_data):
+        result = dict(validated_data)
+
+        if "price" in result:
+            result["price"] = format(result["price"], "f")
+
+        return result
+
+
+@extend_schema_serializer(component_name="KauflandListingConfigurationResponse")
+class KauflandListingConfigurationResponseSerializer(serializers.ModelSerializer):
+    configuration = KauflandListingConfigurationSerializer(read_only=True)
 
     class Meta:
         model = MarketplaceListingConfiguration

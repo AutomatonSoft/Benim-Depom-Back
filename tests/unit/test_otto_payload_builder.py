@@ -56,9 +56,7 @@ def valid_configuration():
         "product_line": "Teststuhl aus Holz",
         "standard_price": "1000.00",
         "vat": "FULL",
-        "shipping_profile_id": "shipping-profile-1",
-        "delivery_type": "PARCEL",
-        "delivery_time": 3,
+        "shipping_profile_id": "b4139e65-603f-52f7-9b99-393cf6b2461f",
         "media_urls": ["https://xlmeubilair.nl/api-media/test-chair.jpg"],
         "description": "Deutsche Beschreibung",
         "bullet_points": ["Massivholz", "Modernes Design"],
@@ -82,6 +80,10 @@ def test_build_otto_payload_maps_category_attributes_and_msrp():
     assert item["pricing"]["msrp"] == {
         "amount": 1250.0,
         "currency": "EUR",
+    }
+    assert item["delivery"] == {
+        "type": "FORWARDER_CURBSIDE",
+        "deliveryTime": 5,
     }
     assert item["productDescription"]["attributes"][0]["values"] == ["Test value"]
 

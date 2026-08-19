@@ -104,6 +104,24 @@ def product_factory(db, product_type):
             owner=owner,
             title=title,
             product_type=product_type,
+            unit_price=kwargs.pop("unit_price", "100.00"),
+            currency=kwargs.pop("currency", Product.Currency.TRY),
+            # A valid local OTTO category is required when a product is sent
+            # to moderation. Tests which are not about categories should not
+            # fail because of an incomplete product fixture.
+            otto_category_id=kwargs.pop("otto_category_id", 26822),
+            otto_category_group_id=kwargs.pop(
+                "otto_category_group_id",
+                3593,
+            ),
+            otto_category_name=kwargs.pop(
+                "otto_category_name",
+                "Esszimmerstuhl",
+            ),
+            otto_category_group_name=kwargs.pop(
+                "otto_category_group_name",
+                "Stühle",
+            ),
             status=status,
             **kwargs,
         )

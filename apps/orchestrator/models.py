@@ -16,6 +16,7 @@ class MarketplaceJob(models.Model):
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
         RUNNING = "running", "Running"
+        PENDING_CONFIRMATION = "pending_confirmation", "Pending confirmation"
         SUCCEEDED = "succeeded", "Succeeded"
         PARTIAL = "partial", "Partial"
         FAILED = "failed", "Failed"
@@ -33,7 +34,7 @@ class MarketplaceJob(models.Model):
     )
     operation = models.CharField(max_length=16, choices=Operation.choices)
     status = models.CharField(
-        max_length=16,
+        max_length=24,
         choices=Status.choices,
         default=Status.QUEUED,
         db_index=True,
@@ -203,3 +204,82 @@ class MarketplaceListingConfiguration(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product_id} / {self.marketplace} / {self.account}"
+
+
+class MarketplaceContentGeneration(models.Model):
+    """Async AI generation request for manager-editable marketplace content"""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        PARTIAL = "partial", "Partial"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="content_generation_jobs",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="content_generation_jobs"
+    )
+
+    # Например:
+    # [{"marketplace": "otto", "account": "jv"}]
+    targets = models.JSONField(default=list)
+
+    language = models.CharField(max_length=8, default="de")
+
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_index=True,
+    )
+
+    # Снимок данных товара на момент запуска:
+    # название, тип, размеры, материалы, цвет, цена, категория и т.д.
+    # Нужен для аудита и чтобы результат был воспроизводимым.
+    input_snapshot = models.JSONField(default=dict)
+
+    # Структурированный ответ AI, еще не применённый к configuration
+    result = models.JSONField(default=dict, blank=True)
+
+    error = models.JSONField(default=dict, blank=True)
+
+    model = models.CharField(max_length=100, blank=True)
+
+    celery_task_id = models.CharField(max_length=255, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = (
+            models.Index(
+                fields=("product", "created_at"),
+                name="content_gen_product_idx",
+            ),
+            models.Index(
+                fields=("status", "created_at"),
+                name="content_gen_status_idx"
+            ),
+        )
+
+    def __str__(self) -> str:
+        return (
+            f"{self.product_id} / {self.language} /"
+            f"{self.status} / {self.id}"
+        )
+
+    
