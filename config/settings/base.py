@@ -430,6 +430,7 @@ KAUFLAND_API_BASE_URL = env(
     "KAUFLAND_API_BASE_URL",
     default="https://kl.automatonsoft.de",
 ).rstrip("/")
+
 KAUFLAND_API_GET_BY_EAN_ENDPOINT = env(
     "KAUFLAND_API_GET_BY_EAN_ENDPOINT",
     default="/api/products/product/{ean}/",
@@ -440,7 +441,7 @@ KAUFLAND_API_CREATE_ENDPOINT = env(
 )
 KAUFLAND_API_UPDATE_ENDPOINT = env(
     "KAUFLAND_API_UPDATE_ENDPOINT",
-    default="/api/products/{ean}/change/",
+    default="/api/products/ean/change/",
 )
 KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
