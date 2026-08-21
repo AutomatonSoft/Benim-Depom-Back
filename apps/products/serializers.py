@@ -1,4 +1,7 @@
 from decimal import Decimal
+import warnings
+from django.conf import settings
+from PIL import Image, UnidentifiedImageError
 
 from drf_spectacular.utils import (
     extend_schema_field,
@@ -6,7 +9,6 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers
 
-from apps.catalog.models import Category
 from apps.catalog.otto_catalog import (
     OttoCatalogError,
     get_otto_catalog,
@@ -148,11 +150,6 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=Product.Currency.TRY,
     )
-    category = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.filter(is_active=True),
-        required=False,
-        allow_null=True,
-    )
     otto_category_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -184,7 +181,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "unit_price",
             "currency",
             "total_amount",
-            "category",
             "otto_category_id",
             "otto_category_group_id",
             "otto_category_name",
@@ -201,7 +197,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "variants",
             "images",
             "total_quantity",
-            "total_amount",
             "created_at",
             "updated_at",
         )
@@ -209,6 +204,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "id",
             "owner",
             "status",
+            "ean_jv",
+            "ean_xl",
             "images",
             "total_quantity",
             "otto_category_name",
@@ -247,6 +244,23 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """Validate draft data without requiring a complete OTTO form."""
+        protected_ean_fields = {
+            field
+            for field in ("ean_jv", "ean_xl")
+            if field in self.initial_data
+        }
+
+        if protected_ean_fields:
+            raise serializers.ValidationError(
+                {
+                    field: (
+                        "EANs are assigned by the approved EAN-pool service "
+                        "and cannot be set through the product API."
+                    )
+                    for field in protected_ean_fields
+                }
+            )
+
         product_type = attrs.get("product_type")
         if product_type is not None and not product_type.strip():
             raise serializers.ValidationError(
@@ -479,25 +493,85 @@ class ProductImageUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
     is_primary = serializers.BooleanField(default=False)
 
-    def validate_image(self, image):
-        max_size = 10 * 1024 * 1024
 
-        allowed_content_types = {
-            "image/jpeg",
-            "image/png",
-            "image/webp",
+
+    def validate_image(self, image):
+        allowed_formats = {
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "WEBP": "image/webp",
         }
 
-        if image.size > max_size:
+        if image.size > settings.PRODUCT_IMAGE_MAX_UPLOAD_BYTES:
             raise serializers.ValidationError(
                 "Image size must not exceed 10 MB."
             )
 
-        content_type = getattr(image, "content_type", None)
-        if content_type and content_type not in allowed_content_types:
+        declared_content_type = getattr(image, "content_type", None)
+
+        if (
+            declared_content_type
+            and declared_content_type not in allowed_formats.values()
+        ):
             raise serializers.ValidationError(
-                "Allowed image formats: JPEG, PNG, WEBP"
+                "Allowed image formats: JPEG, PNG, WEBP."
             )
+
+        try:
+            image.seek(0)
+
+            with warnings.catch_warnings():
+                warnings.simplefilter(
+                    "error",
+                    Image.DecompressionBombWarning,
+                )
+
+                with Image.open(image) as parsed_image:
+                    detected_format = (parsed_image.format or "").upper()
+                    expected_content_type = allowed_formats.get(
+                        detected_format
+                    )
+
+                    if expected_content_type is None:
+                        raise serializers.ValidationError(
+                            "Allowed image formats: JPEG, PNG, WEBP."
+                        )
+
+                    if (
+                        declared_content_type
+                        and declared_content_type != expected_content_type
+                    ):
+                        raise serializers.ValidationError(
+                            "Image content type does not match its actual "
+                            "format."
+                        )
+
+                    pixel_count = (
+                        parsed_image.width * parsed_image.height
+                    )
+
+                    if pixel_count > settings.PRODUCT_IMAGE_MAX_PIXELS:
+                        raise serializers.ValidationError(
+                            "Image dimensions are too large."
+                        )
+
+                    # Checks that the file has a valid image structure
+                    # without fully decoding it into memory.
+                    parsed_image.verify()
+
+        except serializers.ValidationError:
+            raise
+        except (
+            UnidentifiedImageError,
+            OSError,
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+        ) as error:
+            raise serializers.ValidationError(
+                "Uploaded file is not a valid safe image."
+            ) from error
+        finally:
+            image.seek(0)
 
         return image
 

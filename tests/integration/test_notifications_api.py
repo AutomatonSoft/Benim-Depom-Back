@@ -34,6 +34,36 @@ def test_device_token_is_registered_reassigned_and_deactivated(api_client, selle
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_device_token_rejects_invalid_platform_and_cannot_be_disabled_by_other_user(
+    api_client,
+    seller,
+    second_seller,
+):
+    authenticate(api_client, seller)
+    assert api_client.post(
+        "/api/v1/notifications/devices/",
+        {"token": "seller-device-token", "platform": "android"},
+        format="json",
+    ).status_code == 201
+
+    invalid_platform = api_client.post(
+        "/api/v1/notifications/devices/",
+        {"token": "invalid-device-token", "platform": "desktop"},
+        format="json",
+    )
+    assert invalid_platform.status_code == 400
+
+    authenticate(api_client, second_seller)
+    assert api_client.post(
+        "/api/v1/notifications/devices/deactivate/",
+        {"token": "seller-device-token"},
+        format="json",
+    ).status_code == 204
+    assert DeviceToken.objects.get(token="seller-device-token").is_active is True
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_notifications_are_private_and_can_be_marked_read(api_client, seller, second_seller):
     notification = Notification.objects.create(
         user=seller,

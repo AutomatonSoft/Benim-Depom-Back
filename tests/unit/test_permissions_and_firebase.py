@@ -12,22 +12,36 @@ from apps.notifications.firebase import get_firebase_app
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "authenticated, role, is_staff, expected",
+    "authenticated, role, is_staff, is_superuser, expected",
     [
-        (False, User.Role.MANAGER, False, False),
-        (True, User.Role.SELLER, False, False),
-        (True, User.Role.MANAGER, False, True),
-        (True, User.Role.ADMIN, False, True),
-        (True, User.Role.SELLER, True, True),
+        (False, User.Role.MANAGER, False, False, False),
+        (True, User.Role.SELLER, False, False, False),
+        (True, User.Role.SELLER, True, False, False),
+        (True, User.Role.MANAGER, False, False, True),
+        (True, User.Role.ADMIN, False, False, True),
+        (True, User.Role.SELLER, False, True, True),
     ],
 )
-def test_role_permissions(authenticated, role, is_staff, expected):
-    user = SimpleNamespace(is_authenticated=authenticated, role=role, is_staff=is_staff)
+def test_role_permissions(
+    authenticated,
+    role,
+    is_staff,
+    is_superuser,
+    expected,
+):
+    user = SimpleNamespace(
+        is_authenticated=authenticated,
+        role=role,
+        is_staff=is_staff,
+        is_superuser=is_superuser,
+    )
     request = SimpleNamespace(user=user)
 
     assert is_manager(user) is expected
     assert IsManager().has_permission(request, None) is expected
-    assert IsSeller().has_permission(request, None) is (authenticated and role == User.Role.SELLER)
+    assert IsSeller().has_permission(request, None) is (
+        authenticated and role == User.Role.SELLER
+    )
 
 
 @pytest.mark.unit

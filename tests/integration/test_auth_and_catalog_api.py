@@ -1,10 +1,10 @@
-from unittest.mock import Mock
+from datetime import timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.catalog.models import Category
-from rest_framework.exceptions import ValidationError
+from apps.accounts.services import issue_email_verification_code
 
 
 def authenticate(client, user):
@@ -14,24 +14,44 @@ def authenticate(client, user):
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_registration_login_profile_and_manager_creation(api_client, manager, password):
+def test_registration_email_verification_login_and_manager_creation(
+    api_client,
+    manager,
+    password,
+):
     registration = {
         "username": "new_seller",
+        "email": "new_seller@example.com",
         "password": password,
         "password_confirm": password,
         "preferred_language": "de",
     }
     response = api_client.post("/api/v1/auth/register/", registration, format="json")
     assert response.status_code == 201
-    assert User.objects.get(username="new_seller").role == User.Role.SELLER
+    seller = User.objects.get(username="new_seller")
+    assert seller.role == User.Role.SELLER
+    assert seller.is_active is False
+    assert seller.is_email_verified is False
+    assert response.data["email_verification_required"] is True
 
     response = api_client.post(
         "/api/v1/auth/login/",
         {"username": "new_seller", "password": password},
         format="json",
     )
+    assert response.status_code == 401
+
+    code = issue_email_verification_code(user=seller)
+    response = api_client.post(
+        "/api/v1/auth/email/verify/",
+        {"email": seller.email, "code": code},
+        format="json",
+    )
     assert response.status_code == 200
     assert {"access", "refresh"} <= set(response.data)
+    seller.refresh_from_db()
+    assert seller.is_active is True
+    assert seller.is_email_verified is True
 
     authenticate(api_client, manager)
     response = api_client.post(
@@ -54,7 +74,12 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 ):
     response = api_client.post(
         "/api/v1/auth/register/",
-        {"username": "bad", "password": password, "password_confirm": "different"},
+        {
+            "username": "bad",
+            "email": "bad@example.com",
+            "password": password,
+            "password_confirm": "different",
+        },
         format="json",
     )
     assert response.status_code == 400
@@ -106,56 +131,126 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(api_client, seller, 
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_phone_verification_binds_only_verified_firebase_phone(api_client, seller, monkeypatch):
-    authenticate(api_client, seller)
-    monkeypatch.setattr(
-        "apps.accounts.views.get_verified_phone_from_id_token",
-        Mock(return_value="+77474412519"),
-    )
+def test_email_verification_rejects_wrong_code_and_hides_unknown_resend(
+    api_client,
+    seller,
+):
+    seller.email = "verification@example.com"
+    seller.is_active = False
+    seller.save(update_fields=("email", "is_active"))
+    code = issue_email_verification_code(user=seller)
+    wrong_code = "000000" if code != "000000" else "999999"
+
     response = api_client.post(
-        "/api/v1/auth/phone/verify/", {"id_token": "verified"}, format="json"
+        "/api/v1/auth/email/verify/",
+        {"email": seller.email, "code": wrong_code},
+        format="json",
     )
-    assert response.status_code == 200
+    assert response.status_code == 400
     seller.refresh_from_db()
-    assert seller.phone == "+77474412519"
-    assert seller.is_phone_verified is True
+    assert seller.email_verification_attempts == 1
 
-    monkeypatch.setattr(
-        "apps.accounts.views.get_verified_phone_from_id_token",
-        Mock(side_effect=ValidationError({"id_token": "Invalid or expired Firebase token."})),
+    response = api_client.post(
+        "/api/v1/auth/email/resend-verification/",
+        {"email": "unknown@example.com"},
+        format="json",
     )
-    response = api_client.post("/api/v1/auth/phone/verify/", {"id_token": "bad"}, format="json")
-    assert response.status_code == 400
-
-    seller.phone = "+70000000000"
-    seller.save(update_fields=["phone"])
-    monkeypatch.setattr(
-        "apps.accounts.views.get_verified_phone_from_id_token", Mock(return_value="+71111111111")
-    )
-    response = api_client.post("/api/v1/auth/phone/verify/", {"id_token": "other-phone"}, format="json")
-    assert response.status_code == 400
+    assert response.status_code == 202
 
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_catalog_public_visibility_and_manager_write_access(api_client, manager, seller):
-    inactive = Category.objects.create(name="Hidden", is_active=False)
-    visible = Category.objects.create(name="Visible", is_active=True)
+def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_codes(
+    api_client,
+    seller,
+    password,
+):
+    seller.email = "existing@example.com"
+    seller.save(update_fields=("email",))
 
-    response = api_client.get("/api/v1/catalog/categories/")
-    assert response.status_code == 200
-    assert [item["id"] for item in response.data["results"]] == [visible.id]
-
-    authenticate(api_client, seller)
-    response = api_client.post("/api/v1/catalog/categories/", {"name": "Nope"}, format="json")
-    assert response.status_code == 403
-
-    authenticate(api_client, manager)
-    response = api_client.post(
-        "/api/v1/catalog/categories/", {"name": "Office", "sort_order": 3}, format="json"
+    missing_email = api_client.post(
+        "/api/v1/auth/register/",
+        {
+            "username": "without_email",
+            "password": password,
+            "password_confirm": password,
+        },
+        format="json",
     )
-    assert response.status_code == 201
+    assert missing_email.status_code == 400
+    assert "email" in missing_email.data
+
+    duplicate_email = api_client.post(
+        "/api/v1/auth/register/",
+        {
+            "username": "duplicate_email",
+            "email": "EXISTING@example.com",
+            "password": password,
+            "password_confirm": password,
+        },
+        format="json",
+    )
+    assert duplicate_email.status_code == 400
+    assert "email" in duplicate_email.data
+
+    seller.is_active = False
+    seller.save(update_fields=("is_active",))
+    valid_code = issue_email_verification_code(user=seller)
+    seller.email_verification_expires_at = timezone.now() - timedelta(seconds=1)
+    seller.save(update_fields=("email_verification_expires_at",))
+
+    expired = api_client.post(
+        "/api/v1/auth/email/verify/",
+        {"email": seller.email, "code": valid_code},
+        format="json",
+    )
+    assert expired.status_code == 400
+
+    valid_code = issue_email_verification_code(user=seller)
+    wrong_code = "000000" if valid_code != "000000" else "999999"
+    for _ in range(5):
+        assert api_client.post(
+            "/api/v1/auth/email/verify/",
+            {"email": seller.email, "code": wrong_code},
+            format="json",
+        ).status_code == 400
+
+    exhausted = api_client.post(
+        "/api/v1/auth/email/verify/",
+        {"email": seller.email, "code": valid_code},
+        format="json",
+    )
+    assert exhausted.status_code == 400
+    seller.refresh_from_db()
+    assert seller.is_active is False
+    assert seller.is_email_verified is False
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, seller):
+    seller.email = "resend@example.com"
+    seller.is_active = False
+    seller.save(update_fields=("email", "is_active"))
+    issue_email_verification_code(user=seller)
+
+    cooldown = api_client.post(
+        "/api/v1/auth/email/resend-verification/",
+        {"email": seller.email},
+        format="json",
+    )
+    assert cooldown.status_code == 400
+
+    seller.is_active = True
+    seller.save(update_fields=("is_active",))
+    api_client.force_authenticate(seller)
     response = api_client.patch(
-        f"/api/v1/catalog/categories/{inactive.id}/", {"is_active": True}, format="json"
+        "/api/v1/auth/me/",
+        {"is_email_verified": True},
+        format="json",
     )
     assert response.status_code == 200
+    seller.refresh_from_db()
+    assert seller.is_email_verified is False
+
+

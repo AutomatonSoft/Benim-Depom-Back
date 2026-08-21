@@ -13,13 +13,9 @@ def authenticate(client, user):
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_health_catalog_category_and_ean_list_access(api_client, manager, category):
+def test_health_and_ean_list_access(api_client, manager):
     assert api_client.get("/api/v1/health/").json() == {"status": "ok"}
     authenticate(api_client, manager)
-    response = api_client.patch(
-        f"/api/v1/catalog/categories/{category.id}/", {"name": "Office"}, format="json"
-    )
-    assert response.status_code == 200
     EanCode.objects.create(code="4006381333931", account="jv", imported_by=manager)
     EanCode.objects.create(code="9501101530003", account="xl", imported_by=manager)
     response = api_client.get("/api/v1/manager/eans/?account=jv&is_assigned=false")
@@ -78,14 +74,12 @@ def test_seller_deactivation_creates_manager_approval_request(api_client, seller
 
     authenticate(api_client, manager)
     response = api_client.post(f"/api/v1/manager/products/{product.id}/deactivate/")
-    assert response.status_code == 200
+    # A local product without an external listing has nothing to deactivate.
+    # Its global moderation status must remain independent of marketplace state.
+    assert response.status_code == 400
     product.refresh_from_db()
-    assert product.status == Product.Status.DEACTIVATED
-    assert Notification.objects.filter(
-        user=seller,
-        product=product,
-        notification_type=Notification.Type.PRODUCT_DEACTIVATED,
-    ).exists()
+    assert product.status == Product.Status.APPROVED
+    assert product.deactivation_requested_at is not None
 
 
 @pytest.mark.integration
@@ -103,13 +97,8 @@ def test_manager_can_deactivate_without_a_seller_request(
         f"/api/v1/manager/products/{product.id}/deactivate/"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 400
     product.refresh_from_db()
-    assert product.status == Product.Status.DEACTIVATED
-    assert product.is_available is False
+    assert product.status == Product.Status.APPROVED
+    assert product.is_available is True
     assert product.deactivation_requested_at is None
-    assert Notification.objects.filter(
-        user=seller,
-        product=product,
-        notification_type=Notification.Type.PRODUCT_DEACTIVATED,
-    ).exists()

@@ -7,7 +7,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from .models import MarketplaceJob, MarketplacePublication
-
+from apps.common.external_json import compact_external_json
 
 PUBLICATION_OPERATIONS = {
     MarketplaceJob.Operation.PUBLISH,
@@ -51,6 +51,26 @@ def _status_after_success(operation: str) -> str:
         raise ValueError(
             f"Operation '{operation}' has no publication status."
         ) from exc
+
+
+def _status_during_operation(operation: str) -> str:
+    statuses = MarketplacePublication.Status
+
+    mapping = {
+        MarketplaceJob.Operation.PUBLISH: statuses.PUBLISHING,
+        MarketplaceJob.Operation.UPDATE: statuses.PUBLISHING,
+        MarketplaceJob.Operation.ACTIVATE: statuses.PUBLISHING,
+        MarketplaceJob.Operation.DEACTIVATE: statuses.DEACTIVATING,
+        MarketplaceJob.Operation.DELETE: statuses.DELETING,
+    }
+
+    try:
+        return mapping[operation]
+    except KeyError as exc:
+        raise ValueError(
+            f"Operation '{operation}' has no in-progress publication status."
+        ) from exc
+
 
 
 @transaction.atomic
@@ -129,8 +149,10 @@ def start_publication_attempt(
             f"'{publication.status}'."
         )
 
+    publication.status_before_operation = publication.status
+    publication.status = _status_during_operation(job.operation)
     publication.last_job = job
-    publication.last_request = request_payload
+    publication.last_request = compact_external_json(request_payload)
     publication.last_response = {}
     publication.last_error = {}
     publication.last_attempt_at = timezone.now()
@@ -141,6 +163,8 @@ def start_publication_attempt(
 
     publication.save(
         update_fields=(
+            "status",
+            "status_before_operation",
             "last_job",
             "last_request",
             "last_response",
@@ -190,7 +214,7 @@ def mark_publication_awaiting_confirmation(
         publication.status = target_status
 
     publication.last_job = job
-    publication.last_response = response_payload
+    publication.last_response = compact_external_json(response_payload)
     publication.last_error = {}
     if external_reference:
         publication.external_reference = external_reference
@@ -235,8 +259,9 @@ def mark_publication_succeeded(
     )
 
     publication.status = target_status
+    publication.status_before_operation = ""
     publication.last_job = job
-    publication.last_response = response_payload
+    publication.last_response = compact_external_json(response_payload)
     publication.last_error = {}
 
     if external_id:
@@ -265,6 +290,7 @@ def mark_publication_succeeded(
     publication.save(
         update_fields=(
             "status",
+            "status_before_operation",
             "last_job",
             "last_response",
             "last_error",
@@ -297,26 +323,27 @@ def mark_publication_failed(
         pk=publication.pk
     )
 
+    previous_status = publication.status_before_operation
+
     publication.last_job = job
-    publication.last_error = error_payload
+    publication.last_error = compact_external_json(error_payload)
 
     if response_payload is not None:
-        publication.last_response = response_payload
+        publication.last_response = compact_external_json(response_payload)
 
-    # If the product was never published and the first publish fails,
-    # it has no confirmed external state, so mark it as failed.
-    if (
-        job.operation == MarketplaceJob.Operation.PUBLISH
-        and publication.status in {
-            MarketplacePublication.Status.PENDING,
-            MarketplacePublication.Status.PUBLISHING,
-        }
-    ):
+    # Publishing has no confirmed marketplace state. Other operations return
+    # to their stable pre-operation status.
+    if job.operation == MarketplaceJob.Operation.PUBLISH:
         publication.status = MarketplacePublication.Status.FAILED
+    elif previous_status:
+        publication.status = previous_status
+
+    publication.status_before_operation = ""
 
     publication.save(
         update_fields=(
             "status",
+            "status_before_operation",
             "last_job",
             "last_response",
             "last_error",

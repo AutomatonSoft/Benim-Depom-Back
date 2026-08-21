@@ -5,6 +5,12 @@ from typing import Any
 import requests
 from django.conf import settings
 
+from apps.common.marketplace_http import (
+    build_marketplace_session,
+    marketplace_timeout,
+    response_payload,
+)
+
 
 def path_with_ean(endpoint: str, ean: str) -> str:
     endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
@@ -14,6 +20,7 @@ def path_with_ean(endpoint: str, ean: str) -> str:
 class HoodClient:
     def __init__(self, request_id: str) -> None:
         self.request_id = request_id
+        self.session = build_marketplace_session()
 
     def request(
         self,
@@ -43,32 +50,27 @@ class HoodClient:
         if settings.HOOD_LOGIN and settings.HOOD_PASSWORD:
             auth = (settings.HOOD_LOGIN, settings.HOOD_PASSWORD)
 
-        # account is always explicit and cannot be overwritten by caller.
+        # Аккаунт всегда задаётся сервером и не может быть подменён query-параметрами.
         params = {
             **(query_params or {}),
             "account": account,
         }
 
         try:
-            response = requests.request(
+            response = self.session.request(
                 method=method,
                 url=f"{settings.HOOD_API_BASE_URL}{path}",
                 headers=headers,
                 params=params,
                 json=payload,
                 auth=auth,
-                timeout=settings.MARKETPLACE_HTTP_TIMEOUT_SECONDS,
+                timeout=marketplace_timeout(),
             )
-
-            try:
-                body: Any = response.json()
-            except ValueError:
-                body = {"raw": response.text[:1500]}
 
             return {
                 "ok": response.ok,
                 "status_code": response.status_code,
-                "details": body,
+                "details": response_payload(response),
             }
 
         except requests.RequestException as exc:

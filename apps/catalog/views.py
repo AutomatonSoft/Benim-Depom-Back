@@ -1,53 +1,22 @@
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import generics, status
+from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
-from apps.common.permissions import IsManager, is_manager
+from apps.common.permissions import IsManager
 
 from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profiles,
 )
-from .models import Category
 from .otto_serializers import (
     OttoCategoryAttributeSerializer,
     OttoCategoryGroupSerializer,
     OttoCategorySerializer,
     OttoShippingProfileSerializer,
 )
-from .serializers import CategorySerializer
-
-
-
-    
-class CategoryListView(generics.ListCreateAPIView):
-    serializer_class = CategorySerializer
-
-    def get_permissions(self):
-        if self.request.method == "POST":
-            return [IsManager()]
-        return [AllowAny()]
-
-    def get_queryset(self):
-        queryset = Category.objects.all()
-
-        if not is_manager(self.request.user):
-            queryset = queryset.filter(is_active=True)
-
-        return queryset
-
-
-
-class ManagerCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    permission_classes = [IsManager]
-
-
-
 class OttoCatalogPaginationMixin:
     """
     Pagination in RAM. The catalog itself is already cached as Python dicts.
@@ -100,7 +69,7 @@ class OttoCategoryGroupListView(OttoCatalogPaginationMixin, APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
-        tags=["OTTO catalog"],
+        tags=["OTTO - Catalog"],
         summary="List OTTO category groups",
         description=(
             "Returns OTTO category groups from the local JSON catalog. "
@@ -164,7 +133,7 @@ class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
-        tags=["OTTO catalog"],
+        tags=["OTTO - Catalog"],
         summary="List categories in an OTTO group",
         description=(
             "Returns selectable OTTO subcategories for one category group."
@@ -206,7 +175,7 @@ class OttoCategoryGroupAttributesView(APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
-        tags=["OTTO catalog"],
+        tags=["OTTO - Catalog"],
         summary="Get attributes for an OTTO category group",
         description=(
             "Returns attribute definitions for the selected group. "
@@ -243,7 +212,7 @@ class OttoShippingProfileListView(APIView):
     permission_classes = [IsManager]
 
     @extend_schema(
-        tags=["OTTO shipping profiles"],
+        tags=["OTTO - Delivery"],
         summary="List OTTO shipping profiles for an account",
         description=(
             "Returns selectable shipping profile names for JV or XL. "

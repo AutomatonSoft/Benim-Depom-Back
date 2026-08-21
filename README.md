@@ -1,260 +1,169 @@
 # BENIM DEPOM — Backend
 
-Backend для сервиса, в котором продавцы добавляют товары из мобильного приложения, а менеджеры проверяют их через web-панель. После одобрения товары будут передаваться в маркетплейсы через отдельные интеграции.
+Backend сервиса, где продавцы создают товары из мобильного приложения, а менеджеры проверяют, дополняют и публикуют их на OTTO, Hood и Kaufland от аккаунтов JV и XL.
 
-Проект — модульный Django-монолит. Он рассчитан на текущий масштаб в сотни пользователей с запасом до примерно 1 000 активных пользователей: PostgreSQL хранит бизнес-данные, Redis и Celery выполняют фоновые операции, а фотографии хранятся на FTP/FTPS.
+Проект — модульный Django-монолит. PostgreSQL хранит бизнес-данные и историю, Redis/Celery выполняют фоновые операции, FTP/FTPS хранит изображения. Архитектура рассчитана на сотни пользователей с запасом примерно до 1 000 активных пользователей.
 
-## Что реализовано
+## Возможности
 
-- Регистрация продавца, JWT-авторизация, refresh/logout, профиль и выбор языка (`ru`, `tr`, `de`, `en`).
+- Регистрация seller по username, email и паролю; подтверждение email шестизначным SMTP-кодом.
+- JWT: login, refresh с rotation, logout с blacklist refresh-token, профиль.
 - Роли `seller`, `manager`, `admin` и разграничение доступа.
-- Товары, варианты с размерами, количеством, HEX-цветом и текстовыми материалами.
-- Загрузка, перестановка, удаление и выбор главной фотографии. Медиа сохраняются на FTP/FTPS.
-- Модерация товаров: отправка, одобрение, отклонение и история решений.
-- EAN-пул: импорт кодов для аккаунтов `jv` и `xl`, автоматическое резервирование двух кодов только при одобрении товара.
-- Асинхронная AI-обработка фотографий: менеджер запускает генерацию, Celery ожидает результат и сохраняет варианты `white`, `interior`, `human` на FTP.
-- Уведомления внутри приложения, FCM device tokens и серверная отправка Firebase Push.
-- Напоминания о наличии товара: ежедневная автоматическая задача и ручной запрос менеджера.
-- Отключение товара продавцом с уведомлением менеджеров.
-- Swagger/OpenAPI, Django Admin, Docker Compose и базовые pytest-тесты.
+- Товары с ценой за единицу (`TRY`, `EUR`, `USD`), вариантами, размерами, количеством, HEX-цветом и текстовыми материалами.
+- Выбор OTTO-категории и необязательных атрибутов из локального JSON-каталога.
+- FTP/FTPS-загрузка фото, сортировка, удаление и главное изображение.
+- Генерация белого фона, интерьерного и human-изображения внешним AI-сервисом.
+- Модерация, история решений, сообщения продавцу, ручные и автоматические запросы наличия.
+- EAN pool JV/XL; два EAN назначаются только при одобрении товара.
+- In-app уведомления в БД и Firebase Cloud Messaging push.
+- AI-черновики title, description и bullet points через OpenAI для marketplace-конфигураций.
+- Подготовка, публикация, поиск, обновление, удаление/деактивация и отслеживание статусов OTTO, Hood и Kaufland.
+- Swagger, Scalar, Django Admin, Docker Compose, pytest unit/integration/e2e тесты.
 
-## Роли и доступ
+Не реализовано намеренно: чат менеджер ↔ продавец, SMS/phone authentication и Firebase Authentication. Firebase используется только для FCM push, телефон пока хранится как строка без проверки.
 
-| Роль | Кто создаёт | Возможности |
+## Роли
+
+| Роль | Как создаётся | Возможности |
 | --- | --- | --- |
-| `seller` | Публичная регистрация | Управляет только своими товарами, фото и профилем; отправляет товар на модерацию; подтверждает наличие, отзывает не одобренный товар или отключает одобренный; читает уведомления. |
-| `manager` | Manager/admin web-панели или разработчик | Управляет товарами всех продавцов: может архивировать и отключать их, модерировать, импортировать EAN, отправлять уведомления, вручную запрашивать наличие, запускать AI-обработку фото и создавать других менеджеров. |
-| `admin` | Только разработчик через терминал/Django Admin | Права менеджера плюс Django Admin. Публичного API для создания admin нет. |
+| `seller` | Публичная регистрация | Только свои товары, фото, профиль, submit, withdraw, ответ о наличии, заявка на деактивацию, уведомления. |
+| `manager` | Защищённый endpoint web-панели | Все товары, модерация, EAN, уведомления, AI-фото, AI-контент, marketplace-конфигурации и операции. |
+| `admin` | Только разработчик через `createsuperuser` / Django Admin | Всё, что manager, плюс Django Admin. |
 
-Публичный `POST /api/v1/auth/register/` всегда создаёт только `seller`. Поле роли намеренно отсутствует: иначе любой пользователь мог бы стать менеджером.
+Публичный `POST /api/v1/auth/register/` всегда создаёт только `seller`: передать роль в payload нельзя. Manager/admin не создаются публично. API-права определяет `role`; `is_staff` нужен лишь для Django Admin.
 
-В web-панели manager/admin создаёт менеджера через `POST /api/v1/manager/users/`. Этот endpoint всегда создаёт только роль `manager`, принять роль `admin` он не может.
-
-Создать первого менеджера из Docker:
-
-```powershell
-docker compose exec web python manage.py shell -c "from apps.accounts.models import User; User.objects.create_user(username='manager1', password='CHANGE_ME', role=User.Role.MANAGER)"
-```
-
-Для доступа к Django Admin нужен пользователь с `is_staff=True`; стандартный способ создать такого пользователя:
-
-```powershell
-docker compose exec web python manage.py createsuperuser
-```
-
-Админка доступна по `http://localhost:8000/admin/`.
-
-## Основной поток товара
+## Жизненный цикл товара
 
 ```text
-Продавец создаёт черновик
-  → добавляет варианты и фотографии
-  → отправляет на модерацию
-  → менеджер при необходимости запускает AI-обработку фото
-  → менеджер одобряет или отклоняет товар
-  → при одобрении резервируются EAN JV + EAN XL
-  → продавец получает in-app / push-уведомление.
+Seller создаёт draft
+  → добавляет variants и source images
+  → выбирает OTTO category + optional attributes
+  → submit на модерацию
+  → manager проверяет/редактирует, при необходимости запускает AI-фото
+  → approve: назначаются EAN JV и EAN XL
+  → manager готовит marketplace configurations и AI-content draft
+  → publish через orchestrator
+  → Celery ожидает внешнее подтверждение и сохраняет статус публикации.
 ```
 
-AI-генерацию не запускает продавец и не видит её технические детали. Менеджер видит статус, ошибку и сгенерированные изображения. Продавец видит только своё исходное фото.
-
-### Статусы товара
-
-| Статус | Значение |
+| Статус товара | Значение |
 | --- | --- |
-| `draft` | Черновик. Продавец может редактировать товар, варианты и фотографии. |
-| `submitted` | Товар отправлен менеджеру на модерацию. |
-| `under_review` | Зарезервирован для будущего явного этапа проверки. |
-| `approved` | Товар одобрен. Для него включаются напоминания о наличии. |
-| `rejected` | Товар отклонён. Продавец может исправить его и отправить повторно. |
-| `deactivated` | Менеджер подтвердил заявку продавца на отключение ранее одобренного товара. В будущем этот статус будет запускать снятие с маркетплейсов. |
-| `archived` | Мягко удалён. Не показывается в рабочих списках, история остаётся в базе. |
+| `draft` | Черновик. Seller редактирует товар, варианты и фото. |
+| `submitted` | Отправлен manager-у на модерацию. |
+| `under_review` | Резерв под явный этап проверки. |
+| `approved` | Одобрен, EAN назначены, можно публиковать. |
+| `rejected` | Отклонён; seller исправляет и отправляет повторно. |
+| `deactivated` | Отключён в бизнес-процессе после снятия публикаций. |
+| `archived` | Мягко удалён: скрыт из рабочих списков, история сохранена. |
 
-## Стек
+Публикация имеет отдельный статус: `pending`, `publishing`, `active`, `deactivating`, `deactivated`, `deleting`, `deleted`, `failed`. UI должен показывать статус товара и публикаций раздельно.
 
-- Python 3.12, Django 5.2, Django REST Framework
-- PostgreSQL 16
-- Redis 7, Celery 5 и Celery Beat
-- SimpleJWT с rotation и blacklist refresh-токенов
-- drf-spectacular / Swagger UI
-- Firebase Admin SDK для FCM Push и проверки Firebase ID token
-- FTP/FTPS storage для фотографий
-- Pillow и `requests`
-- pytest, pytest-django, Ruff
-- Docker / Docker Compose
+## Архитектура
 
-## Быстрый запуск через Docker
-
-### 1. Подготовить `.env`
-
-```powershell
-Copy-Item .env.example .env
+```text
+Flutter mobile / Web panel
+          │ HTTPS + JWT
+          ▼
+      Django REST API
+   ┌──────┼─────────┐
+   ▼      ▼         ▼
+PostgreSQL Redis   FTP/FTPS
+           │         └─ source/generated images
+           ▼
+        Celery workers
+   ┌──────┼─────┬─────┬──────────────┐
+ marketplace AI images notifications maintenance
+   ▼
+OTTO / Hood / Kaufland / OpenAI / image AI / Firebase
 ```
 
-Заполни обязательные переменные: PostgreSQL, FTP, Firebase (если нужны push/SMS) и AI-сервис. Не коммить `.env` и Firebase service-account JSON в Git.
+| Queue | Worker | Concurrency | Задачи |
+| --- | --- | ---: | --- |
+| `marketplace` | `worker_marketplace` | 2 | Publish/update/search/delete, OTTO polling. |
+| `ai` | `worker_ai` | 2 | OpenAI marketplace content. |
+| `images` | `worker_images` | 2 | AI-фото и ожидание результатов. |
+| `notifications` | `worker_notifications` | 2 | FCM push, availability reminders. |
+| `maintenance` | `worker_maintenance` | 1 | Очистка и восстановление зависших задач. |
 
-### 2. Запустить сервисы и миграции
+Одновременно может выполняться до 9 задач. Redis — broker/cache, но не источник бизнес-данных: товары, jobs, публикации и уведомления находятся в PostgreSQL.
 
-```powershell
-docker compose up -d --build
-docker compose exec web python manage.py migrate
-docker compose exec web python manage.py createsuperuser
-```
+### OTTO polling
 
-Docker запускает пять сервисов:
+После OTTO publish/update/activate/deactivate есть два этапа:
 
-- `web` — Django API на `http://localhost:8000`;
-- `worker` — Celery: push, AI, другие фоновые задачи;
-- `beat` — планировщик ежедневных задач;
-- `postgres` — доступен с хоста на порту `5434`;
-- `redis` — доступен с хоста на порту `6380`.
+1. Проверка wrapper-процесса — время `pingAfter` от OTTO либо fallback каждые 30 секунд, максимум 120 попыток (~1 час).
+2. Проверка реального marketplace status — каждые 5 минут, максимум 288 попыток (до 24 часов). Для publish/update/activate ожидается `ONLINE`, для deactivate — `INACTIVE`.
 
-Контейнеры сами используют внутренние имена `postgres:5432` и `redis:6379`; не меняй их на host-порты в `docker-compose.yml`.
+Поэтому финальный успех показывается только когда обновились и `MarketplaceJob`, и `MarketplacePublication`.
 
-Полезные команды:
+## Контракт для Flutter-разработчика
 
-```powershell
-docker compose ps
-docker compose logs -f web
-docker compose logs -f worker
-docker compose exec web python manage.py check
-docker compose exec web pytest
-```
+### Общие правила
 
-Полезные страницы:
+- Base URL локально: `http://localhost:8000/api/v1`.
+- JSON для всех запросов, кроме фото (`multipart/form-data`).
+- В protected запросах: `Authorization: Bearer <access>`.
+- Access живёт 15 минут, refresh — 7 дней. Хранить их только в `flutter_secure_storage`.
+- При `401`: один раз вызвать `/auth/refresh/`, сохранить новую пару токенов и повторить запрос. Если refresh не прошёл — logout.
+- Refresh ротируется: старый refresh всегда заменяется значением из ответа.
+- Списки пагинированы: `count`, `page`, `limit`, `next`, `previous`, `results`.
+- Если Swagger у endpoint показывает заголовок `Idempotency-Key`, создавать UUID на одно действие пользователя и использовать тот же UUID только для повторной отправки из-за сетевой ошибки.
 
-- Swagger: `http://localhost:8000/api/docs/`
-- OpenAPI schema: `http://localhost:8000/api/schema/`
-- Django Admin: `http://localhost:8000/admin/`
-- Healthcheck: `http://localhost:8000/api/v1/health/`
+### Регистрация и login
 
-## Авторизация
-
-### JWT
-
-| Значение | Срок жизни | Назначение |
-| --- | --- | --- |
-| `access` | 15 минут | Передаётся в каждом защищённом API-запросе. |
-| `refresh` | 7 дней | Получает новый access через endpoint refresh. |
-
-Для защищённого запроса передавай:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-После `POST /api/v1/auth/logout/` refresh-токен добавляется в blacklist и больше не должен использоваться. При refresh включена ротация: клиент сохраняет новый refresh из ответа и заменяет старый. Мобильное приложение хранит оба токена в защищённом хранилище устройства.
-
-### Firebase Phone Auth / SMS
-
-Firebase не является Django Admin и не заменяет JWT. Firebase выполняет SMS-подтверждение телефона на устройстве; мобильный Firebase SDK после успешного SMS получает Firebase ID token. Затем приложение вызывает backend:
-
-```http
-POST /api/v1/auth/phone/verify/
-Authorization: Bearer <access_token>
-
-{
-  "id_token": "firebase_id_token"
-}
-```
-
-Backend проверяет токен через Firebase Admin SDK, сохраняет телефон и ставит `is_phone_verified=true`.
-
-Сейчас пароль обязателен, а JWT login ещё не блокируется для неподтверждённого номера. Обязательный второй фактор включается отдельно после стабильной интеграции Firebase SDK в мобильном приложении.
-
-## Общие правила API
-
-Все прикладные маршруты начинаются с `/api/v1/`. Формат — JSON, кроме загрузки изображений (`multipart/form-data`).
-
-Swagger показывает актуальную схему и позволяет выполнять запросы вручную. Для Swagger сначала вызови login, затем нажми **Authorize** и вставь `Bearer <access_token>`.
-
-Endpoints в Swagger разделены по тегам: `Mobile — Authentication`, `Authentication — Shared`, `Catalog`, `Products`, `Moderation`, `Web — Moderation`, `Web — EAN pool`, `Web — Manager accounts`, `Notifications` и `Service`.
-
-У каждого endpoint есть короткий summary. Схемы в разделе `Schemas` используют доменные префиксы: `Auth…`, `Catalog…`, `Products…`, `Moderation…`, `Ean…`, `Notifications…`, `Web…`. Стандартный Swagger UI не поддерживает вложенные папки для schemas, поэтому префиксы — совместимый способ собрать их рядом в списке.
-
-Списки используют стандартную пагинацию DRF: 20 объектов на страницу.
+1. `POST /auth/register/` создаёт seller и отправляет email-code.
+2. Показать экран ввода кода.
+3. `POST /auth/email/verify/` возвращает `access` и `refresh`.
+4. Если код не пришёл: `POST /auth/email/resend-verification/`.
+5. Для следующих входов: `POST /auth/login/`.
 
 ```json
 {
-  "count": 42,
-  "next": "http://localhost:8000/api/v1/products/?page=2",
-  "previous": null,
-  "results": []
-}
-```
-
-## API: авторизация и профиль
-
-| Метод | URL | Доступ | Назначение |
-| --- | --- | --- | --- |
-| `POST` | `/auth/register/` | публично | Регистрация продавца. |
-| `POST` | `/auth/login/` | публично | Login по username и паролю, возвращает `access` и `refresh`. |
-| `POST` | `/auth/refresh/` | публично | Обновить JWT-пару по refresh. |
-| `POST` | `/auth/logout/` | авторизован | Отозвать refresh-токен. |
-| `GET/PATCH` | `/auth/me/` | авторизован | Получить или изменить профиль. |
-| `POST` | `/auth/phone/verify/` | авторизован | Подтвердить телефон Firebase ID token. |
-
-Полный префикс для таблицы: `/api/v1/auth/`.
-
-Пример регистрации:
-
-```json
-{
-  "username": "seller1",
+  "username": "seller_01",
   "email": "seller@example.com",
   "password": "StrongPassword123!",
   "password_confirm": "StrongPassword123!",
-  "phone": "+77000000000",
-  "preferred_language": "ru"
+  "phone": "+905550000000",
+  "preferred_language": "tr"
 }
 ```
 
-## API: каталог и товары
+### FCM и уведомления
 
-### Каталог
+После login и после смены FCM-token зарегистрировать устройство:
 
-Полный префикс: `/api/v1/catalog/`.
+```http
+POST /api/v1/notifications/devices/
+```
 
-| Метод | URL | Доступ | Назначение |
-| --- | --- | --- | --- |
-| `GET` | `/categories/` | публично | Активные категории. |
-| `POST` | `/categories/` | manager/admin | Создать категорию. |
-| `GET/PATCH/DELETE` | `/categories/{id}/` | manager/admin | Управлять категорией. |
+```json
+{
+  "token": "firebase-fcm-device-token",
+  "platform": "android"
+}
+```
 
-В текущем API нет endpoints `catalog/colors` и `catalog/materials`: они были нужны старой модели и убраны из публичного контракта. Цвет и материалы приходят прямо в варианте товара как `color_hex` и `materials`.
+`platform`: `android` или `ios`. При logout/удалении устройства вызвать `POST /notifications/devices/deactivate/` с тем же token.
 
-`product_type` и `category` — не одно и то же:
+Push — только сигнал. После push и при открытии приложения загружать `GET /notifications/`, затем подтверждать прочтение.
 
-| Поле | Обязательно | Что означает | Пример для стула |
-| --- | --- | --- | --- |
-| `product_type` | да | Свободная строка от продавца. Мобильное приложение показывает подсказки на его языке, но backend не ограничивает список. Используется в AI-сервисе как тип (`produktart`) и позднее будет маппиться в типы маркетплейсов. | `Chair`, `Стул`, `Kanepe` |
-| `category` | нет | Более широкая бизнес-группа для навигации и фильтрации. Сейчас она плоская, без дерева. | `Living room furniture` или `Home furniture` |
+### Форма товара
 
-### Товары
-
-Полный префикс: `/api/v1/products/`.
-
-| Метод | URL | Доступ | Назначение |
-| --- | --- | --- | --- |
-| `GET` | `/` | авторизован | Seller видит свои товары, manager/admin — все. |
-| `POST` | `/` | seller | Создать товар в `draft`. |
-| `GET/PATCH/PUT/DELETE` | `/{id}/` | владелец или manager/admin | Детали, изменение и мягкое удаление. Seller изменяет/удаляет только свои `draft/rejected`; manager/admin — любые. |
-| `POST` | `/{id}/availability/` | владелец | Ответить на запрос наличия: `{"is_available": true}` или `false`. |
-| `POST` | `/{id}/withdraw/` | владелец | Отозвать `submitted/under_review` товар. Он архивируется без уведомления менеджеров. |
-| `POST` | `/{id}/deactivate/` | владелец | Создать заявку на деактивацию одобренного товара. Возвращает `202`; товар остаётся `approved`, а менеджеры получают уведомление. |
-| `POST` | `/{id}/images/` | владелец | Загрузить исходную фотографию. |
-| `POST` | `/{id}/images/reorder/` | владелец | Указать новый порядок всех фотографий. |
-| `DELETE` | `/{id}/images/{image_id}/` | владелец | Удалить фотографию. |
-| `POST` | `/{id}/images/{image_id}/make-primary/` | владелец | Сделать фото главным. |
-| `POST` | `/{id}/images/{image_id}/process/` | manager/admin | Запустить AI-обработку после отправки товара на модерацию. |
-
-Пример создания товара:
+1. Запросить OTTO category groups → categories выбранной группы → attributes группы.
+2. Создать draft с минимум одним variant.
+3. Отдельно загрузить одно или несколько фото.
+4. До submit редактировать через `PATCH /products/{id}/`.
+5. Отправить на модерацию.
 
 ```json
 {
   "title": "Wooden chair",
-  "product_type": "Wooden chair",
-  "category": null,
+  "product_type": "Chair",
+  "unit_price": "299.00",
+  "currency": "EUR",
+  "otto_category_id": 26822,
+  "otto_category_group_id": 3593,
+  "otto_attributes": {},
   "variants": [
     {
       "color_hex": "#5B91C8",
@@ -268,237 +177,292 @@ Endpoints в Swagger разделены по тегам: `Mobile — Authenticat
 }
 ```
 
-Правила варианта:
+Правила:
 
-- `color_hex` — строго `#RRGGBB`;
-- `materials` — одна или две непустые уникальные строки, до 100 символов каждая;
-- размеры передаются в сантиметрах и должны быть больше нуля;
-- количество — целое число от 1;
-- `total_quantity` рассчитывает backend как сумму `quantity` всех вариантов.
+- `product_type` — свободная строка. Мобильное приложение показывает локальные подсказки; backend не ведёт каталог типов.
+- `unit_price` обязателен. `currency`: `TRY` по умолчанию, `EUR`, `USD`.
+- `total_amount` отдаёт backend: `unit_price × total_quantity`.
+- `color_hex` строго `#RRGGBB`; используйте color picker.
+- `materials` — массив строк; первый материал основной для Kaufland.
+- Размеры в сантиметрах и больше нуля; quantity — целое число больше нуля.
+- OTTO attributes сейчас optional, но их значения проверяются по типу и allowed values из каталога.
+- Seller не передаёт и не видит `ean_jv/ean_xl` до approve.
+- Не вызывайте AI image processing, EAN, manager и marketplace endpoints из mobile.
 
-Загрузка изображения — `multipart/form-data` с полями `image` и необязательным `is_primary`. Разрешены JPEG, PNG и WebP, максимум 10 MB и 10 фотографий на товар.
+## Контракт для web-разработчика
 
-`is_primary=true` означает «главная фотография товара»: она должна показываться первой в карточке и позднее уйдёт основной фотографией в маркетплейсы. У товара может быть только одно главное фото. Первое загруженное фото автоматически становится главным; загрузка нового с `is_primary=true` снимает этот признак с предыдущего. Его также можно сменить отдельным endpoint `make-primary/`.
+Web-панель использует JWT manager/admin. Ответ `403` означает недостаток роли, а не необходимость login как seller.
 
-Фильтры списков товаров и менеджерского списка: `search`, `status`, `product_type`, `category`, `color_hex`, `material`, `is_available`, `ordering`, `page`.
+Нужные разделы интерфейса:
 
-Пример: `/api/v1/products/?status=approved&color_hex=%235B91C8&ordering=-updated_at`.
+1. **Moderation list**: `/manager/products/`, фильтры, пагинация, карточка seller, variants, фото.
+2. **Product card**: PATCH товара, source/generated images, moderation history, EAN после approve.
+3. **Moderation**: approve/reject, сообщение seller, ручной availability request.
+4. **EAN pool**: import, summary, list и предупреждение малого остатка.
+5. **Marketplace preparation**: отдельные configurations для `product + marketplace + account`, AI draft и payload preview.
+6. **Publications**: status, last error, OTTO MOIN/shop URL, job history, publish/update/state change выбранных targets.
+7. **Managers**: создание manager-пользователей через protected endpoint. Admin так создать нельзя.
 
-## API: модерация и менеджер
+### Правила marketplace UI
 
-Полный префикс: `/api/v1/`.
+- Configuration не меняет исходный товар seller. Она отдельная для каждого `marketplace/account`.
+- Последовательность: configuration → payload preview → publish.
+- Targets можно выбрать выборочно: `otto/jv`, `hood/xl` и т.д.
+- Для карточки: `GET /orchestrator/products/{id}/publications/`; для общего списка: `GET /orchestrator/publications/`.
+- Отображать job status (`queued`, `running`, `pending_confirmation`, `succeeded`, `partial`, `failed`) и publication status отдельно.
+- AI-content не применяется автоматически: после генерации manager явно вызывает apply. `overwrite=false` заполняет только пустые поля, `true` заменяет существующий текст.
+- Hood/Kaufland при deactivate удаляются. Их повторное включение — новый publish. OTTO поддерживает reversible deactivate → activate.
 
-| Метод | URL | Доступ | Назначение |
+## API
+
+Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/`.
+
+В production Swagger, Scalar и schema должны закрываться Nginx Basic Auth/IP allowlist или отключаться. Это не заменяет JWT-защиту API.
+
+### Technical
+
+| Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
-| `POST` | `/products/{id}/submit/` | владелец | Отправить `draft/rejected` на модерацию. Нужны вариант и минимум одно фото. |
-| `GET` | `/products/{id}/moderation-history/` | владелец или manager/admin | История решений. |
-| `GET` | `/manager/products/` | manager/admin | Все рабочие товары с фильтрами. |
-| `POST` | `/manager/products/{id}/approve/` | manager/admin | Одобрить товар; `comment` необязателен. Перед сменой статуса резервируются свободные EAN JV и XL. |
-| `POST` | `/manager/products/{id}/reject/` | manager/admin | Отклонить товар; `comment` обязателен. |
-| `POST` | `/manager/products/{id}/notifications/` | manager/admin | Отправить продавцу уведомление: `title` и обязательный `body`. |
-| `POST` | `/manager/products/{id}/availability-request/` | manager/admin | Вручную запросить наличие. Новый автоматический срок начнётся от этого момента. |
-| `POST` | `/manager/products/{id}/deactivate/` | manager/admin | Подтвердить ожидающую заявку продавца на деактивацию. После этого статус станет `deactivated`, а продавец получит уведомление. |
+| `GET` | `/api/v1/health/` | public | Проверка API. |
+| `GET` | `/api/schema/` | development public | OpenAPI document для Swagger/Scalar и генерации клиентов. |
+| `GET` | `/api/docs/` | development public | Swagger UI. |
+| `GET` | `/api/scalar/` | development public | Scalar UI. |
 
-При успешном approve товар получает ровно два EAN: один с аккаунтом `jv`, второй — с `xl`. Коды остаются в EAN-пуле для контроля и аудита, а их значения одновременно записываются прямо в поля товара `ean_jv` и `ean_xl`. Поэтому manager/admin получает оба значения одним запросом товара. До одобрения поля пустые; seller их не получает. Если в одном из пулов нет свободного кода, approve вернёт ошибку и товар останется `submitted`.
+### Auth и profile
 
-## API: управление менеджерами
+Префикс `/api/v1/auth/`.
 
-Полный префикс: `/api/v1/manager/users/`.
-
-| Метод | URL | Доступ | Назначение |
+| Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
-| `POST` | `/` | manager/admin | Создать нового пользователя с ролью `manager`. Создание `admin` этим API запрещено. |
+| `POST` | `register/` | public | Регистрация seller, отправка email-code. |
+| `POST` | `email/verify/` | public | Verify email-code, выдача JWT. |
+| `POST` | `email/resend-verification/` | public | Повторная отправка кода. |
+| `POST` | `login/` | public | Login username/password. |
+| `POST` | `refresh/` | public | Обновление JWT-пары. |
+| `POST` | `logout/` | authenticated | Blacklist refresh-token. |
+| `GET` | `me/` | authenticated | Получить профиль. |
+| `PATCH` | `me/` | authenticated | Частично изменить профиль. |
 
-Пример запроса:
+`PUT /auth/me/` удалён намеренно: profile редактируется только PATCH.
 
-```json
-{
-  "username": "manager2",
-  "password": "StrongPassword123!",
-  "password_confirm": "StrongPassword123!",
-  "email": "manager@example.com",
-  "preferred_language": "ru"
-}
-```
+### Manager accounts
 
-## API: EAN-пул
+| Method | URL | Access | Назначение |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/manager/users/` | manager/admin | Создать manager account. |
 
-Полный префикс: `/api/v1/manager/eans/`. Все endpoints доступны manager/admin.
+### OTTO catalog и delivery
 
-| Метод | URL | Назначение |
+Префикс `/api/v1/catalog/`.
+
+| Method | URL | Access | Назначение |
+| --- | --- | --- | --- |
+| `GET` | `otto/category-groups/` | authenticated | Группы local OTTO JSON-catalog. |
+| `GET` | `otto/category-groups/{group_id}/categories/` | authenticated | Категории выбранной группы. |
+| `GET` | `otto/category-groups/{group_id}/attributes/` | authenticated | Attributes выбранной группы. |
+| `GET` | `otto/shipping-profiles/?account=jv\|xl` | manager/admin | OTTO delivery profiles для аккаунта. |
+
+### Products и images
+
+Префикс `/api/v1/products/`.
+
+| Method | URL | Access | Назначение |
+| --- | --- | --- | --- |
+| `GET` | `` | authenticated | Seller видит свои товары; manager/admin — все. Фильтры и pagination. |
+| `POST` | `` | seller | Создать draft. |
+| `GET` | `{id}/` | owner/manager/admin | Детали товара. |
+| `PATCH` | `{id}/` | owner draft/rejected или manager/admin | Частично изменить товар/variants. |
+| `DELETE` | `{id}/` | owner/manager/admin | Мягко архивировать допустимый товар. |
+| `POST` | `{id}/availability/` | owner | Ответ на availability request. |
+| `POST` | `{id}/withdraw/` | owner | Withdraw submitted/under_review. |
+| `POST` | `{id}/deactivate/` | owner | Заявка manager-ам на деактивацию. |
+| `POST` | `{id}/images/` | owner | Source image upload: multipart `image`, optional `is_primary`. |
+| `POST` | `{id}/images/reorder/` | owner | Передать полный порядок image IDs. |
+| `DELETE` | `{id}/images/{image_id}/` | owner | Удалить source image. |
+| `POST` | `{id}/images/{image_id}/make-primary/` | owner | Сделать фото главным. |
+| `POST` | `{id}/images/{image_id}/process/` | manager/admin | Запустить AI-photo processing. |
+
+У товара одно `is_primary=true`: первое фото становится главным автоматически. Лимит — 10 JPEG/PNG/WebP фотографий до 10 MB каждая.
+
+### Moderation
+
+| Method | URL | Access | Назначение |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/products/{id}/submit/` | owner | Submit на модерацию. |
+| `GET` | `/api/v1/products/{id}/moderation-history/` | owner/manager/admin | История решений. |
+| `GET` | `/api/v1/manager/products/` | manager/admin | Менеджерский список товаров. |
+| `POST` | `/api/v1/manager/products/{id}/approve/` | manager/admin | Approve и назначить EAN JV/XL. |
+| `POST` | `/api/v1/manager/products/{id}/reject/` | manager/admin | Reject с комментарием. |
+| `POST` | `/api/v1/manager/products/{id}/notifications/` | manager/admin | Отправить seller in-app + FCM notification. |
+| `POST` | `/api/v1/manager/products/{id}/availability-request/` | manager/admin | Ручной запрос наличия; перезапускает таймер auto-reminder. |
+| `POST` | `/api/v1/manager/products/{id}/deactivate/` | manager/admin | Legacy shortcut для снятия всех листингов. Новый UI использует `listing-state`. |
+
+### Notifications и FCM
+
+Префикс `/api/v1/notifications/`.
+
+| Method | URL | Access | Назначение |
+| --- | --- | --- | --- |
+| `POST` | `devices/` | authenticated | Register/update FCM device token. |
+| `POST` | `devices/deactivate/` | authenticated | Deactivate FCM token. |
+| `GET` | `` | authenticated | Список своих in-app уведомлений. |
+| `POST` | `read-all/` | authenticated | Прочитать все. |
+| `POST` | `{id}/read/` | authenticated | Прочитать одно. |
+
+### EAN pool
+
+Префикс `/api/v1/manager/eans/`; все endpoints manager/admin.
+
+| Method | URL | Назначение |
 | --- | --- | --- |
-| `GET` | `/` | Список EAN. Фильтры: `account=jv|xl`, `is_assigned=true|false`. |
-| `POST` | `/import/` | Пакетный импорт EAN для одного аккаунта. |
-| `GET` | `/summary/` | Свободные EAN по JV/XL и предупреждение о малом остатке. |
+| `GET` | `` | Пагинируемый pool. Query: `account=jv\|xl`, `is_assigned=true\|false`. |
+| `POST` | `import/` | Import EAN строками: `{"account":"jv","codes":"..."}`. |
+| `GET` | `summary/` | Свободные/назначенные EAN и low-stock warning. |
 
-Пример импорта:
+После первой успешной публикации EAN одноразовый: он не возвращается в пул, даже если листинг позднее удалён.
+
+### Marketplace configuration, AI и jobs
+
+Префикс `/api/v1/orchestrator/`; все write-операции и publication/configuration endpoints доступны manager/admin. Владелец товара может прочитать только свой marketplace job по его ID.
+
+| Method | URL | Назначение |
+| --- | --- | --- |
+| `GET/PATCH` | `products/{id}/otto/{account}/configuration/` | OTTO configuration. |
+| `GET` | `products/{id}/otto/{account}/payload-preview/` | OTTO payload preview. |
+| `GET/PATCH` | `products/{id}/hood/{account}/configuration/` | Hood configuration. |
+| `GET` | `products/{id}/hood/{account}/payload-preview/` | Hood payload preview. |
+| `GET/PATCH` | `products/{id}/kaufland/{account}/configuration/` | Kaufland configuration. |
+| `GET` | `products/{id}/kaufland/{account}/create-payload-preview/` | Kaufland create preview. |
+| `GET` | `products/{id}/kaufland/{account}/update-payload-preview/` | Kaufland update preview. |
+| `POST` | `products/{id}/ai-content/generate/` | Создать AI content draft для targets. |
+| `GET` | `ai-content/generations/{generation_id}/` | Poll AI generation. |
+| `POST` | `products/{id}/ai-content/generations/{generation_id}/apply/` | Применить AI draft к configurations. |
+| `POST` | `products/{id}/listing-state/` | Semantic activate/deactivate выбранных листингов. |
+| `GET` | `products/{id}/publications/` | Публикации товара. |
+| `GET` | `publications/` | Общий список публикаций. Query: marketplace, account, status, product_id, page. |
+| `GET` | `jobs/{job_id}/` | Статус marketplace job; доступ owner товара или manager/admin. |
+| `POST` | `products/{id}/{operation}/` | Универсальная marketplace operation. |
+
+`{account}`: `jv` или `xl`; marketplace: `otto`, `hood`, `kaufland`.
+
+## Marketplace orchestration
+
+Оркестратор изолирует особенности площадок от frontend: выбирает EAN/account, читает configuration, строит payload конкретной площадки, создаёт job, передаёт её в Celery и сохраняет результат в `MarketplacePublication`.
+
+### Универсальная operation
+
+```http
+POST /api/v1/orchestrator/products/{product_pk}/{operation}/
+Idempotency-Key: <new UUID>
+```
+
+Используйте только `targets`:
 
 ```json
 {
-  "account": "jv",
-  "codes": "4071489789737\n4071489789744\n4071489789751"
+  "targets": [
+    {"marketplace": "otto", "account": "jv"},
+    {"marketplace": "hood", "account": "xl"}
+  ]
 }
 ```
 
-В Swagger внутри JSON используй `\n`, а не реальный Enter внутри строки. В будущем web-панель будет передавать содержимое обычного многострочного поля сама.
+Swagger также показывает `channels`, `accounts`, `payloads` с `additionalProp`. Это legacy-поля для совместимости. Новый frontend использует только `targets`; payload строит backend.
 
-Коды проверяются как GTIN/EAN-8/12/13/14, дубликаты не создаются. Ответ содержит число добавленных, уже существующих, повторов во входе и некорректных кодов. Порог низкого остатка задаётся `EAN_LOW_STOCK_THRESHOLD`.
+| Operation | OTTO | Hood | Kaufland |
+| --- | ---: | ---: | ---: |
+| `search` | ✓ | ✓ | ✓ |
+| `publish` | ✓ | ✓ | ✓ |
+| `update` | ✓ | ✓ | ✓ |
+| `delete` | — | ✓ | ✓ |
+| `activate` | ✓ | — | — |
+| `deactivate` | ✓ | — | — |
 
-## API: уведомления
+### `listing-state` для manager UI
 
-Полный префикс: `/api/v1/notifications/`.
-
-| Метод | URL | Доступ | Назначение |
-| --- | --- | --- | --- |
-| `POST` | `/devices/` | авторизован | Сохранить/обновить FCM registration token: `token`, `platform` (`android`/`ios`). |
-| `POST` | `/devices/deactivate/` | авторизован | Отключить token при logout или смене устройства. |
-| `GET` | `/` | авторизован | Список собственных in-app уведомлений. |
-| `POST` | `/{id}/read/` | авторизован | Прочитать одно уведомление. |
-| `POST` | `/read-all/` | авторизован | Прочитать все уведомления. |
-
-Push отправляется асинхронно Celery worker-ом. Если Firebase выключен, уведомление всё равно сохраняется в базе; push пропускается.
-
-### Напоминание о наличии
-
-Celery Beat каждый день в 10:00 UTC ищет одобренные товары, которым пора запросить наличие. Срок по умолчанию — 14 дней:
-
-- после одобрения;
-- после ручного запроса менеджера;
-- после ответа продавца о наличии.
-
-Продавец отвечает через `/products/{id}/availability/`. Если товар больше не продаётся, он вызывает `/products/{id}/deactivate/`: создаётся заявка, а не немедленное отключение. Менеджер подтверждает её через `/manager/products/{id}/deactivate/`; только после этого товар становится `deactivated` и продавец получает уведомление об успехе.
-
-## AI-обработка изображений
-
-Менеджер вызывает:
-
-```text
-POST /api/v1/products/{product_id}/images/{image_id}/process/
+```json
+{
+  "action": "deactivate",
+  "targets": [
+    {"marketplace": "otto", "account": "jv"},
+    {"marketplace": "hood", "account": "jv"}
+  ]
+}
 ```
 
-Товар должен быть в одном из статусов `submitted`, `under_review`, `approved`. Endpoint быстро возвращает `202 Accepted`; тяжёлая операция выполняется worker-ом.
+`action` — `deactivate` или `activate`. Без `targets` действие применяется ко всем подходящим публикациям товара.
 
-1. Backend отправляет исходную фотографию, название и тип товара во внешний AI-сервис.
-2. Внешний сервис возвращает `queued`, `product_id` и `status_url`.
-3. Celery опрашивает `status_url` раз в `BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS` секунд.
-4. После `completed` backend скачивает `white`, `interior`, `human` и сохраняет их на FTP.
-5. В `ProductImage` становится `processing_status=succeeded`; белый вариант записывается в `processed_image`, все варианты — в `generated_images`.
+- OTTO: reversible deactivate → activate.
+- Hood/Kaufland: deactivate вызывает внешнее delete; чтобы включить снова, нужен новый publish.
+- Ответ возвращает jobs и `unavailable_targets` для несовместимых целей.
 
-Статусы обработки: `pending`, `processing`, `succeeded`, `failed`. При ошибке описание сохраняется в `processing_error`; при успехе и ошибке технический ответ хранится в `processing_result`.
-
-Технические поля AI и готовые варианты изображений видит только manager/admin. Seller получает исходное изображение без статуса генерации.
-
-## Инструкция для мобильного разработчика
-
-1. Зарегистрировать seller или выполнить login.
-2. Безопасно сохранить `access` и `refresh`.
-3. Передавать `Authorization: Bearer <access>`.
-4. При `401` вызвать refresh; если refresh невалиден — выйти из аккаунта.
-5. Для формы товара показать локальные подсказки по строке `product_type`; при необходимости загрузить `/catalog/categories/`.
-6. Отправлять цвет в `color_hex` из color picker, а материалы — строками в `materials`.
-7. Создать товар JSON-запросом, затем загрузить фото отдельными multipart-запросами.
-8. Отправить товар на модерацию. Не запускать AI из мобильного клиента.
-9. После login и при изменении токена вызвать `/notifications/devices/`.
-10. После Firebase SMS-подтверждения передать Firebase ID token в `/auth/phone/verify/`.
-
-## Инструкция для web-разработчика
-
-Менеджерская панель должна использовать login с ролью `manager` или `admin` и строиться на этих блоках:
-
-- список товаров `/manager/products/` с фильтрами и пагинацией;
-- карточка товара с оригинальными и AI-фотографиями;
-- approve/reject с комментарием;
-- кнопка запуска AI-обработки конкретного фото;
-- кнопка ручного запроса наличия;
-- отправка уведомления продавцу;
-- EAN-страница: импорт многострочного списка, список кодов, фильтр занятых/свободных и предупреждение `requires_attention` из summary;
-- управление категориями, а пока создание типов товара удобно выполнять из Django Admin.
-
-## Языки и тексты товаров
-
-Четыре языка интерфейса (`ru`, `tr`, `de`, `en`) — это задача mobile/web-клиентов: они хранят переводы кнопок, экранов, ошибок и подписей у себя через i18n. Backend уже хранит `preferred_language` пользователя, чтобы позднее выбирать язык системных уведомлений.
-
-Пользовательский текст — название товара, материалы, описание и будущие поля — backend хранит в оригинальном Unicode-виде и не переводит сам. Поэтому турецкий продавец может отправить турецкое название, и менеджер сначала увидит именно турецкий оригинал. Продавцу не нужно вручную заполнять четыре версии текста.
-
-Правильный следующий этап после получения контрактов маркетплейсов: хранить оригинал как источник, определить язык ввода (явно от клиента или автоопределением), а переводы/описания для конкретной площадки генерировать по требованию через AI и сохранять как отдельные версии. Так не будет лишних четырёх полей у каждого товара и не потеряется исходный текст продавца.
-
-## Переменные окружения
-
-Начни с `.env.example`. Ниже перечислены обязательные группы переменных; реальные секреты никогда не добавляются в README или Git.
-
-```env
-DJANGO_SECRET_KEY=replace_me
-DJANGO_DEBUG=True
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-
-POSTGRES_DB=marketplace
-POSTGRES_USER=marketplace_user
-POSTGRES_PASSWORD=change_me
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5434
-
-CELERY_BROKER_URL=redis://127.0.0.1:6380/0
-CELERY_RESULT_BACKEND=redis://127.0.0.1:6380/1
-
-FTP_MEDIA_HOST=
-FTP_MEDIA_PORT=21
-FTP_MEDIA_USERNAME=
-FTP_MEDIA_PASSWORD=
-FTP_MEDIA_REMOTE_ROOT=/api-media
-FTP_MEDIA_PUBLIC_BASE_URL=https://your-domain.example/api-media
-FTP_MEDIA_USE_TLS=true
-FTP_MEDIA_PASSIVE_MODE=true
-
-FIREBASE_ENABLED=false
-FIREBASE_SERVICE_ACCOUNT_FILE=secrets/firebase-service-account.json
-
-PRODUCT_AVAILABILITY_REMINDER_DAYS=14
-PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE=500
-EAN_LOW_STOCK_THRESHOLD=20
-
-BULK_WHITE_IMAGE_SERVICE_URL=
-BULK_WHITE_IMAGE_SERVICE_TOKEN=
-BULK_WHITE_IMAGE_SERVICE_TIMEOUT_SECONDS=120
-BULK_WHITE_IMAGE_SERVICE_RESULTS_URL=https://hiw-gen.automatonsoft.de/api/generation-results/{product_id}/
-BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS=10
-BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS=60
-```
-
-При запуске через Docker Compose значения PostgreSQL/Redis для контейнеров переопределяются самим compose-файлом. Пример выше нужен для команд, запускаемых с Windows-хоста.
-
-## Структура проекта
-
-```text
-config/                 settings, URLs, Celery app
-apps/
-  accounts/             custom User, JWT, профиль, Firebase phone verification
-  catalog/              категории и типы товара
-  products/             товары, варианты, фото, FTP URLs, фильтрация
-  moderation/           submit, approve/reject, история решений
-  notifications/        in-app notifications, FCM tokens, Celery tasks
-  ean/                  импорт, резервирование и контроль EAN-кодов
-  common/               permissions, FTP storage, AI service client
-secrets/                локальный Firebase service-account JSON, исключён из Git
-```
-
-## Проверки
+## Локальный запуск
 
 ```powershell
-docker compose exec web python manage.py check
-docker compose exec web python manage.py makemigrations --check --dry-run
-docker compose exec web pytest
+Copy-Item .env.example .env
+docker compose up -d --build
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py createsuperuser
 ```
 
-Тесты находятся в корне проекта: `tests/unit`, `tests/integration` и `tests/e2e`.
-Они покрывают 49 критичных сценариев авторизации и JWT-blacklist, товаров и фото,
-ролей, модерации, EAN-пула, уведомлений, Firebase, Celery-задач, AI-обработки
-и полных путей «продавец → менеджер». Внешние HTTP/FTP/FCM-вызовы в тестах
-заблокированы или замоканы; pytest использует только временную тестовую БД.
+- Swagger: `http://localhost:8000/api/docs/`
+- Scalar: `http://localhost:8000/api/scalar/`
+- Django Admin: `http://localhost:8000/admin/`
+- PostgreSQL с host: `5434`; Redis с host: `6380`.
 
-## Что ещё предстоит
+Контейнеры используют внутренние `postgres:5432` и `redis:6379`. Host-порты нужны только для локальных инструментов Windows.
 
-- Интеграции с маркетплейсами: создание, обновление, снятие с публикации, статусы и ошибки. Реализуются после получения их API-контрактов.
-- OpenAI-генерация названий и описаний под формат каждой площадки.
-- Обязательный второй фактор при login после завершения Firebase-интеграции на мобильной стороне.
-- Чат менеджер ↔ продавец не планируется: текущая коммуникация остаётся через in-app/push-уведомления и запрос наличия товара.
-- Production-развёртывание: Gunicorn, Nginx, HTTPS, CI/CD, Sentry/мониторинг, резервные копии PostgreSQL и FTP-медиа.
+```powershell
+docker compose ps
+docker compose logs -f web
+docker compose logs -f worker_marketplace
+docker compose exec web python manage.py check
+docker compose exec web python manage.py makemigrations --check --dry-run
+docker compose exec web pytest -q
+```
+
+## `.env`
+
+Начинайте с `.env.example`. Реальные секреты нельзя добавлять в Git или README.
+
+| Группа | Примеры |
+| --- | --- |
+| Django | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` |
+| PostgreSQL | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` |
+| Redis/Celery | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_CACHE_URL` |
+| FTP | `FTP_MEDIA_HOST`, `FTP_MEDIA_PORT`, `FTP_MEDIA_USERNAME`, `FTP_MEDIA_PASSWORD`, `FTP_MEDIA_REMOTE_ROOT`, `FTP_MEDIA_PUBLIC_BASE_URL`, `FTP_MEDIA_USE_TLS` |
+| Image AI | `BULK_WHITE_IMAGE_SERVICE_URL`, `BULK_WHITE_IMAGE_SERVICE_TOKEN`, results URL и polling settings |
+| OpenAI | `OPENAI_API_KEY`, `OPENAI_ENABLED`, model/timeout settings |
+| Email SMTP | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_SSL`, `EMAIL_USE_TLS`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` |
+| Firebase FCM | `FIREBASE_ENABLED`, `FIREBASE_SERVICE_ACCOUNT_FILE` |
+| Marketplaces | OTTO/Hood/Kaufland URLs, endpoint paths, credentials, timeout/retry settings |
+
+Перед production: `DJANGO_DEBUG=False`, HTTPS/Nginx/Gunicorn, backup PostgreSQL/Redis/FTP, мониторинг workers, rotation всех секретов и защита `/api/docs/`, `/api/scalar/`, `/api/schema/` через Basic Auth/IP allowlist.
+
+## Тесты и структура
+
+```text
+config/                    settings, URLs, Celery
+apps/
+  accounts/                User, JWT, email verification, roles
+  products/                products, variants, images, filters
+  catalog/                 read-only OTTO catalog and delivery profiles
+  moderation/              submit, approve/reject, history
+  ean/                     import, allocation, consumption, summary
+  notifications/           in-app notifications, FCM, tasks
+  orchestrator/            jobs, publications, configurations, polling, AI
+  marketplace/             OTTO, Hood, Kaufland builders/integration helpers
+  idempotency/             duplicate-write protection
+  common/                  permissions, throttles, HTTP/storage helpers
+data/                      versioned OTTO JSON catalog
+tests/
+  unit/                    isolated domain and payload tests
+  integration/             DRF, DB, permission and task tests
+  e2e/                     seller → manager journeys
+```
+
+Внешние HTTP, FTP, FCM и OpenAI-вызовы в тестах замоканы или заблокированы. Pytest использует тестовую БД, не рабочие данные.
+
+```powershell
+docker compose exec web pytest -q
+```

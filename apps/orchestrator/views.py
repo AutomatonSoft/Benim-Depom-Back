@@ -6,7 +6,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.external_json import compact_external_json
 from apps.common.permissions import IsManager, is_manager
+from apps.common.throttles import (
+    AiGenerationRateThrottle,
+    ManagerMutationThrottleMixin,
+)
 from apps.products.models import Product
 
 from .models import (
@@ -17,6 +22,7 @@ from .models import (
 )
 from .serializers import (
     MarketplaceJobRequestSerializer,
+    MarketplaceListingStateRequestSerializer,
     MarketplaceJobSerializer,
     MarketplacePublicationSerializer,
     MarketplacePublicationFilterSerializer,
@@ -30,6 +36,7 @@ from .serializers import (
     MarketplaceContentGenerationRequestSerializer,
     MarketplaceContentGenerationSerializer,
 )
+from .listing_state_services import create_listing_state_jobs
 from .tasks import (
     execute_marketplace_job,
     generate_marketplace_content,
@@ -51,6 +58,15 @@ from .ai_content import (
     build_product_snapshot,
     universal_content_to_marketplace_configuration,
 )
+from apps.idempotency.services import (
+    IdempotencyKeyReuseError,
+    IdempotencyRequestInProgressError,
+    abandon_idempotency_claim,
+    claim_idempotency_key,
+    complete_idempotency_claim,
+)
+from apps.products.views import IDEMPOTENCY_KEY_HEADER
+
 
 def resolve_requested_targets(data) -> list[dict[str, str]]:
     """
@@ -85,10 +101,19 @@ def resolve_requested_targets(data) -> list[dict[str, str]]:
 
     return resolved_targets
 
-class ProductMarketplaceJobCreateView(APIView):
+
+class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
     permission_classes = (IsAuthenticated, IsManager)
 
-    @extend_schema(request=MarketplaceJobRequestSerializer, responses={202: MarketplaceJobSerializer})
+    @extend_schema(
+        request=MarketplaceJobRequestSerializer,
+        responses={202: MarketplaceJobSerializer},
+        parameters=[IDEMPOTENCY_KEY_HEADER],
+        description=(
+            "Creates an asynchronous marketplace job. "
+            "Use Idempotency-Key to prevent duplicate marketplace operations."
+        ),
+    )
     def post(self, request, product_pk: int, operation: str):
         if operation not in MarketplaceJob.Operation.values:
             return Response(
@@ -212,22 +237,160 @@ class ProductMarketplaceJobCreateView(APIView):
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-        with transaction.atomic():
-            job = MarketplaceJob.objects.create(
+        try:
+            claim = claim_idempotency_key(
+                request=request,
+                endpoint=f"marketplace-job:{operation}:{product_pk}",
+            )
+        except IdempotencyKeyReuseError:
+            return Response(
+                {
+                    "detail": (
+                        "This Idempotency-Key was already used with "
+                        "different request data."
+                    )
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except IdempotencyRequestInProgressError:
+            return Response(
+                {
+                    "detail": (
+                        "A marketplace request with this Idempotency-Key "
+                        "is still being processed."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if claim.is_replay:
+            return Response(
+                claim.replay_body,
+                status=claim.replay_status,
+            )
+
+        try:
+            with transaction.atomic():
+                job = MarketplaceJob.objects.create(
+                    product=product,
+                    requested_by=request.user,
+                    operation=operation,
+                    requested_channels=data["channels"],
+                    request_payload=compact_external_json({
+                        "payloads": payloads,
+                        "target_payloads": target_payloads,
+                        "accounts": data.get("accounts", {}),
+                        "targets": data.get("targets", []),
+                    }),
+                )
+                transaction.on_commit(
+                    lambda: execute_marketplace_job.delay(str(job.id))
+                )
+        except Exception:
+            abandon_idempotency_claim(claim=claim)
+            raise
+
+        response_data = MarketplaceJobSerializer(job).data
+        complete_idempotency_claim(
+            claim=claim,
+            response_status=status.HTTP_202_ACCEPTED,
+            response_body=response_data,
+        )
+
+        return Response(response_data, status=status.HTTP_202_ACCEPTED)
+
+
+class ProductMarketplaceListingStateView(ManagerMutationThrottleMixin, APIView):
+    """Change listing state for selected targets, or all applicable targets."""
+
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        request=MarketplaceListingStateRequestSerializer,
+        responses={202: MarketplaceJobSerializer(many=True)},
+        parameters=[IDEMPOTENCY_KEY_HEADER],
+        description=(
+            "Deactivates selected marketplace listings. Without targets it "
+            "uses every active listing of the product. Hood/Kaufland are "
+            "deleted because their APIs have no reversible deactivation; "
+            "OTTO is deactivated and can later be activated again."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = MarketplaceListingStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            claim = claim_idempotency_key(
+                request=request,
+                endpoint=f"marketplace-listing-state:{product_pk}",
+            )
+        except IdempotencyKeyReuseError:
+            return Response(
+                {
+                    "detail": (
+                        "This Idempotency-Key was already used with "
+                        "different request data."
+                    )
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except IdempotencyRequestInProgressError:
+            return Response(
+                {
+                    "detail": (
+                        "A listing-state request with this Idempotency-Key "
+                        "is still being processed."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if claim.is_replay:
+            return Response(
+                claim.replay_body,
+                status=claim.replay_status,
+            )
+
+        try:
+            jobs, unavailable = create_listing_state_jobs(
                 product=product,
                 requested_by=request.user,
-                operation=operation,
-                requested_channels=data["channels"],
-                request_payload={
-                    "payloads": payloads,
-                    "target_payloads": target_payloads,
-                    "accounts": data.get("accounts", {}),
-                    "targets": data.get("targets", []),
-                },
+                action=serializer.validated_data["action"],
+                requested_targets=serializer.validated_data.get("targets"),
             )
-            transaction.on_commit(lambda: execute_marketplace_job.delay(str(job.id)))
+        except Exception:
+            abandon_idempotency_claim(claim=claim)
+            raise
 
-        return Response(MarketplaceJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+        if not jobs:
+            abandon_idempotency_claim(claim=claim)
+            return Response(
+                {
+                    "detail": "No eligible marketplace listings were found.",
+                    "unavailable_targets": unavailable,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for job in jobs:
+            transaction.on_commit(
+                lambda job_id=str(job.id): execute_marketplace_job.delay(job_id)
+            )
+
+        response_data = {
+            "action": serializer.validated_data["action"],
+            "jobs": MarketplaceJobSerializer(jobs, many=True).data,
+            "unavailable_targets": unavailable,
+        }
+        complete_idempotency_claim(
+            claim=claim,
+            response_status=status.HTTP_202_ACCEPTED,
+            response_body=response_data,
+        )
+
+        return Response(response_data, status=status.HTTP_202_ACCEPTED)
 
 
 class MarketplaceJobDetailView(APIView):
@@ -315,7 +478,7 @@ class MarketplacePublicationListView(generics.ListAPIView):
         return queryset
 
 
-class ProductOttoListingConfigurationView(APIView):
+class ProductOttoListingConfigurationView(ManagerMutationThrottleMixin, APIView):
     """Manager configuration for one future OTTO listing/account pair."""
 
     permission_classes = (IsAuthenticated, IsManager)
@@ -431,7 +594,7 @@ class ProductOttoPayloadPreviewView(APIView):
         return Response({"payload": payload})
 
 
-class ProductHoodListingConfigurationView(APIView):
+class ProductHoodListingConfigurationView(ManagerMutationThrottleMixin, APIView):
     """Manager configuration for one future Hood listing/account pair."""
 
     permission_classes = (IsAuthenticated, IsManager)
@@ -556,7 +719,7 @@ class ProductHoodPayloadPreviewView(APIView):
         return Response({"payload": payload})
 
 
-class ProductKauflandListingConfigurationView(APIView):
+class ProductKauflandListingConfigurationView(ManagerMutationThrottleMixin, APIView):
     """Manager configuration for one future Kaufland listing/account pair."""
 
     permission_classes = (IsAuthenticated, IsManager)
@@ -734,11 +897,14 @@ class ProductKauflandUpdatePayloadPreviewView(APIView):
 
 
 
-class ProductMarketplaceContentGenerationCreateView(APIView):
+class ProductMarketplaceContentGenerationCreateView(
+    ManagerMutationThrottleMixin,
+    APIView,
+):
     """Creates one asynchronous universal German AI-content draft."""
 
     permission_classes = (IsAuthenticated, IsManager)
-
+    throttle_classes = [AiGenerationRateThrottle]
     allowed_statuses = {
         Product.Status.SUBMITTED,
         Product.Status.UNDER_REVIEW,
@@ -749,6 +915,7 @@ class ProductMarketplaceContentGenerationCreateView(APIView):
     @extend_schema(
         request=MarketplaceContentGenerationRequestSerializer,
         responses={202: MarketplaceContentGenerationSerializer},
+        parameters=[IDEMPOTENCY_KEY_HEADER],
         description=(
             "Starts one AI generation request for a product. "
             "The result is a draft only and is not applied automatically."
@@ -756,7 +923,7 @@ class ProductMarketplaceContentGenerationCreateView(APIView):
     )
     def post(self, request, product_pk: int):
         product = get_object_or_404(
-            Product.objects.select_related("category").prefetch_related(
+            Product.objects.prefetch_related(
                 "variants"
             ),
             pk=product_pk,
@@ -778,22 +945,65 @@ class ProductMarketplaceContentGenerationCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        with transaction.atomic():
-            generation = MarketplaceContentGeneration.objects.create(
-                product=product,
-                requested_by=request.user,
-                targets=serializer.validated_data["targets"],
-                language="de",
-                input_snapshot=build_product_snapshot(product),
+        try:
+            claim = claim_idempotency_key(
+                request=request,
+                endpoint=f"marketplace-ai-content:{product_pk}",
+            )
+        except IdempotencyKeyReuseError:
+            return Response(
+                {
+                    "detail": (
+                        "This Idempotency-Key was already used with "
+                        "different request data."
+                    )
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except IdempotencyRequestInProgressError:
+            return Response(
+                {
+                    "detail": (
+                        "An AI request with this Idempotency-Key is still "
+                        "being processed."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
             )
 
-            generation_id = str(generation.id)
-            transaction.on_commit(
-                lambda: generate_marketplace_content.delay(generation_id)
+        if claim.is_replay:
+            return Response(
+                claim.replay_body,
+                status=claim.replay_status,
             )
+
+        try:
+            with transaction.atomic():
+                generation = MarketplaceContentGeneration.objects.create(
+                    product=product,
+                    requested_by=request.user,
+                    targets=serializer.validated_data["targets"],
+                    language="de",
+                    input_snapshot=build_product_snapshot(product),
+                )
+
+                generation_id = str(generation.id)
+                transaction.on_commit(
+                    lambda: generate_marketplace_content.delay(generation_id)
+                )
+        except Exception:
+            abandon_idempotency_claim(claim=claim)
+            raise
+
+        response_data = MarketplaceContentGenerationSerializer(generation).data
+        complete_idempotency_claim(
+            claim=claim,
+            response_status=status.HTTP_202_ACCEPTED,
+            response_body=response_data,
+        )
 
         return Response(
-            MarketplaceContentGenerationSerializer(generation).data,
+            response_data,
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -821,7 +1031,10 @@ class MarketplaceContentGenerationDetailView(APIView):
         )
 
 
-class ProductMarketplaceContentGenerationApplyView(APIView):
+class ProductMarketplaceContentGenerationApplyView(
+    ManagerMutationThrottleMixin,
+    APIView,
+):
     """
     Explicitly copies generated text into marketplace configurations.
 
@@ -953,5 +1166,3 @@ class ProductMarketplaceContentGenerationApplyView(APIView):
                 "overwrite": overwrite,
             }
         )
-
-

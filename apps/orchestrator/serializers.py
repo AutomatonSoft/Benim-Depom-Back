@@ -28,6 +28,21 @@ class MarketplaceTargetSerializer(serializers.Serializer):
     )
 
 
+class MarketplaceListingStateRequestSerializer(serializers.Serializer):
+    """Manager request to change state of selected marketplace listings."""
+
+    action = serializers.ChoiceField(choices=("deactivate", "activate"))
+    targets = MarketplaceTargetSerializer(many=True, required=False)
+
+    def validate_targets(self, targets):
+        pairs = {(target["marketplace"], target["account"]) for target in targets}
+        if len(pairs) != len(targets):
+            raise serializers.ValidationError(
+                "Each marketplace/account pair must be unique."
+            )
+        return targets
+
+
 class MarketplaceJobRequestSerializer(serializers.Serializer):
     channels = serializers.ListField(
         child=serializers.ChoiceField(choices=("hood", "otto", "kaufland")),

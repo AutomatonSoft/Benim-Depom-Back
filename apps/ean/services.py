@@ -79,7 +79,7 @@ def assign_ean_codes_to_product(*, product) -> list[EanCode]:
                 state=EanCode.State.AVAILABLE,
                 product__isnull=True,
             )
-            .order_by("?")
+            .order_by("id")
             .first()
         )
 

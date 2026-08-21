@@ -1,8 +1,6 @@
 from django.urls import path
 
 from .views import (
-    CategoryListView,
-    ManagerCategoryDetailView,
     OttoCategoryGroupAttributesView,
     OttoCategoryGroupCategoriesView,
     OttoCategoryGroupListView,
@@ -27,12 +25,6 @@ urlpatterns = [
         "otto/category-groups/<int:group_id>/attributes/",
         OttoCategoryGroupAttributesView.as_view(),
         name="otto-category-group-attributes",
-    ),
-    path("categories/", CategoryListView.as_view(), name="categories"),
-    path(
-        "categories/<int:pk>/",
-        ManagerCategoryDetailView.as_view(),
-        name="manager-category-detail",
     ),
     path(
         "otto/shipping-profiles/",

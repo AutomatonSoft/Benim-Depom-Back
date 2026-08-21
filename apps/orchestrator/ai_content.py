@@ -150,9 +150,7 @@ def build_product_snapshot(product) -> dict[str, Any]:
             }
         )
 
-    category_name = ""
-    if product.category_id and product.category is not None:
-        category_name = product.category.name
+    category_name = product.otto_category_name
 
     return {
         "product_id": product.pk,

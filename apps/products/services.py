@@ -270,32 +270,20 @@ def request_product_deactivation(*, product: Product) -> Product:
 
 @transaction.atomic
 def deactivate_product(*, product: Product) -> Product:
-    """Deactivate an approved product on behalf of a manager or admin.
+    """Deprecated guard kept for callers of the former product-level API.
 
-    A seller request is useful as a notification, but it is not a
-    prerequisite: managers must be able to deactivate proactively.
+    A product can be active on only part of the marketplace/account targets,
+    so there is no correct single global ``deactivated`` product status. Use
+    the orchestrator listing-state service instead.
     """
-    locked_product = Product.objects.select_for_update().get(pk=product.pk)
-
-    if locked_product.status != Product.Status.APPROVED:
-        raise ValidationError(
-            {"detail": "Only approved products can be deactivated."}
-        )
-
-    locked_product.status = Product.Status.DEACTIVATED
-    locked_product.is_available = False
-    locked_product.deactivation_requested_at = None
-    locked_product.deactivated_at = timezone.now()
-    locked_product.save(
-        update_fields=(
-            "status",
-            "is_available",
-            "deactivation_requested_at",
-            "deactivated_at",
-            "updated_at",
-        )
+    raise ValidationError(
+        {
+            "detail": (
+                "Use marketplace listing-state actions to deactivate selected "
+                "marketplace targets."
+            )
+        }
     )
-    return locked_product
 
 
 @transaction.atomic

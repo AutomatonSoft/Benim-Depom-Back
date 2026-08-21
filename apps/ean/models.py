@@ -44,6 +44,14 @@ class EanCode(models.Model):
                 fields=("account", "product"),
                 name="ean_account_product_idx",
             ),
+            models.Index(
+                fields=("account", "id"),
+                condition=models.Q(
+                    state="available",
+                    product__isnull=True,
+                ),
+                name="ean_available_account_idx",
+            ),
         ]
 
     def __str__(self) -> str:

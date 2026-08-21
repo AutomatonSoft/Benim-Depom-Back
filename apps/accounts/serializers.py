@@ -11,6 +11,7 @@ from .services import register_user
 
 @extend_schema_serializer(component_name="AuthRegister")
 class RegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(
         write_only=True,
         min_length=8,
@@ -35,7 +36,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
         extra_kwargs = {
-            "email": {"required": False},
             "first_name": {"required": False},
             "last_name": {"required": False},
             "phone": {"required": False},
@@ -60,6 +60,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return register_user(data=validated_data)
+
+    def validate_email(self, value):
+        email = value.strip().lower()
+
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                "A user with this email already exists."
+            )
+
+        return email
 
 
 @extend_schema_serializer(component_name="WebManagerCreate")
@@ -131,17 +141,17 @@ class ProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone",
-            "is_phone_verified",
             "preferred_language",
             "role",
             "date_joined",
+            "is_email_verified",
         )
         read_only_fields = (
             "id",
             "username",
             "role",
-            "is_phone_verified",
             "date_joined",
+            "is_email_verified",
         )
 
 
@@ -161,10 +171,27 @@ class LogoutSerializer(serializers.Serializer):
 
 
 
-@extend_schema_serializer(component_name="MobilePhoneVerification")
-class FirebasePhoneVerificationSerializer(serializers.Serializer):
-    id_token = serializers.CharField(
-        write_only=True,
+@extend_schema_serializer(component_name="EmailVerification")
+class EmailVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(
+        min_length=6,
+        max_length=6,
         trim_whitespace=True,
     )
-    
+
+    def validate_code(self, value):
+        if not value.isdecimal():
+            raise serializers.ValidationError(
+                "Verification code must contain exactly 6 digits."
+            )
+
+        return value
+
+
+@extend_schema_serializer(component_name="EmailVerificationResend")
+class EmailVerificationResendSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()

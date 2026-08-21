@@ -28,7 +28,7 @@ from .publication_services import (
     mark_publication_succeeded,
     start_publication_attempt,
 )
-
+from apps.common.external_json import compact_external_json
 from apps.common.openai_text_service import (
     OpenAITextService,
     OpenAITextServiceError,
@@ -265,7 +265,7 @@ def _set_job_target_result(
             break
     else:
         results.append(replacement)
-    job.results = results
+    job.results = [compact_external_json(result) for result in results]
 
 
 def _refresh_job_status(job: MarketplaceJob) -> None:
@@ -427,6 +427,10 @@ def request_for_non_hood_channel(
                     ean,
                 ),
                 params={"controller": account},
+                # The Kaufland DELETE serializer reads controller from the
+                # JSON body. Keep it in query params too for compatibility
+                # with the provider's documented URL contract.
+                payload={"controller": account},
             )
 
         if operation == MarketplaceJob.Operation.DEACTIVATE:
@@ -518,23 +522,31 @@ def request_for_non_hood_channel(
 
 @shared_task(bind=True)
 def execute_marketplace_job(self, job_id: str) -> None:
-    job = MarketplaceJob.objects.select_related("product").get(pk=job_id)
-
-    if job.status != MarketplaceJob.Status.QUEUED:
-        return
-
-    job.status = MarketplaceJob.Status.RUNNING
-    job.started_at = timezone.now()
-    job.celery_task_id = self.request.id or ""
-    job.error = {}
-    job.save(
-        update_fields=(
-            "status",
-            "started_at",
-            "celery_task_id",
-            "error",
+    # Claim the job under a row lock before making external calls. This makes a
+    # duplicate Celery delivery harmless: only the first worker may run it.
+    with transaction.atomic():
+        job = (
+            MarketplaceJob.objects.select_for_update()
+            .select_related("product")
+            .filter(pk=job_id)
+            .first()
         )
-    )
+
+        if job is None or job.status != MarketplaceJob.Status.QUEUED:
+            return
+
+        job.status = MarketplaceJob.Status.RUNNING
+        job.started_at = timezone.now()
+        job.celery_task_id = self.request.id or ""
+        job.error = {}
+        job.save(
+            update_fields=(
+                "status",
+                "started_at",
+                "celery_task_id",
+                "error",
+            )
+        )
 
     payloads = job.request_payload.get("payloads", {})
     target_payloads = job.request_payload.get("target_payloads", {})
@@ -705,7 +717,7 @@ def execute_marketplace_job(self, job_id: str) -> None:
             }
         )
 
-    job.results = results
+    job.results = [compact_external_json(result) for result in results]
     _refresh_job_status(job)
 
 
@@ -810,10 +822,10 @@ def check_otto_publication_process(
         # Wrapper API successfully validated the request, but this still does
         # not mean that the item is already visible on OTTO marketplace.
         # Keep publication in `publishing` and start marketplace-status polling.
-        publication.last_response = {
+        publication.last_response = compact_external_json({
             "initial_process_response": publication.last_response,
             "process_result": response_payload,
-        }
+        })
         publication.last_error = {}
         publication.save(
             update_fields=(
@@ -980,10 +992,10 @@ def check_otto_marketplace_status(
 
     # Save the latest response so the manager can see the actual OTTO state
     # while a publication/deactivation is still being processed.
-    publication.last_response = {
+    publication.last_response = compact_external_json({
         "process": publication.last_response,
         "marketplace_status": response_payload,
-    }
+    })
     publication.save(update_fields=("last_response", "updated_at"))
 
     if attempt >= settings.OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS:
@@ -1166,4 +1178,48 @@ def generate_marketplace_content(
         "status": generation.status,
         "generated_targets": generation.targets,
         "model": ai_result.model,
+    }
+
+
+@shared_task(name="apps.orchestrator.tasks.recover_stale_orchestrator_jobs")
+def recover_stale_orchestrator_jobs() -> dict[str, int]:
+    """Make abandoned async work visible instead of leaving it running forever.
+
+    This task never retries an unknown external request automatically: a worker
+    may have died after a marketplace accepted it. Marking it failed preserves
+    an audit trail and lets a manager review/retry deliberately.
+    """
+    now = timezone.now()
+    marketplace_cutoff = now - timedelta(
+        minutes=settings.ORCHESTRATOR_STALE_JOB_MINUTES
+    )
+    content_cutoff = now - timedelta(
+        minutes=settings.AI_CONTENT_STALE_JOB_MINUTES
+    )
+
+    marketplace_recovered = MarketplaceJob.objects.filter(
+        status=MarketplaceJob.Status.RUNNING,
+        started_at__lt=marketplace_cutoff,
+    ).update(
+        status=MarketplaceJob.Status.FAILED,
+        error={
+            "code": "worker_lost_or_timeout",
+            "detail": "The job exceeded its recovery window. Verify the marketplace before retrying.",
+        },
+        finished_at=now,
+    )
+    content_recovered = MarketplaceContentGeneration.objects.filter(
+        status=MarketplaceContentGeneration.Status.RUNNING,
+        started_at__lt=content_cutoff,
+    ).update(
+        status=MarketplaceContentGeneration.Status.FAILED,
+        error={
+            "code": "worker_lost_or_timeout",
+            "detail": "The AI generation exceeded its recovery window. Retry it from the manager panel.",
+        },
+        finished_at=now,
+    )
+    return {
+        "marketplace_jobs": marketplace_recovered,
+        "content_generations": content_recovered,
     }

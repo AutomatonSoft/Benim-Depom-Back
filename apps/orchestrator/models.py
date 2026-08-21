@@ -83,6 +83,18 @@ class MarketplacePublication(models.Model):
         DELETED = "deleted", "Deleted"
         FAILED = "failed", "Failed"
 
+
+    status_before_operation = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        blank=True,
+        default="",
+        help_text=(
+            "Stable status before an in-progress marketplace operation. "
+            "Used to restore the listing if the external request fails."
+        ),
+    )
+
     product = models.ForeignKey(
         "products.Product",
         on_delete=models.PROTECT,

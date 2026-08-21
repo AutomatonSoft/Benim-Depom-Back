@@ -12,13 +12,13 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "role",
         "phone",
-        "is_phone_verified",
+        "is_email_verified",
         "is_active",
     )
     list_filter = (
         "role",
         "preferred_language",
-        "is_phone_verified",
+        "is_email_verified",
         "is_active",
         "is_staff",
     )
@@ -32,7 +32,7 @@ class UserAdmin(BaseUserAdmin):
                 "fields": (
                     "role",
                     "phone",
-                    "is_phone_verified",
+                    "is_email_verified",
                     "preferred_language",
                 ),
             },

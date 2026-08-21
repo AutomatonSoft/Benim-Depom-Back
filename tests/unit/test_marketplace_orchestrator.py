@@ -5,6 +5,11 @@ import pytest
 from apps.marketplace.hood.models import HoodProductSnapshot
 from apps.marketplace.hood.services import execute as execute_hood
 from apps.orchestrator.models import MarketplaceJob, MarketplacePublication
+from apps.orchestrator.publication_services import (
+    mark_publication_failed,
+    mark_publication_succeeded,
+    start_publication_attempt,
+)
 from apps.orchestrator.tasks import (
     check_otto_marketplace_status,
     extract_otto_process_id,
@@ -57,6 +62,115 @@ def test_marketplace_task_requires_an_ean(product_factory, manager):
     assert job.status == MarketplaceJob.Status.FAILED
     assert job.results[0]["details"]["code"] == "marketplace_dispatch_failed"
     assert "does not have an EAN" in job.results[0]["details"]["reason"]
+
+
+@pytest.mark.django_db
+def test_in_progress_publication_rejects_a_conflicting_operation(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="hood",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+    )
+    update_job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.UPDATE,
+        requested_channels=["hood"],
+    )
+    delete_job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.DELETE,
+        requested_channels=["hood"],
+    )
+
+    start_publication_attempt(
+        job=update_job,
+        marketplace="hood",
+        account="jv",
+        ean=product.ean_jv,
+        request_payload={"title": "Updated chair"},
+    )
+    publication.refresh_from_db()
+
+    assert publication.status == MarketplacePublication.Status.PUBLISHING
+    assert publication.status_before_operation == (
+        MarketplacePublication.Status.ACTIVE
+    )
+
+    with pytest.raises(ValueError, match="Cannot delete publication"):
+        start_publication_attempt(
+            job=delete_job,
+            marketplace="hood",
+            account="jv",
+            ean=product.ean_jv,
+            request_payload={},
+        )
+
+
+@pytest.mark.django_db
+def test_publication_restores_previous_status_after_failure_and_clears_it_on_success(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+    )
+    update_job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.UPDATE,
+        requested_channels=["otto"],
+    )
+
+    publication = start_publication_attempt(
+        job=update_job,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        request_payload={"payload": "update"},
+    )
+    publication = mark_publication_failed(
+        publication=publication,
+        job=update_job,
+        error_payload={"detail": "provider unavailable"},
+    )
+
+    assert publication.status == MarketplacePublication.Status.ACTIVE
+    assert publication.status_before_operation == ""
+
+    deactivate_job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.DEACTIVATE,
+        requested_channels=["otto"],
+    )
+    publication = start_publication_attempt(
+        job=deactivate_job,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        request_payload={},
+    )
+    publication, _ = mark_publication_succeeded(
+        publication=publication,
+        job=deactivate_job,
+        response_payload={"state": "accepted"},
+    )
+
+    assert publication.status == MarketplacePublication.Status.DEACTIVATED
+    assert publication.status_before_operation == ""
 
 
 class CapturingClient:
@@ -329,6 +443,25 @@ def test_marketplace_routes_match_direct_api_contract(channel, operation, expect
     _base_url, method, path, _kwargs = client.calls[0]
     assert method == expected_method
     assert path == expected_path
+
+
+def test_kaufland_delete_sends_controller_in_json_body():
+    client = CapturingClient()
+
+    request_for_non_hood_channel(
+        client,
+        marketplace="kaufland",
+        operation=MarketplaceJob.Operation.DELETE,
+        ean="4012345678901",
+        account="jv",
+        payload={},
+    )
+
+    _base_url, method, path, kwargs = client.calls[0]
+    assert method == "DELETE"
+    assert path == "/api/products/delete/4012345678901"
+    assert kwargs["params"] == {"controller": "jv"}
+    assert kwargs["payload"] == {"controller": "jv"}
 
 
 def test_otto_publish_keeps_a_prebuilt_variations_list():

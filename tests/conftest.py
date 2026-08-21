@@ -6,11 +6,11 @@ from itertools import count
 import pytest
 import requests
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category
 from apps.products.models import Product, ProductImage, ProductVariant
 
 
@@ -27,6 +27,14 @@ def block_external_network(monkeypatch):
     monkeypatch.setattr(requests.sessions.Session, "request", blocked)
     monkeypatch.setattr(ftplib.FTP, "connect", blocked)
     monkeypatch.setattr(ftplib.FTP_TLS, "connect", blocked)
+
+
+@pytest.fixture(autouse=True)
+def isolate_rate_limit_cache():
+    """Do not let throttling history leak between otherwise isolated tests."""
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
@@ -83,11 +91,6 @@ def admin_user(user_factory):
 @pytest.fixture
 def product_type():
     return "Chair"
-
-
-@pytest.fixture
-def category(db):
-    return Category.objects.create(name="Living room furniture")
 
 
 @pytest.fixture

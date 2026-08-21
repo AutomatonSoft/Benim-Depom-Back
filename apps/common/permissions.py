@@ -4,8 +4,17 @@ from apps.accounts.models import User
 
 
 def is_manager(user) -> bool:
-    return user.is_authenticated and (
-        user.is_staff
+    """
+    API access is controlled by the business role.
+
+    is_staff grants only access to Django Admin.
+    is_superuser remains an emergency/developer override with full API access.
+    """
+    if not user or not user.is_authenticated:
+        return False
+
+    return (
+        user.is_superuser
         or user.role in {
             User.Role.MANAGER,
             User.Role.ADMIN,

@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     MarketplaceJobDetailView,
     ProductMarketplaceJobCreateView,
+    ProductMarketplaceListingStateView,
     ProductMarketplacePublicationListView,
     MarketplacePublicationListView,
     ProductOttoListingConfigurationView,
@@ -21,9 +22,9 @@ app_name = "orchestrator"
 
 urlpatterns = [
     path(
-        "products/<int:product_pk>/<str:operation>/",
-        ProductMarketplaceJobCreateView.as_view(),
-        name="product-marketplace-job-create",
+        "products/<int:product_pk>/listing-state/",
+        ProductMarketplaceListingStateView.as_view(),
+        name="product-marketplace-listing-state",
     ),
     path("jobs/<uuid:job_id>/", MarketplaceJobDetailView.as_view(), name="job-detail"),
     path(
@@ -86,5 +87,13 @@ urlpatterns = [
         "<uuid:generation_id>/apply/",
         ProductMarketplaceContentGenerationApplyView.as_view(),
         name="product-ai-content-apply",
+    ),
+    # Keep this catch-all route after every explicit product sub-resource.
+    # Otherwise `/products/<id>/publications/` is interpreted as operation
+    # `publications` and Django returns 405 for its GET endpoint.
+    path(
+        "products/<int:product_pk>/<str:operation>/",
+        ProductMarketplaceJobCreateView.as_view(),
+        name="product-marketplace-job-create",
     ),
 ]

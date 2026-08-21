@@ -7,10 +7,10 @@ from rest_framework.views import APIView
 
 from rest_framework.permissions import IsAuthenticated
 from apps.common.permissions import IsManager, IsSeller, is_manager
+from apps.common.throttles import ManagerMutationThrottleMixin
 from apps.products.models import Product
 from apps.products.serializers import ProductSerializer
 from apps.products.services import request_product_availability
-from apps.products.services import deactivate_product
 from apps.products.filters import filter_products
 from .models import ModerationDecision
 from .serializers import (
@@ -29,7 +29,18 @@ from apps.notifications.serializers import (
     NotificationSerializer,
 )
 from apps.notifications.services import create_notification
-
+from apps.orchestrator.listing_state_services import create_listing_state_jobs
+from apps.orchestrator.serializers import MarketplaceJobSerializer
+from apps.orchestrator.tasks import execute_marketplace_job
+from django.db import transaction
+from apps.idempotency.services import (
+    IdempotencyKeyReuseError,
+    IdempotencyRequestInProgressError,
+    abandon_idempotency_claim,
+    claim_idempotency_key,
+    complete_idempotency_claim,
+)
+from apps.products.views import IDEMPOTENCY_KEY_HEADER
 
 
 
@@ -37,19 +48,70 @@ from apps.notifications.services import create_notification
 class SubmitProductView(APIView):
     permission_classes = [IsAuthenticated, IsSeller]
 
-    @extend_schema(request=None, responses={200: ProductSerializer})
+    @extend_schema(
+        request=None,
+        responses={200: ProductSerializer},
+        parameters=[IDEMPOTENCY_KEY_HEADER],
+        description=(
+            "Sends the seller product to moderation. "
+            "Use Idempotency-Key to prevent duplicate submissions."
+        ),
+    )
     def post(self, request, product_pk: int):
-        product = get_object_or_404(
-            Product,
-            pk=product_pk,
-            owner=request.user,
+        try:
+            claim = claim_idempotency_key(
+                request=request,
+                endpoint=f"products:submit:{product_pk}",
+            )
+        except IdempotencyKeyReuseError:
+            return Response(
+                {
+                    "detail": (
+                        "This Idempotency-Key was already used with "
+                        "different request data."
+                    )
+                },
+                status=422,
+            )
+        except IdempotencyRequestInProgressError:
+            return Response(
+                {
+                    "detail": (
+                        "A request with this Idempotency-Key is still "
+                        "being processed. Retry shortly with the same key."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if claim.is_replay:
+            return Response(
+                claim.replay_body,
+                status=claim.replay_status,
+            )
+
+        try:
+            product = get_object_or_404(
+                Product,
+                pk=product_pk,
+                owner=request.user,
+            )
+            product = submit_product_for_moderation(product=product)
+            response_data = ProductSerializer(
+                product,
+                context={"request": request},
+            ).data
+        except Exception:
+            abandon_idempotency_claim(claim=claim)
+            raise
+
+        complete_idempotency_claim(
+            claim=claim,
+            response_status=status.HTTP_200_OK,
+            response_body=response_data,
         )
 
-        product = submit_product_for_moderation(product=product)
-
-        return Response(
-            ProductSerializer(product, context={"request": request}).data
-        )
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class ProductModerationHistoryView(generics.ListAPIView):
@@ -82,7 +144,7 @@ class ManagerProductListView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = (
-            Product.objects.select_related("owner", "category")
+            Product.objects.select_related("owner")
             .prefetch_related(
                 "variants",
                 "images",
@@ -109,7 +171,7 @@ class ManagerProductListView(generics.ListAPIView):
         )
 
 
-class ManagerSendProductNotificationView(APIView):
+class ManagerSendProductNotificationView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
     @extend_schema(
@@ -151,7 +213,7 @@ class ManagerSendProductNotificationView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-class ManagerApproveProductView(APIView):
+class ManagerApproveProductView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
     @extend_schema(
@@ -175,7 +237,7 @@ class ManagerApproveProductView(APIView):
         )
 
 
-class ManagerRejectProductView(APIView):
+class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
     @extend_schema(
@@ -199,7 +261,7 @@ class ManagerRejectProductView(APIView):
         )
 
 
-class ManagerRequestProductAvailabilityView(APIView):
+class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
     @extend_schema(request=None, responses={200: ProductSerializer})
@@ -217,24 +279,43 @@ class ManagerRequestProductAvailabilityView(APIView):
         )
 
 
-class ManagerDeactivateProductView(APIView):
-    """Manager or admin deactivates an approved product."""
+class ManagerDeactivateProductView(ManagerMutationThrottleMixin, APIView):
+    """Compatibility endpoint: schedule deactivation for every active listing."""
     permission_classes = [IsManager]
 
-    @extend_schema(request=None, responses={200: ProductSerializer})
+    @extend_schema(
+        request=None,
+        responses={202: MarketplaceJobSerializer(many=True)},
+        description=(
+            "Legacy shortcut that deactivates every active listing of a product. "
+            "Use the orchestrator listing-state endpoint to choose targets."
+        ),
+    )
     def post(self, request, product_pk: int):
         product = get_object_or_404(Product, pk=product_pk)
-        product = deactivate_product(product=product)
-
-        create_notification(
-            user=product.owner,
-            sender=request.user,
+        jobs, unavailable = create_listing_state_jobs(
             product=product,
-            notification_type=Notification.Type.PRODUCT_DEACTIVATED,
-            title="Product deactivated",
-            body=f"A manager deactivated '{product.title}'.",
-            data={"product_id": product.id},
+            requested_by=request.user,
+            action="deactivate",
         )
+        if not jobs:
+            return Response(
+                {
+                    "detail": "No active marketplace listings were found.",
+                    "unavailable_targets": unavailable,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for job in jobs:
+            transaction.on_commit(
+                lambda job_id=str(job.id): execute_marketplace_job.delay(job_id)
+            )
+
         return Response(
-            ProductSerializer(product, context={"request": request}).data
+            {
+                "jobs": MarketplaceJobSerializer(jobs, many=True).data,
+                "unavailable_targets": unavailable,
+            },
+            status=status.HTTP_202_ACCEPTED,
         )

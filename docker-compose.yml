@@ -1,3 +1,20 @@
+x-worker-common: &worker-common
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/1
+  volumes:
+    - .:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   web:
     build: .
@@ -8,6 +25,7 @@ services:
       POSTGRES_PORT: 5432
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      REDIS_CACHE_URL: redis://redis:6379/2
     ports:
       - "8000:8000"
     volumes:
@@ -16,24 +34,47 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-
-  worker:
-    build: .
-    command: celery -A config worker --loglevel=INFO
-    env_file: .env
-    environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    volumes:
-      - .:/app
-    depends_on:
-      postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
+
+  worker_marketplace:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=marketplace
+      --concurrency=2
+      --max-tasks-per-child=500
+
+  worker_ai:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=ai
+      --concurrency=2
+      --max-tasks-per-child=200
+
+  worker_images:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=images
+      --concurrency=2
+      --max-tasks-per-child=200
+
+  worker_notifications:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=notifications
+      --concurrency=2
+      --max-tasks-per-child=500
+
+  worker_maintenance:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=maintenance
+      --concurrency=1
+      --max-tasks-per-child=500
 
   beat:
     build: .
@@ -50,7 +91,7 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -72,10 +113,34 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "900 1"
+      - --save
+      - "300 10"
+      - --save
+      - "60 10000"
+      - --stop-writes-on-bgsave-error
+      - "yes"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - noeviction
     ports:
       - "6380:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

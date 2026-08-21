@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 from celery.schedules import crontab
+from kombu import Exchange, Queue
 
 import environ
 
@@ -38,7 +39,8 @@ LOCAL_APPS = [
     "apps.orchestrator.apps.OrchestratorConfig",
     "apps.marketplace.hood.apps.HoodConfig",
     "apps.marketplace.otto.apps.OttoConfig",
-    "apps.marketplace.kaufland.apps.KauflandConfig"
+    "apps.marketplace.kaufland.apps.KauflandConfig",
+    "apps.idempotency.apps.IdempotencyConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -156,6 +158,18 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "apps.common.schema.MarketplaceAutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+        "DEFAULT_THROTTLE_CLASSES": [
+        "apps.common.throttles.ManagerMutationRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "registration": "5/hour",
+        "login": "10/15m",
+        "ai_generation": "10/hour",
+        "image_upload": "60/hour",
+        "manager_mutation": "120/hour",
+        "email_verification": "10/hour",
+        "email_verification_resend": "3/hour",
+    },
 }
 
 SIMPLE_JWT = {
@@ -210,12 +224,75 @@ SPECTACULAR_SETTINGS = {
             "name": "Notifications",
             "description": "In-app notifications and Firebase device tokens.",
         },
-        {
-            "name": "Service",
-            "description": "Service health checks.",
-        },
     ],
 }
+
+SPECTACULAR_SETTINGS["TAGS"] = [
+    {
+        "name": "Auth - Seller",
+        "description": "Регистрация продавца, подтверждение email и профиль.",
+    },
+    {
+        "name": "Auth - Shared",
+        "description": "Общий JWT-вход, обновление и выход для web и mobile.",
+    },
+    {
+        "name": "Manager accounts",
+        "description": "Создание менеджеров из защищённой web-панели.",
+    },
+    {
+        "name": "Products",
+        "description": "Товары, варианты, цены и жизненный цикл продавца.",
+    },
+    {
+        "name": "Product images",
+        "description": "Загрузка, сортировка, главное фото и AI-обработка.",
+    },
+    {
+        "name": "Moderation",
+        "description": "Отправка товара продавцом и история решений.",
+    },
+    {
+        "name": "Manager moderation",
+        "description": "Проверка, одобрение, отклонение и сообщения менеджера.",
+    },
+    {
+        "name": "EAN pool",
+        "description": "Импорт, остаток и просмотр EAN-пула JV/XL.",
+    },
+    {
+        "name": "Notifications",
+        "description": "Уведомления в приложении и регистрация FCM-устройств.",
+    },
+    {
+        "name": "OTTO - Catalog",
+        "description": "Локальный каталог групп, категорий и атрибутов OTTO.",
+    },
+    {
+        "name": "OTTO - Delivery",
+        "description": "Доступные для менеджера профили доставки JV и XL.",
+    },
+    {
+        "name": "AI content",
+        "description": "Асинхронная генерация и применение контента для маркетплейсов.",
+    },
+    {
+        "name": "OTTO",
+        "description": "Конфигурация и предпросмотр payload для OTTO.",
+    },
+    {
+        "name": "Hood",
+        "description": "Конфигурация и предпросмотр payload для Hood.",
+    },
+    {
+        "name": "Kaufland",
+        "description": "Конфигурация и предпросмотр payload для Kaufland.",
+    },
+    {
+        "name": "Marketplace jobs",
+        "description": "Очереди публикации, обновления, поиска и смены состояния листингов.",
+    },
+]
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
@@ -225,16 +302,97 @@ CORS_ALLOW_CREDENTIALS = True
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")
 
+REDIS_CACHE_URL = env(
+    "REDIS_CACHE_URL",
+    default="redis://127.0.0.1:6380/2",
+)
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_CACHE_URL,
+        "TIMEOUT": 300,
+        "OPTIONS": {
+            "socket_connect_timeout": 2,
+            "socket_timeout": 2,
+        },
+    },
+}
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 120
-CELERY_TASK_SOFT_TIME_LIMIT = 110
+# Per-task limits below are deliberately longer than the provider HTTP timeout.
+# The previous global 120 seconds could kill valid multi-target jobs mid-flight.
+CELERY_TASK_TIME_LIMIT = 330
+CELERY_TASK_SOFT_TIME_LIMIT = 300
 CELERY_RESULT_EXPIRES = 86400
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Один worker берёт только одну задачу за раз: длинная AI-задача
+# не будет заранее резервировать очередь целиком.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+# Дольше максимального времени любой Celery-задачи.
+# Redis вернёт невыполненную задачу в очередь, если worker умрёт.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "visibility_timeout": 3600,
+}
+CELERY_TASK_DEFAULT_QUEUE = "maintenance"
+CELERY_TASK_QUEUES = (
+    Queue("marketplace", Exchange("marketplace", type="direct"), "marketplace"),
+    Queue("ai", Exchange("ai", type="direct"), "ai"),
+    Queue("images", Exchange("images", type="direct"), "images"),
+    Queue("notifications", Exchange("notifications", type="direct"), "notifications"),
+    Queue("maintenance", Exchange("maintenance", type="direct"), "maintenance"),
+)
+CELERY_TASK_ROUTES = {
+    "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
+    "apps.notifications.tasks.process_product_image": {"queue": "images"},
+    "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
+    "apps.notifications.tasks.send_notification_push": {"queue": "notifications"},
+    "apps.notifications.tasks.send_product_availability_reminders": {"queue": "notifications"},
+    "apps.orchestrator.tasks.recover_stale_orchestrator_jobs": {"queue": "maintenance"},
+    "apps.idempotency.tasks.purge_expired_idempotency_records": {"queue": "maintenance"},
+    "apps.notifications.tasks.recover_stale_product_image_processing": {"queue": "maintenance",},
+    "apps.notifications.tasks.recover_stale_push_deliveries": {"queue": "maintenance",},
+}
+CELERY_TASK_ANNOTATIONS = {
+    "apps.orchestrator.tasks.execute_marketplace_job": {
+        "soft_time_limit": 240,
+        "time_limit": 270,
+    },
+    "apps.orchestrator.tasks.generate_marketplace_content": {
+        "soft_time_limit": 270,
+        "time_limit": 300,
+    },
+    "apps.notifications.tasks.process_product_image": {
+        "soft_time_limit": 180,
+        "time_limit": 210,
+    },
+    "apps.notifications.tasks.check_product_image_generation": {
+        "soft_time_limit": 540,
+        "time_limit": 570,
+    },
+    "apps.notifications.tasks.send_notification_push": {
+        "soft_time_limit": 60,
+        "time_limit": 90,
+    },
+}
+ORCHESTRATOR_STALE_JOB_MINUTES = env.int(
+    "ORCHESTRATOR_STALE_JOB_MINUTES",
+    default=20,
+)
+AI_CONTENT_STALE_JOB_MINUTES = env.int(
+    "AI_CONTENT_STALE_JOB_MINUTES",
+    default=15,
+)
 
 # Direct marketplace API configuration. BENIM talks to these providers itself;
 # no WareHub service is required at runtime.
@@ -324,9 +482,24 @@ OTTO_PROCESS_MAX_POLL_ATTEMPTS = env.int(
     default=120,
 )
 
-MARKETPLACE_HTTP_TIMEOUT_SECONDS = env.float(
-    "MARKETPLACE_HTTP_TIMEOUT_SECONDS",
-    default=30,
+MARKETPLACE_HTTP_CONNECT_TIMEOUT_SECONDS = env.int(
+    "MARKETPLACE_HTTP_CONNECT_TIMEOUT_SECONDS",
+    default=5,
+)
+
+MARKETPLACE_HTTP_READ_TIMEOUT_SECONDS = env.int(
+    "MARKETPLACE_HTTP_READ_TIMEOUT_SECONDS",
+    default=25,
+)
+
+MARKETPLACE_HTTP_RETRY_TOTAL = env.int(
+    "MARKETPLACE_HTTP_RETRY_TOTAL",
+    default=3,
+)
+
+MARKETPLACE_HTTP_RETRY_BACKOFF_FACTOR = env.float(
+    "MARKETPLACE_HTTP_RETRY_BACKOFF_FACTOR",
+    default=0.5,
 )
 
 OTTO_API_MARKETPLACE_STATUS_ENDPOINT = env(
@@ -395,7 +568,66 @@ CELERY_BEAT_SCHEDULE = {
         ),
         "schedule": crontab(hour=10, minute=0),
     },
+    "recover-stale-orchestrator-jobs": {
+        "task": "apps.orchestrator.tasks.recover_stale_orchestrator_jobs",
+        "schedule": crontab(minute="*/10"),
+    },
+    "idempotency-cleanup-hourly": {
+        "task": "apps.idempotency.tasks.purge_expired_idempotency_records",
+        "schedule": crontab(minute=25),
+    },
+    "recover-stale-product-image-processing": {
+        "task": (
+            "apps.notifications.tasks."
+            "recover_stale_product_image_processing"
+        ),
+        "schedule": crontab(minute="*/10"),
+    },
+    "recover-stale-push-deliveries": {
+        "task": "apps.notifications.tasks.recover_stale_push_deliveries",
+        "schedule": crontab(minute="*/5"),
+    },
 }
+
+PUSH_NOTIFICATION_MAX_ATTEMPTS = env.int(
+    "PUSH_NOTIFICATION_MAX_ATTEMPTS",
+    default=5,
+)
+PUSH_NOTIFICATION_RETRY_BASE_SECONDS = env.int(
+    "PUSH_NOTIFICATION_RETRY_BASE_SECONDS",
+    default=30,
+)
+PUSH_NOTIFICATION_RETRY_MAX_SECONDS = env.int(
+    "PUSH_NOTIFICATION_RETRY_MAX_SECONDS",
+    default=900,
+)
+PUSH_DELIVERY_PROCESSING_LEASE_SECONDS = env.int(
+    "PUSH_DELIVERY_PROCESSING_LEASE_SECONDS",
+    default=120,
+)
+PUSH_DELIVERY_RECOVERY_BATCH_SIZE = env.int(
+    "PUSH_DELIVERY_RECOVERY_BATCH_SIZE",
+    default=500,
+)
+
+IDEMPOTENCY_TTL_HOURS = env.int(
+    "IDEMPOTENCY_TTL_HOURS",
+    default=24
+)
+IDEMPOTENCY_CLEANUP_BATCH_SIZE = env.int(
+    "IDEMPOTENCY_CLEANUP_BATCH_SIZE",
+    default=5000,
+)
+
+IMAGE_PROCESSING_LEASE_SECONDS = env.int(
+    "IMAGE_PROCESSING_LEASE_SECONDS",
+    default=600,
+)
+
+IMAGE_PROCESSING_RECOVERY_BATCH_SIZE = env.int(
+    "IMAGE_PROCESSING_RECOVERY_BATCH_SIZE",
+    default=100,
+)
 
 FIREBASE_ENABLED = env.bool("FIREBASE_ENABLED", default=False)
 
@@ -429,3 +661,74 @@ BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS = env.int(
     default=60,
 )
 EAN_LOW_STOCK_THRESHOLD = env.int("EAN_LOW_STOCK_THRESHOLD", default=20)
+
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = env("EMAIL_HOST")
+EMAIL_PORT = env.int("EMAIL_PORT", default=465)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
+
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = env.int(
+    "EMAIL_VERIFICATION_CODE_TTL_MINUTES",
+    default=10,
+)
+EMAIL_VERIFICATION_MAX_ATTEMPTS = env.int(
+    "EMAIL_VERIFICATION_MAX_ATTEMPTS",
+    default=5,
+)
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = env.int(
+    "EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+    default=60,
+)
+
+BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(
+    host.strip().lower()
+    for host in env.list(
+        "BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS",
+        default=[],
+    )
+    if host.strip()
+)
+
+BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES = env.int(
+    "BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES",
+    default=15 * 1024 * 1024,
+)
+
+PRODUCT_IMAGE_MAX_UPLOAD_BYTES = env.int(
+    "PRODUCT_IMAGE_MAX_UPLOAD_BYTES",
+    default=10 * 1024 * 1024,
+)
+
+PRODUCT_IMAGE_MAX_PIXELS = env.int(
+    "PRODUCT_IMAGE_MAX_PIXELS",
+    default=25_000_000,
+)
+
+
+EXTERNAL_JSON_MAX_BYTES = env.int(
+    "EXTERNAL_JSON_MAX_BYTES",
+    default=64 * 1024,
+)
+
+EXTERNAL_JSON_MAX_DEPTH = env.int(
+    "EXTERNAL_JSON_MAX_DEPTH",
+    default=8,
+)
+
+EXTERNAL_JSON_MAX_ITEMS_PER_CONTAINER = env.int(
+    "EXTERNAL_JSON_MAX_ITEMS_PER_CONTAINER",
+    default=100,
+)
+
+EXTERNAL_JSON_MAX_STRING_CHARS = env.int(
+    "EXTERNAL_JSON_MAX_STRING_CHARS",
+    default=4000,
+)

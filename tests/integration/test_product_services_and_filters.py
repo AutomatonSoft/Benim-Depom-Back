@@ -61,7 +61,7 @@ def test_product_create_update_and_status_guards(seller, product_type):
 
     with pytest.raises(ValidationError, match="approved product"):
         confirm_product_availability(product=product, is_available=False)
-    with pytest.raises(ValidationError, match="approved products"):
+    with pytest.raises(ValidationError, match="listing-state"):
         deactivate_product(product=product)
 
 
@@ -117,21 +117,23 @@ def test_processing_request_and_approved_availability_services(monkeypatch, sell
     product.refresh_from_db()
     assert product.is_available is False and product.availability_confirmed_at is not None
     request_product_deactivation(product=product)
-    deactivate_product(product=product)
+    with pytest.raises(ValidationError, match="listing-state"):
+        deactivate_product(product=product)
     product.refresh_from_db()
-    assert product.status == Product.Status.DEACTIVATED and product.deactivated_at is not None
+    assert product.status == Product.Status.APPROVED
+    assert product.deactivation_requested_at is not None
 
 
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_product_filters_apply_all_business_fields_and_reject_bad_values(
-    seller, product_type, category, product_factory
+    seller, product_type, product_factory
 ):
-    matching = product_factory(owner=seller, title="Blue chair", category=category)
+    matching = product_factory(owner=seller, title="Blue chair")
     other = product_factory(owner=seller, title="Red table", status=Product.Status.APPROVED)
     other.variants.update(color_hex="#000000", materials=["Metal"])
     params = QueryDict(
-        f"search=chair&status=draft&product_type={product_type}&category={category.id}"
+        f"search=chair&status=draft&product_type={product_type}"
         "&color_hex=%235B91C8&material=Fabric&is_available=true&ordering=title"
     )
     assert list(filter_products(queryset=Product.objects.all(), query_params=params)) == [matching]

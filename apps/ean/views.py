@@ -4,13 +4,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.permissions import IsManager
+from apps.common.throttles import ManagerMutationThrottleMixin
 
 from .models import EanCode
 from .serializers import EanCodeSerializer, EanImportSerializer
 from .services import get_ean_summary, import_ean_codes
 
 
-class ManagerEanImportView(APIView):
+class ManagerEanImportView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
     @extend_schema(request=EanImportSerializer, responses={201: dict})

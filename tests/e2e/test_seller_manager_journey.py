@@ -1,6 +1,7 @@
 import pytest
 
 from apps.accounts.models import User
+from apps.accounts.services import issue_email_verification_code
 from apps.ean.models import EanCode
 from apps.notifications.models import Notification
 from apps.products.models import Product
@@ -15,16 +16,25 @@ def bearer(client, token):
 def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_file, password):
     registration = {
         "username": "journey_seller",
+        "email": "journey_seller@example.com",
         "password": password,
         "password_confirm": password,
         "preferred_language": "ru",
     }
-    assert api_client.post("/api/v1/auth/register/", registration, format="json").status_code == 201
-    login = api_client.post(
-        "/api/v1/auth/login/", {"username": "journey_seller", "password": password}, format="json"
+    assert api_client.post(
+        "/api/v1/auth/register/",
+        registration,
+        format="json",
+    ).status_code == 201
+    seller = User.objects.get(username="journey_seller")
+    code = issue_email_verification_code(user=seller)
+    verification = api_client.post(
+        "/api/v1/auth/email/verify/",
+        {"email": seller.email, "code": code},
+        format="json",
     )
-    assert login.status_code == 200
-    bearer(api_client, login.data["access"])
+    assert verification.status_code == 200
+    bearer(api_client, verification.data["access"])
 
     create = api_client.post(
         "/api/v1/products/",
@@ -90,12 +100,10 @@ def test_seller_to_manager_approval_and_deactivation_journey(api_client, image_f
 
     bearer(api_client, manager_login.data["access"])
     deactivation = api_client.post(f"/api/v1/manager/products/{product_id}/deactivate/")
-    assert deactivation.status_code == 200
+    assert deactivation.status_code == 400
     product.refresh_from_db()
-    assert product.status == Product.Status.DEACTIVATED
-    assert Notification.objects.filter(
-        user=product.owner, notification_type=Notification.Type.PRODUCT_DEACTIVATED
-    ).exists()
+    assert product.status == Product.Status.APPROVED
+    assert product.deactivation_requested_at is not None
     assert EanCode.objects.filter(product=product).count() == 2
 
 

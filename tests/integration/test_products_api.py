@@ -74,6 +74,21 @@ def test_product_api_rejects_invalid_variant_and_non_seller_create(api_client, m
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_product_api_rejects_direct_ean_assignment(api_client, seller, product_type):
+    authenticate(api_client, seller)
+
+    response = api_client.post(
+        "/api/v1/products/",
+        product_payload(product_type, ean_jv="4012345678901"),
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "ean_jv" in response.data
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_product_image_operations_and_edit_lock(api_client, seller, product_factory, product_image_factory, image_file):
     product = product_factory(owner=seller)
     first = product_image_factory(product=product, is_primary=True)

@@ -52,13 +52,6 @@ class Product(models.Model):
         choices=Currency.choices,
         default=Currency.TRY,
     )
-    category = models.ForeignKey(
-        "catalog.Category",
-        on_delete=models.SET_NULL,
-        related_name="products",
-        null=True,
-        blank=True,
-    )
     otto_category_id = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -227,6 +220,15 @@ class ProductImage(models.Model):
     processing_error = models.TextField(blank=True)
     processing_result = models.JSONField(
         default=dict,
+        blank=True,
+    )
+    processing_claimed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    processing_finished_at = models.DateTimeField(
+        null=True,
         blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)

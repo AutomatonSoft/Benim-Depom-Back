@@ -14,10 +14,6 @@ class BaseCatalogModel(models.Model):
         return self.name
 
 
-class Category(BaseCatalogModel):
-    pass
-
-
 class ProductType(BaseCatalogModel):
     pass 
 

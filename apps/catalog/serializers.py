@@ -1,19 +1,7 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from .models import Category, Color, Material, ProductType
-
-
-@extend_schema_serializer(component_name="CatalogCategory")
-class CategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Category
-        fields = (
-            "id", 
-            "name",
-            "is_active",
-            "sort_order",
-        )
+from .models import Color, Material, ProductType
 
 
 @extend_schema_serializer(component_name="CatalogProductType")
