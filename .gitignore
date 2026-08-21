@@ -2,6 +2,11 @@
 venv/
 .venv/
 .env
+.env.*
+!.env.example
+!.env.production.example
+.deploy.env
+
 
 # Python
 __pycache__/

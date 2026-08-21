@@ -1,6 +1,6 @@
+import ftplib
 from io import BytesIO
 
-import ftplib
 import pytest
 from django.core.exceptions import SuspiciousFileOperation
 from django.test import override_settings
@@ -23,8 +23,14 @@ from apps.common.ftp_storage import FTPMediaStorage
 def test_ftp_storage_rejects_path_traversal_and_builds_public_url():
     storage = FTPMediaStorage()
 
-    assert storage._remote_path("products/1/photo name.jpg") == "/api-media/products/1/photo name.jpg"
-    assert storage.url("products/1/photo name.jpg") == "https://cdn.example/api-media/products/1/photo%20name.jpg"
+    assert (
+        storage._remote_path("products/1/photo name.jpg")
+        == "/api-media/products/1/photo name.jpg"
+    )
+    assert (
+        storage.url("products/1/photo name.jpg")
+        == "https://cdn.example/api-media/products/1/photo%20name.jpg"
+    )
 
     with pytest.raises(SuspiciousFileOperation):
         storage._clean_name("../secrets.txt")
@@ -32,9 +38,14 @@ def test_ftp_storage_rejects_path_traversal_and_builds_public_url():
 
 @pytest.mark.unit
 @override_settings(
-    FTP_MEDIA_HOST="ftp.example", FTP_MEDIA_PORT=21, FTP_MEDIA_USERNAME="user",
-    FTP_MEDIA_PASSWORD="password", FTP_MEDIA_USE_TLS=True, FTP_MEDIA_PASSIVE_MODE=True,
-    FTP_MEDIA_TIMEOUT_SECONDS=5, FTP_MEDIA_REMOTE_ROOT="api-media",
+    FTP_MEDIA_HOST="ftp.example",
+    FTP_MEDIA_PORT=21,
+    FTP_MEDIA_USERNAME="user",
+    FTP_MEDIA_PASSWORD="password",
+    FTP_MEDIA_USE_TLS=True,
+    FTP_MEDIA_PASSIVE_MODE=True,
+    FTP_MEDIA_TIMEOUT_SECONDS=5,
+    FTP_MEDIA_REMOTE_ROOT="api-media",
     FTP_MEDIA_PUBLIC_BASE_URL="https://cdn.example/api-media",
 )
 def test_ftp_storage_save_read_delete_and_missing_file(monkeypatch):
@@ -44,13 +55,26 @@ def test_ftp_storage_save_read_delete_and_missing_file(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def connect(self, *args): pass
-        def login(self, *args): pass
-        def prot_p(self): pass
-        def set_pasv(self, *args): pass
-        def mkd(self, *args): pass
-        def quit(self): pass
-        def close(self): pass
+        def connect(self, *args):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def prot_p(self):
+            pass
+
+        def set_pasv(self, *args):
+            pass
+
+        def mkd(self, *args):
+            pass
+
+        def quit(self):
+            pass
+
+        def close(self):
+            pass
 
         def storbinary(self, command, content, **kwargs):
             self.files[command.split(" ", 1)[1]] = content.read()

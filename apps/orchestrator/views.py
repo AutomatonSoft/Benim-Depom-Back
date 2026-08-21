@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
-from rest_framework import status, generics
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,38 +12,12 @@ from apps.common.throttles import (
     AiGenerationRateThrottle,
     ManagerMutationThrottleMixin,
 )
-from apps.products.models import Product
-
-from .models import (
-    MarketplaceContentGeneration,
-    MarketplaceJob,
-    MarketplaceListingConfiguration,
-    MarketplacePublication,
-)
-from .serializers import (
-    MarketplaceJobRequestSerializer,
-    MarketplaceListingStateRequestSerializer,
-    MarketplaceJobSerializer,
-    MarketplacePublicationSerializer,
-    MarketplacePublicationFilterSerializer,
-    OttoListingConfigurationResponseSerializer,
-    OttoListingConfigurationSerializer,
-    HoodListingConfigurationResponseSerializer,
-    HoodListingConfigurationSerializer,
-    KauflandListingConfigurationResponseSerializer,
-    KauflandListingConfigurationSerializer,
-    MarketplaceContentGenerationApplyRequestSerializer,
-    MarketplaceContentGenerationRequestSerializer,
-    MarketplaceContentGenerationSerializer,
-)
-from .listing_state_services import create_listing_state_jobs
-from .tasks import (
-    execute_marketplace_job,
-    generate_marketplace_content,
-)
-from apps.marketplace.otto.payload_builder import (
-    OttoPayloadValidationError,
-    build_otto_payload,
+from apps.idempotency.services import (
+    IdempotencyKeyReuseError,
+    IdempotencyRequestInProgressError,
+    abandon_idempotency_claim,
+    claim_idempotency_key,
+    complete_idempotency_claim,
 )
 from apps.marketplace.hood.payload_builder import (
     HoodPayloadValidationError,
@@ -54,18 +28,44 @@ from apps.marketplace.kaufland.payload_builder import (
     build_kaufland_create_payload,
     build_kaufland_update_payload,
 )
+from apps.marketplace.otto.payload_builder import (
+    OttoPayloadValidationError,
+    build_otto_payload,
+)
+from apps.products.models import Product
+from apps.products.views import IDEMPOTENCY_KEY_HEADER
+
 from .ai_content import (
     build_product_snapshot,
     universal_content_to_marketplace_configuration,
 )
-from apps.idempotency.services import (
-    IdempotencyKeyReuseError,
-    IdempotencyRequestInProgressError,
-    abandon_idempotency_claim,
-    claim_idempotency_key,
-    complete_idempotency_claim,
+from .listing_state_services import create_listing_state_jobs
+from .models import (
+    MarketplaceContentGeneration,
+    MarketplaceJob,
+    MarketplaceListingConfiguration,
+    MarketplacePublication,
 )
-from apps.products.views import IDEMPOTENCY_KEY_HEADER
+from .serializers import (
+    HoodListingConfigurationResponseSerializer,
+    HoodListingConfigurationSerializer,
+    KauflandListingConfigurationResponseSerializer,
+    KauflandListingConfigurationSerializer,
+    MarketplaceContentGenerationApplyRequestSerializer,
+    MarketplaceContentGenerationRequestSerializer,
+    MarketplaceContentGenerationSerializer,
+    MarketplaceJobRequestSerializer,
+    MarketplaceJobSerializer,
+    MarketplaceListingStateRequestSerializer,
+    MarketplacePublicationFilterSerializer,
+    MarketplacePublicationSerializer,
+    OttoListingConfigurationResponseSerializer,
+    OttoListingConfigurationSerializer,
+)
+from .tasks import (
+    execute_marketplace_job,
+    generate_marketplace_content,
+)
 
 
 def resolve_requested_targets(data) -> list[dict[str, str]]:
@@ -125,15 +125,17 @@ class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-        
+
         product = get_object_or_404(
             Product.objects.prefetch_related("variants"),
             pk=product_pk,
         )
         if not is_manager(request.user) and product.owner_id != request.user.id:
             return Response(status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = MarketplaceJobRequestSerializer(data=request.data, context={"operation": operation})
+
+        serializer = MarketplaceJobRequestSerializer(
+            data=request.data, context={"operation": operation}
+        )
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         payloads = dict(data.get("payloads", {}))
@@ -157,9 +159,7 @@ class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
                 ).first()
 
                 configuration_data = (
-                    configuration.configuration
-                    if configuration is not None
-                    else {}
+                    configuration.configuration if configuration is not None else {}
                 )
 
                 try:
@@ -276,12 +276,14 @@ class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
                     requested_by=request.user,
                     operation=operation,
                     requested_channels=data["channels"],
-                    request_payload=compact_external_json({
-                        "payloads": payloads,
-                        "target_payloads": target_payloads,
-                        "accounts": data.get("accounts", {}),
-                        "targets": data.get("targets", []),
-                    }),
+                    request_payload=compact_external_json(
+                        {
+                            "payloads": payloads,
+                            "target_payloads": target_payloads,
+                            "accounts": data.get("accounts", {}),
+                            "targets": data.get("targets", []),
+                        }
+                    ),
                 )
                 transaction.on_commit(
                     lambda: execute_marketplace_job.delay(str(job.id))
@@ -398,10 +400,12 @@ class MarketplaceJobDetailView(APIView):
 
     @extend_schema(responses={200: MarketplaceJobSerializer})
     def get(self, request, job_id):
-        job = get_object_or_404(MarketplaceJob.objects.select_related("product"), pk=job_id)
+        job = get_object_or_404(
+            MarketplaceJob.objects.select_related("product"), pk=job_id
+        )
         if not is_manager(request.user) and job.product.owner_id != request.user.id:
             return Response(status=status.HTTP_403_FORBIDDEN)
-        
+
         return Response(MarketplaceJobSerializer(job).data)
 
 
@@ -423,8 +427,7 @@ class ProductMarketplacePublicationListView(APIView):
         product = get_object_or_404(Product, pk=product_pk)
 
         publications = (
-            MarketplacePublication.objects
-            .filter(product=product)
+            MarketplacePublication.objects.filter(product=product)
             .select_related("last_job")
             .order_by("marketplace", "account")
         )
@@ -629,9 +632,7 @@ class ProductHoodListingConfigurationView(ManagerMutationThrottleMixin, APIView)
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        return Response(
-            HoodListingConfigurationResponseSerializer(configuration).data
-        )
+        return Response(HoodListingConfigurationResponseSerializer(configuration).data)
 
     @extend_schema(
         request=HoodListingConfigurationSerializer,
@@ -657,16 +658,12 @@ class ProductHoodListingConfigurationView(ManagerMutationThrottleMixin, APIView)
         serializer.is_valid(raise_exception=True)
 
         updated_configuration = dict(configuration.configuration or {})
-        updated_configuration.update(
-            serializer.to_storage(serializer.validated_data)
-        )
+        updated_configuration.update(serializer.to_storage(serializer.validated_data))
 
         configuration.configuration = updated_configuration
         configuration.save(update_fields=("configuration", "updated_at"))
 
-        return Response(
-            HoodListingConfigurationResponseSerializer(configuration).data
-        )
+        return Response(HoodListingConfigurationResponseSerializer(configuration).data)
 
 
 class ProductHoodPayloadPreviewView(APIView):
@@ -703,9 +700,7 @@ class ProductHoodPayloadPreviewView(APIView):
             payload = build_hood_payload(
                 product=product,
                 account=account,
-                configuration=(
-                    configuration.configuration if configuration else {}
-                ),
+                configuration=(configuration.configuration if configuration else {}),
             )
         except HoodPayloadValidationError as exc:
             return Response(
@@ -740,9 +735,7 @@ class ProductKauflandListingConfigurationView(ManagerMutationThrottleMixin, APIV
 
     @extend_schema(
         responses={200: KauflandListingConfigurationResponseSerializer},
-        description=(
-            "Returns manager-editable Kaufland content for one account."
-        ),
+        description=("Returns manager-editable Kaufland content for one account."),
     )
     def get(self, request, product_pk: int, account: str):
         configuration = self._get_configuration(product_pk, account)
@@ -754,17 +747,13 @@ class ProductKauflandListingConfigurationView(ManagerMutationThrottleMixin, APIV
             )
 
         return Response(
-            KauflandListingConfigurationResponseSerializer(
-                configuration
-            ).data
+            KauflandListingConfigurationResponseSerializer(configuration).data
         )
 
     @extend_schema(
         request=KauflandListingConfigurationSerializer,
         responses={200: KauflandListingConfigurationResponseSerializer},
-        description=(
-            "Partially updates manager-owned Kaufland listing content."
-        ),
+        description=("Partially updates manager-owned Kaufland listing content."),
     )
     def patch(self, request, product_pk: int, account: str):
         configuration = self._get_configuration(product_pk, account)
@@ -782,17 +771,13 @@ class ProductKauflandListingConfigurationView(ManagerMutationThrottleMixin, APIV
         serializer.is_valid(raise_exception=True)
 
         updated_configuration = dict(configuration.configuration or {})
-        updated_configuration.update(
-            serializer.to_storage(serializer.validated_data)
-        )
+        updated_configuration.update(serializer.to_storage(serializer.validated_data))
 
         configuration.configuration = updated_configuration
         configuration.save(update_fields=("configuration", "updated_at"))
 
         return Response(
-            KauflandListingConfigurationResponseSerializer(
-                configuration
-            ).data
+            KauflandListingConfigurationResponseSerializer(configuration).data
         )
 
 
@@ -830,9 +815,7 @@ class ProductKauflandCreatePayloadPreviewView(APIView):
             payload = build_kaufland_create_payload(
                 product=product,
                 account=account,
-                configuration=(
-                    configuration.configuration if configuration else {}
-                ),
+                configuration=(configuration.configuration if configuration else {}),
             )
         except KauflandPayloadValidationError as exc:
             return Response(
@@ -880,9 +863,7 @@ class ProductKauflandUpdatePayloadPreviewView(APIView):
             payload = build_kaufland_update_payload(
                 product=product,
                 account=account,
-                configuration=(
-                    configuration.configuration if configuration else {}
-                ),
+                configuration=(configuration.configuration if configuration else {}),
             )
         except KauflandPayloadValidationError as exc:
             return Response(
@@ -894,7 +875,6 @@ class ProductKauflandUpdatePayloadPreviewView(APIView):
             )
 
         return Response({"payload": payload})
-
 
 
 class ProductMarketplaceContentGenerationCreateView(
@@ -923,9 +903,7 @@ class ProductMarketplaceContentGenerationCreateView(
     )
     def post(self, request, product_pk: int):
         product = get_object_or_404(
-            Product.objects.prefetch_related(
-                "variants"
-            ),
+            Product.objects.prefetch_related("variants"),
             pk=product_pk,
         )
 
@@ -940,9 +918,7 @@ class ProductMarketplaceContentGenerationCreateView(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        serializer = MarketplaceContentGenerationRequestSerializer(
-            data=request.data
-        )
+        serializer = MarketplaceContentGenerationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         try:
@@ -1026,9 +1002,7 @@ class MarketplaceContentGenerationDetailView(APIView):
             pk=generation_id,
         )
 
-        return Response(
-            MarketplaceContentGenerationSerializer(generation).data
-        )
+        return Response(MarketplaceContentGenerationSerializer(generation).data)
 
 
 class ProductMarketplaceContentGenerationApplyView(
@@ -1081,10 +1055,7 @@ class ProductMarketplaceContentGenerationApplyView(
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            content = (
-                generation.result.get("universal", {})
-                .get("content", {})
-            )
+            content = generation.result.get("universal", {}).get("content", {})
 
             if not content:
                 return Response(
@@ -1098,8 +1069,7 @@ class ProductMarketplaceContentGenerationApplyView(
             }
 
             requested_targets = {
-                (target["marketplace"], target["account"])
-                for target in targets
+                (target["marketplace"], target["account"]) for target in targets
             }
 
             if not requested_targets.issubset(allowed_targets):
@@ -1150,9 +1120,7 @@ class ProductMarketplaceContentGenerationApplyView(
 
                 if changed:
                     configuration.configuration = values
-                    configuration.save(
-                        update_fields=("configuration", "updated_at")
-                    )
+                    configuration.save(update_fields=("configuration", "updated_at"))
                     updated_targets.append(target)
 
                 if skipped:

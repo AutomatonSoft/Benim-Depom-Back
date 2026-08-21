@@ -2,18 +2,15 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import F, Max
-from rest_framework.exceptions import ValidationError
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from .models import Product, ProductImage, ProductVariant
 
 
 @transaction.atomic
 def create_product(
-    *,
-    owner,
-    data: dict[str, Any],
-    variants_data: list[dict[str, Any]]
+    *, owner, data: dict[str, Any], variants_data: list[dict[str, Any]]
 ) -> Product:
     product = Product.objects.create(owner=owner, **data)
 
@@ -51,19 +48,14 @@ def update_product(
 
     return product
 
-EDITABLE_PRODUCT_STATUSES = {
-    Product.Status.DRAFT,
-    Product.Status.REJECTED
-}
+
+EDITABLE_PRODUCT_STATUSES = {Product.Status.DRAFT, Product.Status.REJECTED}
+
 
 def ensure_product_is_editable(product: Product) -> None:
     if product.status not in EDITABLE_PRODUCT_STATUSES:
         raise ValidationError(
-            {
-                "detail": (
-                    "Only draft or rejected products can be changed"
-                )
-            }
+            {"detail": ("Only draft or rejected products can be changed")}
         )
 
 
@@ -83,27 +75,26 @@ def upload_product_image(
     )
 
     if images_queryset.count() >= 10:
-        raise ValidationError(
-            {"image": "A product cannot have more than 10 images"}
-        )
+        raise ValidationError({"image": "A product cannot have more than 10 images"})
 
-    max_position = images_queryset.aggregate(
-        max_position=Max("position")
-    )["max_position"]
+    max_position = images_queryset.aggregate(max_position=Max("position"))[
+        "max_position"
+    ]
 
     position = 0 if max_position is None else max_position + 1
     has_primary = images_queryset.filter(is_primary=True).exists()
 
     if is_primary or not has_primary:
         images_queryset.update(is_primary=False)
-        is_primary=True
+        is_primary = True
 
     return ProductImage.objects.create(
-        product = locked_product,
-        image = image_file,
-        position = position,
-        is_primary=is_primary
+        product=locked_product,
+        image=image_file,
+        position=position,
+        is_primary=is_primary,
     )
+
 
 @transaction.atomic
 def delete_product_image(
@@ -115,8 +106,7 @@ def delete_product_image(
     ensure_product_is_editable(locked_product)
 
     image = ProductImage.objects.select_for_update().get(
-        pk=image.pk,
-        product=locked_product
+        pk=image.pk, product=locked_product
     )
 
     image_files = [
@@ -143,32 +133,27 @@ def delete_product_image(
             if image_file:
                 image_file.delete(save=False)
 
-
     transaction.on_commit(remove_files)
 
 
 @transaction.atomic
 def make_product_image_primary(
-    *,
-    product: Product,
-    image: ProductImage
+    *, product: Product, image: ProductImage
 ) -> ProductImage:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(locked_product)
 
     image = ProductImage.objects.select_for_update().get(
-        pk=image.pk,
-        product=locked_product
+        pk=image.pk, product=locked_product
     )
 
-    ProductImage.objects.filter(product=locked_product).update(
-        is_primary=False
-    )
+    ProductImage.objects.filter(product=locked_product).update(is_primary=False)
 
     image.is_primary = True
     image.save(update_fields=("is_primary",))
 
     return image
+
 
 @transaction.atomic
 def reorder_product_images(
@@ -178,7 +163,6 @@ def reorder_product_images(
 ) -> None:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(locked_product)
-
 
     images = list(
         ProductImage.objects.select_for_update()
@@ -192,20 +176,16 @@ def reorder_product_images(
         raise ValidationError(
             {
                 "image_ids": (
-                    "The list must contain every image of this product"
-                    "exactly once."
+                    "The list must contain every image of this productexactly once."
                 )
             }
         )
 
-    max_position = max(
-        (image.position for image in images),
-        default=0
-    )
+    max_position = max((image.position for image in images), default=0)
 
-    ProductImage.objects.filter(
-        product=locked_product
-    ).update(position=F("position") + max_position + len(images) + 1)
+    ProductImage.objects.filter(product=locked_product).update(
+        position=F("position") + max_position + len(images) + 1
+    )
 
     for position, image_id in enumerate(image_ids):
         ProductImage.objects.filter(
@@ -213,7 +193,7 @@ def reorder_product_images(
             pk=image_id,
         ).update(position=position)
 
-        
+
 @transaction.atomic
 def confirm_product_availability(
     *,
@@ -224,12 +204,7 @@ def confirm_product_availability(
 
     if locked_product.status != Product.Status.APPROVED:
         raise ValidationError(
-            {
-                "detail": (
-                    "Availability can only be confirmed "
-                    "for an approved product."
-                )
-            }
+            {"detail": ("Availability can only be confirmed for an approved product.")}
         )
 
     locked_product.is_available = is_available
@@ -257,14 +232,10 @@ def request_product_deactivation(*, product: Product) -> Product:
         )
 
     if locked_product.deactivation_requested_at is not None:
-        raise ValidationError(
-            {"detail": "A deactivation request is already pending."}
-        )
+        raise ValidationError({"detail": "A deactivation request is already pending."})
 
     locked_product.deactivation_requested_at = timezone.now()
-    locked_product.save(
-        update_fields=("deactivation_requested_at", "updated_at")
-    )
+    locked_product.save(update_fields=("deactivation_requested_at", "updated_at"))
     return locked_product
 
 
@@ -301,11 +272,7 @@ def withdraw_product_submission(*, product: Product) -> Product:
         Product.Status.UNDER_REVIEW,
     }:
         raise ValidationError(
-            {
-                "detail": (
-                    "Only a submitted or under-review product can be withdrawn."
-                )
-            }
+            {"detail": ("Only a submitted or under-review product can be withdrawn.")}
         )
 
     from apps.ean.models import EanCode
@@ -333,9 +300,7 @@ def request_product_availability(*, product: Product, manager) -> Product:
         )
 
     locked_product.availability_reminder_sent_at = timezone.now()
-    locked_product.save(
-        update_fields=("availability_reminder_sent_at", "updated_at")
-    )
+    locked_product.save(update_fields=("availability_reminder_sent_at", "updated_at"))
 
     from apps.notifications.models import Notification
     from apps.notifications.services import create_notification
@@ -356,9 +321,7 @@ def request_product_availability(*, product: Product, manager) -> Product:
 
 @transaction.atomic
 def request_product_image_processing(
-    *,
-    product: Product,
-    image: ProductImage
+    *, product: Product, image: ProductImage
 ) -> ProductImage:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
@@ -376,33 +339,18 @@ def request_product_image_processing(
         product=locked_product,
     )
 
-    if (
-        locked_image.processing_status == ProductImage.ProcessingStatus.PROCESSING
-    ):
-        raise ValidationError(
-            {"detail": "Image processing is already in progress"}
-        )
+    if locked_image.processing_status == ProductImage.ProcessingStatus.PROCESSING:
+        raise ValidationError({"detail": "Image processing is already in progress"})
 
-    locked_image.processing_status = (
-        ProductImage.ProcessingStatus.PENDING
-    )
+    locked_image.processing_status = ProductImage.ProcessingStatus.PENDING
     locked_image.processing_error = ""
     locked_image.processing_result = {}
     locked_image.save(
-        update_fields=(
-            "processing_status",
-            "processing_error",
-            "processing_result"
-        )
-    ) 
+        update_fields=("processing_status", "processing_error", "processing_result")
+    )
 
     from apps.notifications.tasks import process_product_image
 
-    transaction.on_commit(
-        lambda: process_product_image.delay(locked_image.id)
-    )
+    transaction.on_commit(lambda: process_product_image.delay(locked_image.id))
 
     return locked_image
-
-
-    

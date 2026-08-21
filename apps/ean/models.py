@@ -22,9 +22,7 @@ class EanCode(models.Model):
         blank=True,
     )
     state = models.CharField(
-        max_length=16,
-        choices=State.choices,
-        default=State.AVAILABLE
+        max_length=16, choices=State.choices, default=State.AVAILABLE
     )
     imported_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -36,7 +34,7 @@ class EanCode(models.Model):
     imported_at = models.DateTimeField(auto_now_add=True)
     assigned_at = models.DateTimeField(null=True, blank=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
-    
+
     class Meta:
         ordering = ("id",)
         indexes = [

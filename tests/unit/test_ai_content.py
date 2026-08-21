@@ -83,9 +83,7 @@ def test_maps_one_draft_to_each_marketplace_configuration():
         "bullet_points": content["bullet_points"],
     }
     assert hood["title"] == content["title"]
-    assert hood["description"] == (
-        "<p>Erster Absatz.</p><p>Zweiter Absatz.</p>"
-    )
+    assert hood["description"] == ("<p>Erster Absatz.</p><p>Zweiter Absatz.</p>")
     assert kaufland == {
         "title": content["title"],
         "description": content["description"],

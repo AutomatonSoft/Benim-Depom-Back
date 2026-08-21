@@ -64,9 +64,9 @@ def import_ean_codes(*, account: str, raw_codes: str, imported_by) -> dict:
 def assign_ean_codes_to_product(*, product) -> list[EanCode]:
     if product.ean_jv and product.ean_xl:
         return list(
-            EanCode.objects.filter(
-                code__in=(product.ean_jv, product.ean_xl)
-            ).order_by("account")
+            EanCode.objects.filter(code__in=(product.ean_jv, product.ean_xl)).order_by(
+                "account"
+            )
         )
 
     assigned_codes: list[EanCode] = []
@@ -100,14 +100,14 @@ def assign_ean_codes_to_product(*, product) -> list[EanCode]:
         assigned_codes.append(ean_code)
 
     assigned_by_account = {
-        ean_code.account: ean_code.code
-        for ean_code in assigned_codes
+        ean_code.account: ean_code.code for ean_code in assigned_codes
     }
     product.ean_jv = assigned_by_account[EanCode.Account.JV]
     product.ean_xl = assigned_by_account[EanCode.Account.XL]
     product.save(update_fields=("ean_jv", "ean_xl", "updated_at"))
 
     return assigned_codes
+
 
 @transaction.atomic
 def consume_ean_code(*, product, account: str) -> bool:
@@ -116,16 +116,10 @@ def consume_ean_code(*, product, account: str) -> bool:
 
     Возвращает True, если код был впервые помечен использованным.
     """
-    expected_code = (
-        product.ean_jv
-        if account == EanCode.Account.JV
-        else product.ean_xl
-    )
+    expected_code = product.ean_jv if account == EanCode.Account.JV else product.ean_xl
 
     if not expected_code:
-        raise ValidationError(
-            {"ean": f"Product has no EAN for account '{account}'."}
-        )
+        raise ValidationError({"ean": f"Product has no EAN for account '{account}'."})
 
     ean_code = EanCode.objects.select_for_update().get(
         product=product,
@@ -138,12 +132,7 @@ def consume_ean_code(*, product, account: str) -> bool:
 
     if ean_code.state != EanCode.State.RESERVED:
         raise ValidationError(
-            {
-                "ean": (
-                    f"EAN '{ean_code.code}' has invalid state "
-                    f"'{ean_code.state}'."
-                )
-            }
+            {"ean": (f"EAN '{ean_code.code}' has invalid state '{ean_code.state}'.")}
         )
 
     ean_code.state = EanCode.State.CONSUMED
@@ -151,7 +140,6 @@ def consume_ean_code(*, product, account: str) -> bool:
     ean_code.save(update_fields=("state", "consumed_at"))
 
     return True
-
 
 
 def get_ean_summary() -> dict:

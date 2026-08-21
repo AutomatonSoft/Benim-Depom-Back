@@ -1,15 +1,15 @@
 from django.urls import path
 
 from .views import (
+    ProductAvailabilityView,
+    ProductDeactivateView,
     ProductDetailView,
     ProductImageDeleteView,
     ProductImagePrimaryView,
+    ProductImageProcessView,
     ProductImageReorderView,
     ProductImageUploadView,
     ProductListCreateView,
-    ProductAvailabilityView,
-    ProductImageProcessView,
-    ProductDeactivateView,
     ProductWithdrawView,
 )
 

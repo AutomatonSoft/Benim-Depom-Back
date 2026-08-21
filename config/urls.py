@@ -1,11 +1,11 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 from django.views.decorators.http import require_GET
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from django.conf import settings
-from django.conf.urls.static import static
 
 
 @require_GET
@@ -43,7 +43,6 @@ urlpatterns = [
         TemplateView.as_view(template_name="scalar.html"),
         name="scalar-ui",
     ),
-    
 ]
 
 if settings.DEBUG and not settings.USE_FTP_MEDIA_STORAGE:

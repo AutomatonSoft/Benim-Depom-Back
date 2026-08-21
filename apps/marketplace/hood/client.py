@@ -14,7 +14,11 @@ from apps.common.marketplace_http import (
 
 def path_with_ean(endpoint: str, ean: str) -> str:
     endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
-    return endpoint.format(ean=ean) if "{ean}" in endpoint else f"{endpoint.rstrip('/')}/{ean}"
+    return (
+        endpoint.format(ean=ean)
+        if "{ean}" in endpoint
+        else f"{endpoint.rstrip('/')}/{ean}"
+    )
 
 
 class HoodClient:

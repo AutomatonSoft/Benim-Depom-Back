@@ -15,13 +15,12 @@ class BaseCatalogModel(models.Model):
 
 
 class ProductType(BaseCatalogModel):
-    pass 
+    pass
 
 
 class Material(BaseCatalogModel):
-    pass 
+    pass
 
 
 class Color(BaseCatalogModel):
     hex_code = models.CharField(max_length=7, blank=True)
-

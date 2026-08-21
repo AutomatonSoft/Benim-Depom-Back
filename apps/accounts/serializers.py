@@ -4,7 +4,6 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-
 from .models import User
 from .services import register_user
 
@@ -17,10 +16,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         min_length=8,
         trim_whitespace=False,
     )
-    password_confirm = serializers.CharField(
-        write_only=True,
-        trim_whitespace=False
-    )
+    password_confirm = serializers.CharField(write_only=True, trim_whitespace=False)
 
     class Meta:
         model = User
@@ -65,9 +61,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         email = value.strip().lower()
 
         if User.objects.filter(email__iexact=email).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
+            raise serializers.ValidationError("A user with this email already exists.")
 
         return email
 
@@ -168,7 +162,6 @@ class LogoutSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"refresh": "Invalid or expired refresh token"}
             ) from exc
-
 
 
 @extend_schema_serializer(component_name="EmailVerification")

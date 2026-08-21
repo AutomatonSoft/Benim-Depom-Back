@@ -31,9 +31,7 @@ def image_upload(
 def test_accepts_safe_image_and_restores_file_position():
     uploaded_image = image_upload()
 
-    result = ProductImageUploadSerializer().validate_image(
-        uploaded_image
-    )
+    result = ProductImageUploadSerializer().validate_image(uploaded_image)
 
     assert result is uploaded_image
     assert uploaded_image.tell() == 0

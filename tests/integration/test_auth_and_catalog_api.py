@@ -102,7 +102,9 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_profile_refresh_and_logout_blacklist_refresh_token(api_client, seller, password):
+def test_profile_refresh_and_logout_blacklist_refresh_token(
+    api_client, seller, password
+):
     login = api_client.post(
         "/api/v1/auth/login/",
         {"username": seller.username, "password": password},
@@ -120,13 +122,26 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(api_client, seller, 
     assert response.status_code == 200
     assert response.data["preferred_language"] == "tr"
 
-    refresh_response = api_client.post("/api/v1/auth/refresh/", {"refresh": refresh}, format="json")
+    refresh_response = api_client.post(
+        "/api/v1/auth/refresh/", {"refresh": refresh}, format="json"
+    )
     assert refresh_response.status_code == 200
     refresh = refresh_response.data.get("refresh", refresh)
-    assert api_client.post(
-        "/api/v1/auth/logout/", {"refresh": refresh}, format="json", HTTP_AUTHORIZATION=f"Bearer {access}"
-    ).status_code == 204
-    assert api_client.post("/api/v1/auth/refresh/", {"refresh": refresh}, format="json").status_code == 401
+    assert (
+        api_client.post(
+            "/api/v1/auth/logout/",
+            {"refresh": refresh},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        ).status_code
+        == 204
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/", {"refresh": refresh}, format="json"
+        ).status_code
+        == 401
+    )
 
 
 @pytest.mark.integration
@@ -209,11 +224,14 @@ def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_code
     valid_code = issue_email_verification_code(user=seller)
     wrong_code = "000000" if valid_code != "000000" else "999999"
     for _ in range(5):
-        assert api_client.post(
-            "/api/v1/auth/email/verify/",
-            {"email": seller.email, "code": wrong_code},
-            format="json",
-        ).status_code == 400
+        assert (
+            api_client.post(
+                "/api/v1/auth/email/verify/",
+                {"email": seller.email, "code": wrong_code},
+                format="json",
+            ).status_code
+            == 400
+        )
 
     exhausted = api_client.post(
         "/api/v1/auth/email/verify/",
@@ -252,5 +270,3 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
     assert response.status_code == 200
     seller.refresh_from_db()
     assert seller.is_email_verified is False
-
-

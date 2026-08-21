@@ -8,7 +8,7 @@ external request is sent.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
@@ -83,6 +83,7 @@ def _as_positive_int(value: Any) -> int | None:
 
     return number if number >= 1 else None
 
+
 def _as_optional_datetime(value: Any) -> str | None:
     if value is None or value == "":
         return None
@@ -96,6 +97,7 @@ def _as_optional_datetime(value: Any) -> str | None:
             return parsed.isoformat()
 
     return None
+
 
 def _is_public_http_url(value: Any) -> bool:
     if not isinstance(value, str):
@@ -196,7 +198,9 @@ def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str
     return attributes
 
 
-def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) -> list[dict[str, Any]]:
+def build_otto_payload(
+    *, product, account: str, configuration: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Build one OTTO product variation for one account.
 
     The current domain model assigns exactly one EAN per account to a product.
@@ -229,7 +233,9 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
     if not product_line:
         errors["product_line"] = "Enter the German product name/product line."
     elif len(product_line) > 100:
-        errors["product_line"] = "Product name/product line may not exceed 100 characters."
+        errors["product_line"] = (
+            "Product name/product line may not exceed 100 characters."
+        )
 
     standard_price = _as_positive_decimal(configuration.get("standard_price"))
     if standard_price is None:
@@ -239,15 +245,11 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
     if vat not in OTTO_VAT_VALUES:
         errors["vat"] = "Select VAT: FULL, REDUCED, or FREE."
 
-    shipping_profile_id = str(
-        configuration.get("shipping_profile_id", "")
-    ).strip()
+    shipping_profile_id = str(configuration.get("shipping_profile_id", "")).strip()
     shipping_profile = None
 
     if not shipping_profile_id:
-        errors["shipping_profile_id"] = (
-            "Select the OTTO shipping profile."
-        )
+        errors["shipping_profile_id"] = "Select the OTTO shipping profile."
     else:
         try:
             shipping_profile = get_otto_shipping_profile(
@@ -262,10 +264,7 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
                     "The selected shipping profile does not belong "
                     "to this OTTO account."
                 )
-            elif (
-                shipping_profile["deliveryType"]
-                not in OTTO_DELIVERY_TYPES
-            ):
+            elif shipping_profile["deliveryType"] not in OTTO_DELIVERY_TYPES:
                 errors["shipping_profile_id"] = (
                     "The selected profile has an unsupported delivery type."
                 )
@@ -290,7 +289,9 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
         errors["bullet_points"] = "Bullet points must be a list."
         cleaned_bullet_points: list[str] = []
     else:
-        cleaned_bullet_points = [str(item).strip() for item in bullet_points if str(item).strip()]
+        cleaned_bullet_points = [
+            str(item).strip() for item in bullet_points if str(item).strip()
+        ]
         if len(cleaned_bullet_points) > 5:
             errors["bullet_points"] = "OTTO accepts at most five bullet points."
 
@@ -333,13 +334,8 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
             "Use an ISO 8601 date-time, for example 2026-08-17T12:00:00Z."
         )
 
-    release_date = _as_optional_datetime(
-        configuration.get("release_date")
-    )
-    if (
-        configuration.get("release_date") not in (None, "")
-        and release_date is None
-    ):
+    release_date = _as_optional_datetime(configuration.get("release_date"))
+    if configuration.get("release_date") not in (None, "") and release_date is None:
         errors["release_date"] = (
             "Use an ISO 8601 date-time, for example 2026-08-17T12:00:00Z."
         )
@@ -367,8 +363,7 @@ def build_otto_payload(*, product, account: str, configuration: dict[str, Any]) 
         "shippingProfileId": shipping_profile_id,
         "productDescription": product_description,
         "mediaAssets": [
-            {"type": "IMAGE", "location": url}
-            for url in cleaned_media_urls
+            {"type": "IMAGE", "location": url} for url in cleaned_media_urls
         ],
         "delivery": {
             "type": shipping_profile["deliveryType"],

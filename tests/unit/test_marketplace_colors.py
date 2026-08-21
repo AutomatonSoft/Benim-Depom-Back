@@ -9,7 +9,6 @@ from apps.marketplace.kaufland.payload_builder import (
     build_kaufland_create_payload,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
