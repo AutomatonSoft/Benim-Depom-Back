@@ -19,9 +19,7 @@ def purge_expired_idempotency_records() -> dict[str, int]:
     record_ids = list(
         IdempotencyRecord.objects.filter(expires_at__lte=now)
         .order_by("id")
-        .values_list("id", flat=True)[
-            : settings.IDEMPOTENCY_CLEANUP_BATCH_SIZE
-        ]
+        .values_list("id", flat=True)[: settings.IDEMPOTENCY_CLEANUP_BATCH_SIZE]
     )
 
     if not record_ids:

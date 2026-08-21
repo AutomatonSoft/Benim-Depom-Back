@@ -201,18 +201,13 @@ def test_ai_generation_is_idempotent(
     api_client.force_authenticate(manager)
 
     headers = {"HTTP_IDEMPOTENCY_KEY": "ai-generation-key-1"}
-    url = (
-        f"/api/v1/orchestrator/products/{product.id}/"
-        "ai-content/generate/"
-    )
+    url = f"/api/v1/orchestrator/products/{product.id}/ai-content/generate/"
     payload = {
         "targets": [{"marketplace": "otto", "account": "jv"}],
     }
 
     with (
-        patch(
-            "apps.orchestrator.views.generate_marketplace_content.delay"
-        ) as delay,
+        patch("apps.orchestrator.views.generate_marketplace_content.delay") as delay,
         django_capture_on_commit_callbacks(execute=True),
     ):
         first = api_client.post(url, payload, format="json", **headers)
@@ -221,10 +216,5 @@ def test_ai_generation_is_idempotent(
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.data["id"] == second.data["id"]
-    assert MarketplaceContentGeneration.objects.filter(
-        product=product
-    ).count() == 1
+    assert MarketplaceContentGeneration.objects.filter(product=product).count() == 1
     delay.assert_called_once()
-
-
-    

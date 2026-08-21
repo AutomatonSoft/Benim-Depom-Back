@@ -13,13 +13,10 @@ def is_manager(user) -> bool:
     if not user or not user.is_authenticated:
         return False
 
-    return (
-        user.is_superuser
-        or user.role in {
-            User.Role.MANAGER,
-            User.Role.ADMIN,
-        }
-    )
+    return user.is_superuser or user.role in {
+        User.Role.MANAGER,
+        User.Role.ADMIN,
+    }
 
 
 class IsManager(BasePermission):
@@ -33,7 +30,4 @@ class IsSeller(BasePermission):
     message = "Seller access is required."
 
     def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role == User.Role.SELLER
-        )
+        return request.user.is_authenticated and request.user.role == User.Role.SELLER

@@ -1,6 +1,5 @@
-from django.db import models
-
 from django.conf import settings
+from django.db import models
 
 
 class IdempotencyRecord(models.Model):
@@ -8,14 +7,13 @@ class IdempotencyRecord(models.Model):
         PROCESSING = "processing", "Processing"
         COMPLETED = "completed", "Completed"
 
-
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="idempotency_records"
+        related_name="idempotency_records",
     )
     endpoint = models.CharField(max_length=255)
-    key=models.CharField(max_length=128)
+    key = models.CharField(max_length=128)
     request_hash = models.CharField(max_length=64)
 
     status = models.CharField(
@@ -35,7 +33,7 @@ class IdempotencyRecord(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("user", "endpoint", "key"),
-                name="unique_user_endpoint_idempotency_key"
+                name="unique_user_endpoint_idempotency_key",
             )
         ]
         indexes = [
@@ -47,5 +45,3 @@ class IdempotencyRecord(models.Model):
 
     def __str__(self):
         return f"{self.user_id} / {self.endpoint} / {self.key}"
-
-

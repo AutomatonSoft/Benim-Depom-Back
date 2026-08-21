@@ -53,9 +53,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": (
-                "German marketplace title, maximum 100 characters."
-            ),
+            "description": ("German marketplace title, maximum 100 characters."),
         },
         "description": {
             "type": "string",
@@ -67,9 +65,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
         "bullet_points": {
             "type": "array",
             "items": {"type": "string"},
-            "description": (
-                "Three to five concise German product highlights."
-            ),
+            "description": ("Three to five concise German product highlights."),
         },
     },
     "required": (
@@ -117,9 +113,7 @@ def _human_otto_attributes(product) -> list[dict[str, Any]]:
                 "name": definition["name"],
                 "value": value,
                 "unit": (
-                    definition.get("unitDisplayName")
-                    or definition.get("unit")
-                    or ""
+                    definition.get("unitDisplayName") or definition.get("unit") or ""
                 ),
             }
         )
@@ -158,10 +152,7 @@ def build_product_snapshot(product) -> dict[str, Any]:
         "seller_product_type": product.product_type,
         "unit_price": _format_decimal(product.unit_price),
         "currency": product.currency,
-        "quantity_total": sum(
-            variant["quantity"]
-            for variant in variants
-        ),
+        "quantity_total": sum(variant["quantity"] for variant in variants),
         "category_name": category_name,
         "otto_category": {
             "id": product.otto_category_id,
@@ -208,9 +199,7 @@ def validate_universal_content(data: dict[str, Any]) -> dict[str, Any]:
     title = str(data.get("title", "")).strip()
     description = str(data.get("description", "")).strip()
     bullet_points = [
-        str(item).strip()
-        for item in data.get("bullet_points", [])
-        if str(item).strip()
+        str(item).strip() for item in data.get("bullet_points", []) if str(item).strip()
     ]
     paragraphs = [
         paragraph.strip()
@@ -248,10 +237,7 @@ def universal_description_to_hood_html(description: str) -> str:
         for paragraph in description.split("\n\n")
         if paragraph.strip()
     ]
-    return "".join(
-        f"<p>{escape(paragraph)}</p>"
-        for paragraph in paragraphs
-    )
+    return "".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)
 
 
 def universal_content_to_marketplace_configuration(
@@ -271,9 +257,7 @@ def universal_content_to_marketplace_configuration(
     if marketplace == "hood":
         return {
             "title": content["title"],
-            "description": universal_description_to_hood_html(
-                content["description"]
-            ),
+            "description": universal_description_to_hood_html(content["description"]),
         }
 
     if marketplace == "kaufland":

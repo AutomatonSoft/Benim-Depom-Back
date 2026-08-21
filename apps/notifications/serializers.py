@@ -83,7 +83,5 @@ class ManagerProductNotificationSerializer(serializers.Serializer):
 
     def validate_body(self, value):
         if not value.strip():
-            raise serializers.ValidationError(
-                "Message text cannot be empty."
-            )
+            raise serializers.ValidationError("Message text cannot be empty.")
         return value

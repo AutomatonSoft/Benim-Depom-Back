@@ -1,18 +1,15 @@
 import logging
+from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
+from django.utils import timezone
 from firebase_admin import messaging
 
 from .firebase import get_firebase_app
 from .models import DeviceToken, Notification, PushDelivery
-from django.core.exceptions import ImproperlyConfigured
-
-from datetime import timedelta
-
-from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +193,7 @@ def send_notification_push(self, notification_id: int) -> dict:
 
     return {
         "status": (
-            "completed"
-            if not retryable_delivery_ids
-            else "failed_after_retries"
+            "completed" if not retryable_delivery_ids else "failed_after_retries"
         ),
         "sent": sent_count,
         "invalid": invalid_count,
@@ -228,9 +223,7 @@ def recover_stale_push_deliveries() -> dict[str, int]:
         )
         .order_by("notification_id")
         .values_list("notification_id", flat=True)
-        .distinct()[
-            :settings.PUSH_DELIVERY_RECOVERY_BATCH_SIZE
-        ]
+        .distinct()[: settings.PUSH_DELIVERY_RECOVERY_BATCH_SIZE]
     )
 
     recovered_deliveries = 0
@@ -240,8 +233,7 @@ def recover_stale_push_deliveries() -> dict[str, int]:
     for notification_id in notification_ids:
         with transaction.atomic():
             deliveries = list(
-                PushDelivery.objects.select_for_update(skip_locked=True)
-                .filter(
+                PushDelivery.objects.select_for_update(skip_locked=True).filter(
                     notification_id=notification_id,
                     status=PushDelivery.Status.PROCESSING,
                     last_attempt_at__lt=stale_before,
@@ -280,6 +272,7 @@ def recover_stale_push_deliveries() -> dict[str, int]:
         "skipped_notifications": skipped_notifications,
     }
 
+
 @shared_task
 def send_product_availability_reminders() -> dict:
     from datetime import timedelta
@@ -293,9 +286,7 @@ def send_product_availability_reminders() -> dict:
     from .services import create_notification
 
     now = timezone.now()
-    cutoff = now - timedelta(
-        days=settings.PRODUCT_AVAILABILITY_REMINDER_DAYS
-    )
+    cutoff = now - timedelta(days=settings.PRODUCT_AVAILABILITY_REMINDER_DAYS)
 
     from django.db.models import Q
 
@@ -310,10 +301,8 @@ def send_product_availability_reminders() -> dict:
     )
 
     product_ids = list(
-        eligible_products
-        .order_by("id")
-        .values_list("id", flat=True)[
-            :settings.PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE
+        eligible_products.order_by("id").values_list("id", flat=True)[
+            : settings.PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE
         ]
     )
 
@@ -355,13 +344,9 @@ def send_product_availability_reminders() -> dict:
             create_notification(
                 user=product.owner,
                 product=product,
-                notification_type=(
-                    Notification.Type.PRODUCT_AVAILABILITY_REMINDER
-                ),
+                notification_type=(Notification.Type.PRODUCT_AVAILABILITY_REMINDER),
                 title="Product availability",
-                body=(
-                    "Do you still have this product available?"
-                ),
+                body=("Do you still have this product available?"),
                 data={
                     "product_id": product.id,
                     "title": product.title,
@@ -373,7 +358,6 @@ def send_product_availability_reminders() -> dict:
         "checked": len(product_ids),
         "sent": sent_count,
     }
-
 
 
 @shared_task
@@ -500,6 +484,7 @@ def process_product_image(image_id: int) -> dict:
         "external_product_id": external_product_id,
     }
 
+
 @shared_task
 def check_product_image_generation(
     image_id: int,
@@ -511,15 +496,13 @@ def check_product_image_generation(
     from django.db import transaction
     from django.utils import timezone
 
-    
-
-    from apps.common.white_image_service import (
-        WhiteImageServiceError,
-        get_generation_results,
-    )
     from apps.common.safe_image_download import (
         GeneratedImageDownloadError,
         download_generated_image,
+    )
+    from apps.common.white_image_service import (
+        WhiteImageServiceError,
+        get_generation_results,
     )
     from apps.products.models import (
         ProductGeneratedImage,
@@ -527,16 +510,12 @@ def check_product_image_generation(
     )
 
     now = timezone.now()
-    stale_before = now - timedelta(
-        seconds=settings.IMAGE_PROCESSING_LEASE_SECONDS
-    )
+    stale_before = now - timedelta(seconds=settings.IMAGE_PROCESSING_LEASE_SECONDS)
 
     def mark_failed(*, error: str, result: dict | None = None) -> None:
         with transaction.atomic():
             locked_image = (
-                ProductImage.objects.select_for_update()
-                .filter(id=image_id)
-                .first()
+                ProductImage.objects.select_for_update().filter(id=image_id).first()
             )
 
             if (
@@ -596,8 +575,7 @@ def check_product_image_generation(
             }
 
         if (
-            image.processing_status
-            == ProductImage.ProcessingStatus.RESULT_RECEIVED
+            image.processing_status == ProductImage.ProcessingStatus.RESULT_RECEIVED
             and image.processing_claimed_at is not None
             and image.processing_claimed_at > stale_before
         ):
@@ -617,17 +595,14 @@ def check_product_image_generation(
             }
 
         current_status = image.processing_status
-        status_url = image.processing_result.get("payload", {}).get(
-            "status_url"
-        )
+        status_url = image.processing_result.get("payload", {}).get("status_url")
         # Polling task is alive: renew its lease.
         image.processing_claimed_at = now
         image.save(update_fields=("processing_claimed_at",))
 
     if (
         attempt > settings.BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS
-        and current_status
-        != ProductImage.ProcessingStatus.RESULT_RECEIVED
+        and current_status != ProductImage.ProcessingStatus.RESULT_RECEIVED
     ):
         mark_failed(error="AI generation timed out.")
         return {"status": "failed", "reason": "timeout"}
@@ -644,9 +619,7 @@ def check_product_image_generation(
     if result.get("status") != "completed":
         check_product_image_generation.apply_async(
             args=(image_id, external_product_id, attempt + 1),
-            countdown=(
-                settings.BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS
-            ),
+            countdown=(settings.BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS),
         )
         return {
             "status": result.get("status", "waiting"),
@@ -684,8 +657,7 @@ def check_product_image_generation(
             }
 
         if (
-            image.processing_status
-            == ProductImage.ProcessingStatus.RESULT_RECEIVED
+            image.processing_status == ProductImage.ProcessingStatus.RESULT_RECEIVED
             and image.processing_claimed_at is not None
             and image.processing_claimed_at > stale_before
         ):
@@ -718,11 +690,9 @@ def check_product_image_generation(
         for mode in required_modes:
             image_content = download_generated_image(images[mode])
 
-            generated_image, _ = (
-                ProductGeneratedImage.objects.get_or_create(
-                    source_image_id=image_id,
-                    mode=mode,
-                )
+            generated_image, _ = ProductGeneratedImage.objects.get_or_create(
+                source_image_id=image_id,
+                mode=mode,
             )
 
             generated_image.image.save(
@@ -771,7 +741,6 @@ def check_product_image_generation(
     }
 
 
-
 @shared_task(
     name="apps.notifications.tasks.recover_stale_product_image_processing",
 )
@@ -786,9 +755,7 @@ def recover_stale_product_image_processing() -> dict[str, int]:
     from apps.products.models import ProductImage
 
     now = timezone.now()
-    stale_before = now - timedelta(
-        seconds=settings.IMAGE_PROCESSING_LEASE_SECONDS
-    )
+    stale_before = now - timedelta(seconds=settings.IMAGE_PROCESSING_LEASE_SECONDS)
 
     candidate_ids = list(
         ProductImage.objects.filter(
@@ -799,9 +766,7 @@ def recover_stale_product_image_processing() -> dict[str, int]:
             processing_claimed_at__lt=stale_before,
         )
         .order_by("id")
-        .values_list("id", flat=True)[
-            :settings.IMAGE_PROCESSING_RECOVERY_BATCH_SIZE
-        ]
+        .values_list("id", flat=True)[: settings.IMAGE_PROCESSING_RECOVERY_BATCH_SIZE]
     )
 
     resumed_count = 0
@@ -837,10 +802,7 @@ def recover_stale_product_image_processing() -> dict[str, int]:
             result = image.processing_result or {}
             payload = result.get("payload", {})
 
-            external_product_id = (
-                payload.get("product_id")
-                or result.get("product_id")
-            )
+            external_product_id = payload.get("product_id") or result.get("product_id")
 
             if not external_product_id:
                 image.processing_status = ProductImage.ProcessingStatus.FAILED

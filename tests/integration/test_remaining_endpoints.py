@@ -26,7 +26,13 @@ def test_health_and_ean_list_access(api_client, manager):
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_moderation_history_permissions_manager_listing_and_image_process_endpoint(
-    api_client, seller, second_seller, manager, product_factory, product_image_factory, monkeypatch
+    api_client,
+    seller,
+    second_seller,
+    manager,
+    product_factory,
+    product_image_factory,
+    monkeypatch,
 ):
     product = product_factory(owner=seller, status=Product.Status.SUBMITTED)
     image = product_image_factory(product=product)
@@ -37,8 +43,16 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
         comment="Previous review",
     )
     authenticate(api_client, second_seller)
-    assert api_client.get(f"/api/v1/products/{product.id}/moderation-history/").status_code == 404
-    assert api_client.post(f"/api/v1/products/{product.id}/images/{image.id}/process/").status_code == 403
+    assert (
+        api_client.get(f"/api/v1/products/{product.id}/moderation-history/").status_code
+        == 404
+    )
+    assert (
+        api_client.post(
+            f"/api/v1/products/{product.id}/images/{image.id}/process/"
+        ).status_code
+        == 403
+    )
 
     authenticate(api_client, seller)
     response = api_client.get(f"/api/v1/products/{product.id}/moderation-history/")
@@ -46,10 +60,14 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
     assert response.data["results"][0]["comment"] == "Previous review"
 
     authenticate(api_client, manager)
-    monkeypatch.setattr("apps.notifications.tasks.process_product_image.delay", lambda image_id: None)
+    monkeypatch.setattr(
+        "apps.notifications.tasks.process_product_image.delay", lambda image_id: None
+    )
     response = api_client.get("/api/v1/manager/products/?owner_id=not-number")
     assert response.status_code == 400
-    response = api_client.post(f"/api/v1/products/{product.id}/images/{image.id}/process/")
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/{image.id}/process/"
+    )
     assert response.status_code == 202
     image.refresh_from_db()
     assert image.processing_status == ProductImage.ProcessingStatus.PENDING
@@ -57,7 +75,9 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
 
 @pytest.mark.integration
 @pytest.mark.django_db(transaction=True)
-def test_seller_deactivation_creates_manager_approval_request(api_client, seller, manager, product_factory):
+def test_seller_deactivation_creates_manager_approval_request(
+    api_client, seller, manager, product_factory
+):
     product = product_factory(owner=seller, status=Product.Status.APPROVED)
     authenticate(api_client, seller)
     response = api_client.post(f"/api/v1/products/{product.id}/deactivate/")
@@ -70,7 +90,9 @@ def test_seller_deactivation_creates_manager_approval_request(api_client, seller
         product=product,
         notification_type=Notification.Type.PRODUCT_DEACTIVATION_REQUESTED,
     ).exists()
-    assert api_client.post(f"/api/v1/products/{product.id}/deactivate/").status_code == 400
+    assert (
+        api_client.post(f"/api/v1/products/{product.id}/deactivate/").status_code == 400
+    )
 
     authenticate(api_client, manager)
     response = api_client.post(f"/api/v1/manager/products/{product.id}/deactivate/")
@@ -93,9 +115,7 @@ def test_manager_can_deactivate_without_a_seller_request(
     product = product_factory(owner=seller, status=Product.Status.APPROVED)
     authenticate(api_client, manager)
 
-    response = api_client.post(
-        f"/api/v1/manager/products/{product.id}/deactivate/"
-    )
+    response = api_client.post(f"/api/v1/manager/products/{product.id}/deactivate/")
 
     assert response.status_code == 400
     product.refresh_from_db()

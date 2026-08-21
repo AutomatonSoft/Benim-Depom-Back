@@ -11,7 +11,6 @@ from apps.marketplace.otto.payload_builder import (
 )
 from apps.orchestrator.serializers import OttoListingConfigurationSerializer
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -135,9 +134,7 @@ def test_build_otto_payload_includes_filled_optional_ottt_fields():
     assert item["mpn"] == "CHAIR-2026-BROWN"
     assert item["offeringStartDate"] == "2026-09-01T10:00:00+00:00"
     assert item["releaseDate"] == "2026-08-25T10:00:00+00:00"
-    assert item["order"] == {
-        "maxOrderQuantity": {"quantity": 2, "periodInDays": 30}
-    }
+    assert item["order"] == {"maxOrderQuantity": {"quantity": 2, "periodInDays": 30}}
 
 
 def test_otto_configuration_serializer_returns_dates_from_json_storage():

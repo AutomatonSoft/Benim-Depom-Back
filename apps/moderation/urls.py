@@ -2,13 +2,13 @@ from django.urls import path
 
 from .views import (
     ManagerApproveProductView,
+    ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
+    ManagerRequestProductAvailabilityView,
+    ManagerSendProductNotificationView,
     ProductModerationHistoryView,
     SubmitProductView,
-    ManagerSendProductNotificationView,
-    ManagerRequestProductAvailabilityView,
-    ManagerDeactivateProductView,
 )
 
 app_name = "moderation"

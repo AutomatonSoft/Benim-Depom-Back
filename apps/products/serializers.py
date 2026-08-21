@@ -1,12 +1,12 @@
-from decimal import Decimal
 import warnings
-from django.conf import settings
-from PIL import Image, UnidentifiedImageError
+from decimal import Decimal
 
+from django.conf import settings
 from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from apps.catalog.otto_catalog import (
@@ -63,9 +63,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         normalized = [value.strip() for value in values]
 
         if any(not value for value in normalized):
-            raise serializers.ValidationError(
-                "Material names must not be empty."
-            )
+            raise serializers.ValidationError("Material names must not be empty.")
 
         if len({value.casefold() for value in normalized}) != len(normalized):
             raise serializers.ValidationError(
@@ -90,11 +88,11 @@ class ProductGeneratedImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsImage")
 class ProductImageSerializer(serializers.ModelSerializer):
-
     generated_images = ProductGeneratedImageSerializer(
         many=True,
         read_only=True,
     )
+
     class Meta:
         model = ProductImage
         fields = (
@@ -223,9 +221,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_total_quantity(self, product) -> int:
         return sum(variant.quantity for variant in product.variants.all())
 
-    @extend_schema_field(
-        serializers.DecimalField(max_digits=14, decimal_places=2)
-    )
+    @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
     def get_total_amount(self, product):
         total = product.unit_price * sum(
             variant.quantity for variant in product.variants.all()
@@ -245,9 +241,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """Validate draft data without requiring a complete OTTO form."""
         protected_ean_fields = {
-            field
-            for field in ("ean_jv", "ean_xl")
-            if field in self.initial_data
+            field for field in ("ean_jv", "ean_xl") if field in self.initial_data
         }
 
         if protected_ean_fields:
@@ -484,16 +478,16 @@ class ProductSerializer(serializers.ModelSerializer):
             variants_data=variants_data,
         )
 
+
 @extend_schema_serializer(component_name="ProductsAvailability")
 class ProductAvailabilitySerializer(serializers.Serializer):
     is_available = serializers.BooleanField()
+
 
 @extend_schema_serializer(component_name="ProductsImageUpload")
 class ProductImageUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
     is_primary = serializers.BooleanField(default=False)
-
-
 
     def validate_image(self, image):
         allowed_formats = {
@@ -503,9 +497,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
         }
 
         if image.size > settings.PRODUCT_IMAGE_MAX_UPLOAD_BYTES:
-            raise serializers.ValidationError(
-                "Image size must not exceed 10 MB."
-            )
+            raise serializers.ValidationError("Image size must not exceed 10 MB.")
 
         declared_content_type = getattr(image, "content_type", None)
 
@@ -513,9 +505,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
             declared_content_type
             and declared_content_type not in allowed_formats.values()
         ):
-            raise serializers.ValidationError(
-                "Allowed image formats: JPEG, PNG, WEBP."
-            )
+            raise serializers.ValidationError("Allowed image formats: JPEG, PNG, WEBP.")
 
         try:
             image.seek(0)
@@ -528,9 +518,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
 
                 with Image.open(image) as parsed_image:
                     detected_format = (parsed_image.format or "").upper()
-                    expected_content_type = allowed_formats.get(
-                        detected_format
-                    )
+                    expected_content_type = allowed_formats.get(detected_format)
 
                     if expected_content_type is None:
                         raise serializers.ValidationError(
@@ -542,13 +530,10 @@ class ProductImageUploadSerializer(serializers.Serializer):
                         and declared_content_type != expected_content_type
                     ):
                         raise serializers.ValidationError(
-                            "Image content type does not match its actual "
-                            "format."
+                            "Image content type does not match its actual format."
                         )
 
-                    pixel_count = (
-                        parsed_image.width * parsed_image.height
-                    )
+                    pixel_count = parsed_image.width * parsed_image.height
 
                     if pixel_count > settings.PRODUCT_IMAGE_MAX_PIXELS:
                         raise serializers.ValidationError(
@@ -580,16 +565,11 @@ class ProductImageUploadSerializer(serializers.Serializer):
 class ProductImageReorderSerializer(serializers.Serializer):
     image_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
-        allow_empty = False,
+        allow_empty=False,
     )
 
     def validate_image_ids(self, image_ids):
         if len(image_ids) != len(set(image_ids)):
-            raise serializers.ValidationError(
-                "Image identifiers must be unique"
-            )
-
+            raise serializers.ValidationError("Image identifiers must be unique")
 
         return image_ids
-
-    

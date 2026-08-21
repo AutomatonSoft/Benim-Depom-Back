@@ -43,7 +43,6 @@ def _get_account_ean(product, account: str) -> str:
     if account == "xl":
         return product.ean_xl.strip()
 
-
     return ""
 
 
@@ -112,18 +111,11 @@ def build_hood_payload(
         cleaned_image_urls: list[str] = []
     else:
         cleaned_image_urls = [
-            str(url).strip()
-            for url in image_urls
-            if str(url).strip()
+            str(url).strip() for url in image_urls if str(url).strip()
         ]
 
-        if any(
-            not _is_public_http_url(url)
-            for url in cleaned_image_urls
-        ):
-            errors["image_urls"] = (
-                "Every image URL must be a public HTTP(S) URL."
-            )
+        if any(not _is_public_http_url(url) for url in cleaned_image_urls):
+            errors["image_urls"] = "Every image URL must be a public HTTP(S) URL."
 
     property_overrides = configuration.get("property_overrides", {})
 
@@ -146,7 +138,7 @@ def build_hood_payload(
             continue
 
         normalized_overrides[name] = value
-    
+
     if errors:
         raise HoodPayloadValidationError(errors)
 
@@ -160,9 +152,7 @@ def build_hood_payload(
     }
 
     materials = [
-        str(material).strip()
-        for material in variant.materials
-        if str(material).strip()
+        str(material).strip() for material in variant.materials if str(material).strip()
     ]
 
     if materials:
@@ -186,4 +176,3 @@ def build_hood_payload(
             for name, value in automatic_properties.items()
         ],
     }
-

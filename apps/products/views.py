@@ -5,34 +5,12 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .services import request_product_image_processing
-from .models import Product, ProductImage
-from apps.orchestrator.models import MarketplacePublication
+
 from apps.common.permissions import IsManager, IsSeller, is_manager
-
-
-from .filters import filter_products
-from .permissions import CanAccessProduct
-from .serializers import (
-    ProductImageReorderSerializer,
-    ProductImageSerializer,
-    ProductImageUploadSerializer,
-    ProductSerializer,
-    ProductAvailabilitySerializer,
-)
-from rest_framework.parsers import FormParser, MultiPartParser
-from .services import (
-    delete_product_image,
-    make_product_image_primary,
-    reorder_product_images,
-    upload_product_image,
-    confirm_product_availability,
-    request_product_deactivation,
-    withdraw_product_submission,
-)
 from apps.common.throttles import (
     ImageUploadRateThrottle,
     ManagerMutationThrottleMixin,
@@ -43,6 +21,28 @@ from apps.idempotency.services import (
     abandon_idempotency_claim,
     claim_idempotency_key,
     complete_idempotency_claim,
+)
+from apps.orchestrator.models import MarketplacePublication
+
+from .filters import filter_products
+from .models import Product, ProductImage
+from .permissions import CanAccessProduct
+from .serializers import (
+    ProductAvailabilitySerializer,
+    ProductImageReorderSerializer,
+    ProductImageSerializer,
+    ProductImageUploadSerializer,
+    ProductSerializer,
+)
+from .services import (
+    confirm_product_availability,
+    delete_product_image,
+    make_product_image_primary,
+    reorder_product_images,
+    request_product_deactivation,
+    request_product_image_processing,
+    upload_product_image,
+    withdraw_product_submission,
 )
 
 IDEMPOTENCY_KEY_HEADER = OpenApiParameter(
@@ -56,6 +56,7 @@ IDEMPOTENCY_KEY_HEADER = OpenApiParameter(
         "response instead of creating a duplicate product."
     ),
 )
+
 
 def get_editable_product_for_user(*, user, product_id: int) -> Product:
     return get_object_or_404(
@@ -80,13 +81,10 @@ class ProductListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        queryset = (
-            Product.objects.select_related("owner")
-            .prefetch_related(
-                "variants",
-                "images",
-                "images__generated_images",
-            )
+        queryset = Product.objects.select_related("owner").prefetch_related(
+            "variants",
+            "images",
+            "images__generated_images",
         )
 
         if not is_manager(self.request.user):
@@ -165,7 +163,6 @@ class ProductListCreateView(generics.ListCreateAPIView):
     def post(self, request, *args, **kwargs):
         return self.create(request, *args, **kwargs)
 
-    
     @extend_schema(
         parameters=[IDEMPOTENCY_KEY_HEADER],
         description=(
@@ -195,7 +192,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
                         "being processed. Retry shortly with the same key"
                     )
                 },
-                status=status.HTTP_409_CONFLICT
+                status=status.HTTP_409_CONFLICT,
             )
 
         if claim.is_replay:
@@ -205,16 +202,15 @@ class ProductListCreateView(generics.ListCreateAPIView):
             response = super().create(request, *args, **kwargs)
         except Exception:
             abandon_idempotency_claim(claim=claim)
-            raise 
+            raise
 
         complete_idempotency_claim(
             claim=claim,
             response_status=response.status_code,
-            response_body=response.data
+            response_body=response.data,
         )
 
         return response
-    
 
 
 class ProductDetailView(
@@ -229,13 +225,10 @@ class ProductDetailView(
     permission_classes = [IsAuthenticated, CanAccessProduct]
 
     def get_queryset(self):
-        queryset = (
-            Product.objects.select_related("owner")
-            .prefetch_related(
-                "variants",
-                "images",
-                "images__generated_images",
-            )
+        queryset = Product.objects.select_related("owner").prefetch_related(
+            "variants",
+            "images",
+            "images__generated_images",
         )
 
         if not is_manager(self.request.user):
@@ -244,13 +237,10 @@ class ProductDetailView(
         return queryset.exclude(status=Product.Status.ARCHIVED)
 
     def perform_destroy(self, instance):
-        if (
-            not is_manager(self.request.user)
-            and instance.status not in {
-                Product.Status.DRAFT,
-                Product.Status.REJECTED,
-            }
-        ):
+        if not is_manager(self.request.user) and instance.status not in {
+            Product.Status.DRAFT,
+            Product.Status.REJECTED,
+        }:
             from rest_framework.exceptions import ValidationError
 
             raise ValidationError(
@@ -401,9 +391,7 @@ class ProductAvailabilityView(APIView):
             product=product,
             is_available=serializer.validated_data["is_available"],
         )
-        return Response(
-            ProductSerializer(product, context={"request": request}).data
-        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
 class ProductImageProcessView(ManagerMutationThrottleMixin, APIView):
@@ -435,6 +423,7 @@ class ProductImageProcessView(ManagerMutationThrottleMixin, APIView):
 
 class ProductDeactivateView(APIView):
     """Seller submits a deactivation request; a manager confirms it later."""
+
     permission_classes = [IsAuthenticated, IsSeller]
 
     @extend_schema(request=None, responses={202: ProductSerializer})
@@ -489,5 +478,3 @@ class ProductWithdrawView(APIView):
         )
         withdraw_product_submission(product=product)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    

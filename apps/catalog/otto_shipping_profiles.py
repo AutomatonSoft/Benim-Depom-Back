@@ -6,10 +6,7 @@ from typing import Any
 
 from django.conf import settings
 
-
-SHIPPING_PROFILES_FILE = (
-    settings.BASE_DIR / "data" / "otto" / "shipping_profiles.json"
-)
+SHIPPING_PROFILES_FILE = settings.BASE_DIR / "data" / "otto" / "shipping_profiles.json"
 
 
 class OttoShippingProfilesError(Exception):
@@ -19,9 +16,7 @@ class OttoShippingProfilesError(Exception):
 @lru_cache(maxsize=1)
 def get_otto_shipping_profiles() -> dict[str, Any]:
     try:
-        payload = json.loads(
-            SHIPPING_PROFILES_FILE.read_text(encoding="utf-8")
-        )
+        payload = json.loads(SHIPPING_PROFILES_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise OttoShippingProfilesError(
             "OTTO shipping profiles JSON was not found."
@@ -94,10 +89,14 @@ def get_otto_shipping_profile(
 ) -> dict[str, Any] | None:
     catalog = get_otto_shipping_profiles()
 
-    return catalog["profiles_by_id_by_account"].get(
-        account,
-        {},
-    ).get(shipping_profile_id)
+    return (
+        catalog["profiles_by_id_by_account"]
+        .get(
+            account,
+            {},
+        )
+        .get(shipping_profile_id)
+    )
 
 
 def clear_otto_shipping_profiles_cache() -> None:

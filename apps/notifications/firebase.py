@@ -15,22 +15,16 @@ def get_firebase_app():
     credential_path = Path(settings.FIREBASE_SERVICE_ACCOUNT_FILE)
 
     if not settings.FIREBASE_SERVICE_ACCOUNT_FILE:
-        raise ImproperlyConfigured(
-            "FIREBASE_SERVICE_ACCOUNT_FILE is not configured"
-        )
+        raise ImproperlyConfigured("FIREBASE_SERVICE_ACCOUNT_FILE is not configured")
 
     if not credential_path.is_absolute():
         credential_path = settings.BASE_DIR / credential_path
 
     if not credential_path.is_file():
-        raise ImproperlyConfigured(
-            "Firebase service-account JSON file was not found."
-        )
+        raise ImproperlyConfigured("Firebase service-account JSON file was not found.")
 
     try:
         return firebase_admin.get_app()
     except ValueError:
         credential = credentials.Certificate(credential_path)
         return firebase_admin.initialize_app(credential)
-
-    

@@ -52,16 +52,16 @@ class MarketplaceJob(models.Model):
     class Meta:
         ordering = ("-created_at",)
         indexes = (
-            models.Index(fields=("product", "created_at"), name="marketplace_job_product_idx"),
-            models.Index(fields=("status", "created_at"), name="marketplace_job_status_idx"),
+            models.Index(
+                fields=("product", "created_at"), name="marketplace_job_product_idx"
+            ),
+            models.Index(
+                fields=("status", "created_at"), name="marketplace_job_status_idx"
+            ),
         )
 
 
-
-
-
 class MarketplacePublication(models.Model):
-
     """Displays product statuses on marketplaces."""
 
     class Marketplace(models.TextChoices):
@@ -82,7 +82,6 @@ class MarketplacePublication(models.Model):
         DELETING = "deleting", "Deleting"
         DELETED = "deleted", "Deleted"
         FAILED = "failed", "Failed"
-
 
     status_before_operation = models.CharField(
         max_length=16,
@@ -169,8 +168,7 @@ class MarketplacePublication(models.Model):
 
     def __str__(self) -> str:
         return (
-            f"{self.product_id} / {self.marketplace} / "
-            f"{self.account} / {self.status}"
+            f"{self.product_id} / {self.marketplace} / {self.account} / {self.status}"
         )
 
 
@@ -228,11 +226,7 @@ class MarketplaceContentGeneration(models.Model):
         FAILED = "failed", "Failed"
         PARTIAL = "partial", "Partial"
 
-    id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product = models.ForeignKey(
         "products.Product",
         on_delete=models.PROTECT,
@@ -241,7 +235,7 @@ class MarketplaceContentGeneration(models.Model):
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="content_generation_jobs"
+        related_name="content_generation_jobs",
     )
 
     # Например:
@@ -283,15 +277,9 @@ class MarketplaceContentGeneration(models.Model):
                 name="content_gen_product_idx",
             ),
             models.Index(
-                fields=("status", "created_at"),
-                name="content_gen_status_idx"
+                fields=("status", "created_at"), name="content_gen_status_idx"
             ),
         )
 
     def __str__(self) -> str:
-        return (
-            f"{self.product_id} / {self.language} /"
-            f"{self.status} / {self.id}"
-        )
-
-    
+        return f"{self.product_id} / {self.language} /{self.status} / {self.id}"

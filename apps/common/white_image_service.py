@@ -1,9 +1,7 @@
 import mimetypes
-
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-
 
 import requests
 from django.conf import settings
@@ -17,15 +15,11 @@ class WhiteImageServiceError(Exception):
 def _summarize_value(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            str(key): _summarize_value(item)
-            for key, item in list(value.items())[:50]
+            str(key): _summarize_value(item) for key, item in list(value.items())[:50]
         }
 
     if isinstance(value, list):
-        return [
-            _summarize_value(item)
-            for item in value[:50]
-        ]
+        return [_summarize_value(item) for item in value[:50]]
 
     if isinstance(value, str):
         return value[:2000]
@@ -36,52 +30,30 @@ def _summarize_value(value: Any) -> Any:
     return str(value)[:2000]
 
 
-def generate_white_background(
-    *,
-    image_file,
-    title: str,
-    product_type: str
-) -> dict:
+def generate_white_background(*, image_file, title: str, product_type: str) -> dict:
     if not settings.BULK_WHITE_IMAGE_SERVICE_URL:
-        raise ImproperlyConfigured(
-            "BULK_WHITE_IMAGE_SERVICE_URL is not configured"
-        )
+        raise ImproperlyConfigured("BULK_WHITE_IMAGE_SERVICE_URL is not configured")
 
     if not settings.BULK_WHITE_IMAGE_SERVICE_TOKEN:
-        raise ImproperlyConfigured(
-            "BULK_WHITE_IMAGE_SERVICE_TOKEN is not configured"
-        )
+        raise ImproperlyConfigured("BULK_WHITE_IMAGE_SERVICE_TOKEN is not configured")
 
     filename = Path(image_file.name).name
-    content_type = (
-        mimetypes.guess_type(filename)[0]
-        or "application/octet-stream"
-    )
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     image_file.open("rb")
 
     try:
         response = requests.post(
             settings.BULK_WHITE_IMAGE_SERVICE_URL,
             headers={
-                "Authorization": (
-                    f"Bearer {settings.BULK_WHITE_IMAGE_SERVICE_TOKEN}"
-                ),
+                "Authorization": (f"Bearer {settings.BULK_WHITE_IMAGE_SERVICE_TOKEN}"),
             },
-            data = {
-                "title": title,
-                "produktart": product_type
-            },
-            files = {
-                "image": (
-                    filename,
-                    image_file.file,
-                    content_type
-                ),
+            data={"title": title, "produktart": product_type},
+            files={
+                "image": (filename, image_file.file, content_type),
             },
             timeout=settings.BULK_WHITE_IMAGE_SERVICE_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-
 
     except requests.RequestException as error:
         raise WhiteImageServiceError(
@@ -97,7 +69,6 @@ def generate_white_background(
         payload = {
             "body_preview": response.text[:2000],
         }
-
 
     return {
         "http_status": response.status_code,
@@ -117,9 +88,7 @@ def get_generation_results(
         )
 
     if not settings.BULK_WHITE_IMAGE_SERVICE_TOKEN:
-        raise ImproperlyConfigured(
-            "BULK_WHITE_IMAGE_SERVICE_TOKEN is not configured."
-        )
+        raise ImproperlyConfigured("BULK_WHITE_IMAGE_SERVICE_TOKEN is not configured.")
 
     url = result_url or settings.BULK_WHITE_IMAGE_SERVICE_RESULTS_URL.format(
         product_id=product_id,
@@ -133,17 +102,13 @@ def get_generation_results(
         parsed_result_url.scheme != "https"
         or parsed_result_url.netloc != service_url.netloc
     ):
-        raise WhiteImageServiceError(
-            "Generation result URL is not trusted."
-        )
+        raise WhiteImageServiceError("Generation result URL is not trusted.")
 
     try:
         response = requests.get(
             url,
             headers={
-                "Authorization": (
-                    f"Bearer {settings.BULK_WHITE_IMAGE_SERVICE_TOKEN}"
-                ),
+                "Authorization": (f"Bearer {settings.BULK_WHITE_IMAGE_SERVICE_TOKEN}"),
             },
             timeout=settings.BULK_WHITE_IMAGE_SERVICE_TIMEOUT_SECONDS,
         )

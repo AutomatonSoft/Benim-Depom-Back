@@ -5,18 +5,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
-from apps.common.permissions import IsManager
-
 from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profiles,
 )
+from apps.common.permissions import IsManager
+
 from .otto_serializers import (
     OttoCategoryAttributeSerializer,
     OttoCategoryGroupSerializer,
     OttoCategorySerializer,
     OttoShippingProfileSerializer,
 )
+
+
 class OttoCatalogPaginationMixin:
     """
     Pagination in RAM. The catalog itself is already cached as Python dicts.
@@ -28,9 +30,7 @@ class OttoCatalogPaginationMixin:
     def paginate_items(self, items):
         try:
             page = int(self.request.query_params.get("page", 1))
-            limit = int(
-                self.request.query_params.get("limit", self.default_limit)
-            )
+            limit = int(self.request.query_params.get("limit", self.default_limit))
         except (TypeError, ValueError):
             return None, Response(
                 {"detail": "page and limit must be integers."},
@@ -135,9 +135,7 @@ class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
     @extend_schema(
         tags=["OTTO - Catalog"],
         summary="List categories in an OTTO group",
-        description=(
-            "Returns selectable OTTO subcategories for one category group."
-        ),
+        description=("Returns selectable OTTO subcategories for one category group."),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
             OpenApiParameter(name="limit", type=int, required=False),

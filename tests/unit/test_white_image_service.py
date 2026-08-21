@@ -13,7 +13,9 @@ from apps.common.white_image_service import (
 
 
 @pytest.mark.unit
-@override_settings(BULK_WHITE_IMAGE_SERVICE_URL="", BULK_WHITE_IMAGE_SERVICE_TOKEN="token")
+@override_settings(
+    BULK_WHITE_IMAGE_SERVICE_URL="", BULK_WHITE_IMAGE_SERVICE_TOKEN="token"
+)
 def test_generation_requires_service_url(image_file):
     with pytest.raises(ImproperlyConfigured, match="URL"):
         generate_white_background(
@@ -30,7 +32,9 @@ def test_generation_requires_service_url(image_file):
 def test_generation_posts_expected_data(monkeypatch, image_file):
     response = Mock(status_code=202, headers={"Content-Type": "application/json"})
     response.json.return_value = {"status": "queued", "product_id": 11}
-    monkeypatch.setattr("apps.common.white_image_service.requests.post", Mock(return_value=response))
+    monkeypatch.setattr(
+        "apps.common.white_image_service.requests.post", Mock(return_value=response)
+    )
 
     result = generate_white_background(
         image_file=image_file(), title="Chair", product_type="Furniture"

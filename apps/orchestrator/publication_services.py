@@ -6,8 +6,9 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from .models import MarketplaceJob, MarketplacePublication
 from apps.common.external_json import compact_external_json
+
+from .models import MarketplaceJob, MarketplacePublication
 
 PUBLICATION_OPERATIONS = {
     MarketplaceJob.Operation.PUBLISH,
@@ -48,9 +49,7 @@ def _status_after_success(operation: str) -> str:
     try:
         return mapping[operation]
     except KeyError as exc:
-        raise ValueError(
-            f"Operation '{operation}' has no publication status."
-        ) from exc
+        raise ValueError(f"Operation '{operation}' has no publication status.") from exc
 
 
 def _status_during_operation(operation: str) -> str:
@@ -70,7 +69,6 @@ def _status_during_operation(operation: str) -> str:
         raise ValueError(
             f"Operation '{operation}' has no in-progress publication status."
         ) from exc
-
 
 
 @transaction.atomic
@@ -145,8 +143,7 @@ def start_publication_attempt(
 
     if allowed is not None and publication.status not in allowed:
         raise ValueError(
-            f"Cannot {job.operation} publication with status "
-            f"'{publication.status}'."
+            f"Cannot {job.operation} publication with status '{publication.status}'."
         )
 
     publication.status_before_operation = publication.status
@@ -194,15 +191,9 @@ def mark_publication_awaiting_confirmation(
     )
 
     status_by_operation = {
-        MarketplaceJob.Operation.PUBLISH: (
-            MarketplacePublication.Status.PUBLISHING
-        ),
-        MarketplaceJob.Operation.UPDATE: (
-            MarketplacePublication.Status.PUBLISHING
-        ),
-        MarketplaceJob.Operation.ACTIVATE: (
-            MarketplacePublication.Status.PUBLISHING
-        ),
+        MarketplaceJob.Operation.PUBLISH: (MarketplacePublication.Status.PUBLISHING),
+        MarketplaceJob.Operation.UPDATE: (MarketplacePublication.Status.PUBLISHING),
+        MarketplaceJob.Operation.ACTIVATE: (MarketplacePublication.Status.PUBLISHING),
         MarketplaceJob.Operation.DEACTIVATE: (
             MarketplacePublication.Status.DEACTIVATING
         ),

@@ -29,7 +29,10 @@ def test_manager_deactivates_all_active_listings_without_changing_product_status
         )
     api_client.force_authenticate(manager)
 
-    with patch("apps.orchestrator.views.execute_marketplace_job.delay") as delay, django_capture_on_commit_callbacks(execute=True):
+    with (
+        patch("apps.orchestrator.views.execute_marketplace_job.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         response = api_client.post(
             f"/api/v1/orchestrator/products/{product.id}/listing-state/",
             {"action": "deactivate"},
@@ -76,7 +79,10 @@ def test_manager_can_choose_one_listing_target(
     )
     api_client.force_authenticate(manager)
 
-    with patch("apps.orchestrator.views.execute_marketplace_job.delay"), django_capture_on_commit_callbacks(execute=True):
+    with (
+        patch("apps.orchestrator.views.execute_marketplace_job.delay"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         response = api_client.post(
             f"/api/v1/orchestrator/products/{product.id}/listing-state/",
             {
@@ -89,6 +95,4 @@ def test_manager_can_choose_one_listing_target(
     assert response.status_code == 202
     job = MarketplaceJob.objects.get(product=product)
     assert job.operation == MarketplaceJob.Operation.DEACTIVATE
-    assert job.request_payload["targets"] == [
-        {"marketplace": "otto", "account": "jv"}
-    ]
+    assert job.request_payload["targets"] == [{"marketplace": "otto", "account": "jv"}]

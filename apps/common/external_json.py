@@ -32,9 +32,7 @@ def compact_external_json(value: Any) -> Any:
                     result["_truncated_items"] = True
                     break
 
-                safe_key = str(key)[
-                    : settings.EXTERNAL_JSON_MAX_STRING_CHARS
-                ]
+                safe_key = str(key)[: settings.EXTERNAL_JSON_MAX_STRING_CHARS]
                 result[safe_key] = compact(nested_value, depth + 1)
 
             return result
@@ -61,8 +59,7 @@ def compact_external_json(value: Any) -> Any:
             if len(item) > settings.EXTERNAL_JSON_MAX_STRING_CHARS:
                 was_truncated = True
                 return (
-                    item[: settings.EXTERNAL_JSON_MAX_STRING_CHARS]
-                    + "...[truncated]"
+                    item[: settings.EXTERNAL_JSON_MAX_STRING_CHARS] + "...[truncated]"
                 )
 
             return item
@@ -74,10 +71,7 @@ def compact_external_json(value: Any) -> Any:
 
         if len(text) > settings.EXTERNAL_JSON_MAX_STRING_CHARS:
             was_truncated = True
-            return (
-                text[: settings.EXTERNAL_JSON_MAX_STRING_CHARS]
-                + "...[truncated]"
-            )
+            return text[: settings.EXTERNAL_JSON_MAX_STRING_CHARS] + "...[truncated]"
 
         return text
 

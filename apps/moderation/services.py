@@ -1,11 +1,12 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
+from apps.ean.services import assign_ean_codes_to_product
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
 from apps.products.models import Product
-from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
-from apps.ean.services import assign_ean_codes_to_product
-from django.utils import timezone
 
 from .models import ModerationDecision
 
@@ -18,11 +19,7 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
     """
     if product.unit_price is None:
         raise ValidationError(
-            {
-                "unit_price": (
-                    "Set the price per unit before submitting the product."
-                )
-            }
+            {"unit_price": ("Set the price per unit before submitting the product.")}
         )
 
     if product.otto_category_id is None:
@@ -38,8 +35,7 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
         raise ValidationError(
             {
                 "otto_category_group_id": (
-                    "Select an OTTO category group before submitting "
-                    "the product."
+                    "Select an OTTO category group before submitting the product."
                 )
             }
         )
@@ -64,8 +60,7 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
         raise ValidationError(
             {
                 "otto_category_group_id": (
-                    "The selected OTTO category does not belong to "
-                    "the selected group."
+                    "The selected OTTO category does not belong to the selected group."
                 )
             }
         )
@@ -78,11 +73,11 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
         raise ValidationError(
             {
                 "otto_category_group_id": (
-                    "No attribute configuration was found for this "
-                    "OTTO category group."
+                    "No attribute configuration was found for this OTTO category group."
                 )
             }
         )
+
 
 @transaction.atomic
 def submit_product_for_moderation(*, product: Product) -> Product:
@@ -127,9 +122,7 @@ def approve_product(
         Product.Status.SUBMITTED,
         Product.Status.UNDER_REVIEW,
     }:
-        raise ValidationError(
-            {"detail": "Only submitted products can be approved."}
-        )
+        raise ValidationError({"detail": "Only submitted products can be approved."})
 
     # EANs are consumed only for a product the manager actually approves.
     # The same transaction prevents a partial approval if a pool is empty.
@@ -181,9 +174,7 @@ def reject_product(
         Product.Status.SUBMITTED,
         Product.Status.UNDER_REVIEW,
     }:
-        raise ValidationError(
-            {"detail": "Only submitted products can be rejected."}
-        )
+        raise ValidationError({"detail": "Only submitted products can be rejected."})
 
     product.status = Product.Status.REJECTED
     product.save(update_fields=("status", "updated_at"))
@@ -208,5 +199,3 @@ def reject_product(
     )
 
     return product
-
-

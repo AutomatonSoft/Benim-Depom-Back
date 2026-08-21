@@ -1,35 +1,34 @@
+from django.db import transaction
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
-from drf_spectacular.utils import extend_schema
-from django.db import transaction
-from drf_spectacular.utils import extend_schema
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
+from apps.common.permissions import IsManager
+from apps.common.throttles import (
+    EmailVerificationRateThrottle,
+    EmailVerificationResendRateThrottle,
+    LoginRateThrottle,
+    ManagerMutationThrottleMixin,
+    RegistrationRateThrottle,
+)
 
 from .serializers import (
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     LogoutSerializer,
     ManagerCreateSerializer,
     ProfileSerializer,
     RegisterSerializer,
-    EmailVerificationSerializer,
-    EmailVerificationResendSerializer,
-)
-from apps.common.throttles import (
-    LoginRateThrottle,
-    ManagerMutationThrottleMixin,
-    RegistrationRateThrottle,
-    EmailVerificationRateThrottle,
-    EmailVerificationResendRateThrottle,
 )
 from .services import (
     issue_email_verification_code,
     resend_email_verification_code,
     verify_email_code,
 )
-from apps.common.permissions import IsManager
 from .tasks import send_email_verification_code
 
 
@@ -64,6 +63,7 @@ class RegisterView(generics.CreateAPIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class EmailVerificationView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [EmailVerificationRateThrottle]
@@ -71,9 +71,7 @@ class EmailVerificationView(APIView):
     @extend_schema(
         request=EmailVerificationSerializer,
         responses={200: dict},
-        description=(
-            "Verifies the six-digit email code and returns JWT tokens."
-        ),
+        description=("Verifies the six-digit email code and returns JWT tokens."),
     )
     def post(self, request):
         serializer = EmailVerificationSerializer(data=request.data)
@@ -136,6 +134,7 @@ class EmailVerificationResendView(APIView):
             status=status.HTTP_202_ACCEPTED,
         )
 
+
 class LoginView(TokenObtainPairView):
     throttle_classes = [LoginRateThrottle]
     permission_classes = [AllowAny]
@@ -155,6 +154,7 @@ class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
             ProfileSerializer(user, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
 
 class MeView(generics.RetrieveUpdateAPIView):
     # The profile is edited partially. Do not expose PUT as a duplicate

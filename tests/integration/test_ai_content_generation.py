@@ -13,7 +13,6 @@ from apps.orchestrator.models import (
 from apps.orchestrator.tasks import generate_marketplace_content
 from apps.products.models import Product
 
-
 SUCCESSFUL_AI_CONTENT = {
     "title": "Holzstuhl mit Stoffbezug",
     "description": (
@@ -43,9 +42,10 @@ def test_manager_creates_ai_generation_and_queues_task(
     )
     api_client.force_authenticate(manager)
 
-    with patch(
-        "apps.orchestrator.views.generate_marketplace_content.delay"
-    ) as delay, django_capture_on_commit_callbacks(execute=True):
+    with (
+        patch("apps.orchestrator.views.generate_marketplace_content.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         response = api_client.post(
             f"/api/v1/orchestrator/products/{product.id}/ai-content/generate/",
             {
@@ -59,9 +59,7 @@ def test_manager_creates_ai_generation_and_queues_task(
 
     assert response.status_code == 202
 
-    generation = MarketplaceContentGeneration.objects.get(
-        pk=response.data["id"]
-    )
+    generation = MarketplaceContentGeneration.objects.get(pk=response.data["id"])
     assert generation.status == MarketplaceContentGeneration.Status.QUEUED
     assert generation.requested_by == manager
     assert generation.input_snapshot["product_id"] == product.id
@@ -121,14 +119,10 @@ def test_ai_task_saves_successful_universal_draft(
         },
     )
 
-    with patch(
-        "apps.orchestrator.tasks.OpenAITextService"
-    ) as service_class:
-        service_class.return_value.generate_json.return_value = (
-            OpenAITextResult(
-                model="fake-openai-model",
-                data=SUCCESSFUL_AI_CONTENT,
-            )
+    with patch("apps.orchestrator.tasks.OpenAITextService") as service_class:
+        service_class.return_value.generate_json.return_value = OpenAITextResult(
+            model="fake-openai-model",
+            data=SUCCESSFUL_AI_CONTENT,
         )
 
         result = generate_marketplace_content.run(str(generation.id))
@@ -139,10 +133,7 @@ def test_ai_task_saves_successful_universal_draft(
     assert generation.status == MarketplaceContentGeneration.Status.SUCCEEDED
     assert generation.model == "fake-openai-model"
     assert generation.error == {}
-    assert (
-        generation.result["universal"]["content"]
-        == SUCCESSFUL_AI_CONTENT
-    )
+    assert generation.result["universal"]["content"] == SUCCESSFUL_AI_CONTENT
 
 
 @pytest.mark.integration
@@ -162,11 +153,9 @@ def test_ai_task_marks_generation_failed_without_real_openai_call(
         input_snapshot={"product_id": product.id},
     )
 
-    with patch(
-        "apps.orchestrator.tasks.OpenAITextService"
-    ) as service_class:
-        service_class.return_value.generate_json.side_effect = (
-            OpenAITextServiceError("provider unavailable")
+    with patch("apps.orchestrator.tasks.OpenAITextService") as service_class:
+        service_class.return_value.generate_json.side_effect = OpenAITextServiceError(
+            "provider unavailable"
         )
 
         generate_marketplace_content.run(str(generation.id))
@@ -230,11 +219,12 @@ def test_manager_applies_draft_without_overwriting_manual_text(
 
     configuration.refresh_from_db()
 
-    assert configuration.configuration["product_line"] == (
-        SUCCESSFUL_AI_CONTENT["title"]
+    assert (
+        configuration.configuration["product_line"] == (SUCCESSFUL_AI_CONTENT["title"])
     )
-    assert configuration.configuration["bullet_points"] == (
-        SUCCESSFUL_AI_CONTENT["bullet_points"]
+    assert (
+        configuration.configuration["bullet_points"]
+        == (SUCCESSFUL_AI_CONTENT["bullet_points"])
     )
     assert configuration.configuration["description"] == (
         "Текст, который менеджер написал вручную."

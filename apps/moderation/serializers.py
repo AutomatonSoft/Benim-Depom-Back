@@ -42,8 +42,6 @@ class RejectProductSerializer(serializers.Serializer):
 
     def validate_comment(self, comment):
         if not comment:
-            raise serializers.ValidationError(
-                "A rejection reason is required."
-            )
+            raise serializers.ValidationError("A rejection reason is required.")
 
         return comment

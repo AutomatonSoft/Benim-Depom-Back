@@ -5,7 +5,6 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
 
-
 @shared_task(
     autoretry_for=(OSError, SMTPException),
     retry_backoff=True,

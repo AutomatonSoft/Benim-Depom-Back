@@ -1,14 +1,14 @@
-from typing import Any
-from .models import User
-
-from django.db import transaction
-from rest_framework.exceptions import ValidationError
 import secrets
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
+from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+
+from .models import User
 
 
 @transaction.atomic
@@ -47,9 +47,7 @@ def issue_email_verification_code(*, user: User) -> str:
 
 
 def verify_email_code(*, email: str, code: str) -> User:
-    invalid_error = ValidationError(
-        {"code": "Invalid or expired verification code."}
-    )
+    invalid_error = ValidationError({"code": "Invalid or expired verification code."})
 
     with transaction.atomic():
         user = (
@@ -99,7 +97,6 @@ def verify_email_code(*, email: str, code: str) -> User:
     return user
 
 
-
 @transaction.atomic
 def resend_email_verification_code(*, email: str) -> tuple[User, str] | None:
     user = (
@@ -114,9 +111,7 @@ def resend_email_verification_code(*, email: str) -> tuple[User, str] | None:
     now = timezone.now()
 
     if user.email_verification_sent_at:
-        elapsed_seconds = (
-            now - user.email_verification_sent_at
-        ).total_seconds()
+        elapsed_seconds = (now - user.email_verification_sent_at).total_seconds()
 
         if elapsed_seconds < settings.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:
             raise ValidationError(

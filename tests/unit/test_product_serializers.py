@@ -1,6 +1,9 @@
 import pytest
 
-from apps.products.serializers import ProductImageReorderSerializer, ProductVariantSerializer
+from apps.products.serializers import (
+    ProductImageReorderSerializer,
+    ProductVariantSerializer,
+)
 
 
 def valid_variant(**overrides):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
 
 from django.db import transaction
 
@@ -96,13 +95,15 @@ def create_listing_state_jobs(
                     requested_channels=list(
                         dict.fromkeys(target["marketplace"] for target in targets)
                     ),
-                    request_payload=compact_external_json({
-                        "payloads": {},
-                        "target_payloads": {},
-                        "accounts": {},
-                        "targets": targets,
-                        "listing_state_action": action,
-                    }),
+                    request_payload=compact_external_json(
+                        {
+                            "payloads": {},
+                            "target_payloads": {},
+                            "accounts": {},
+                            "targets": targets,
+                            "listing_state_action": action,
+                        }
+                    ),
                 )
             )
 

@@ -1,16 +1,9 @@
 from decimal import Decimal
 
-from rest_framework import serializers
 from django.utils.dateparse import parse_datetime
-from .models import (
-    MarketplaceContentGeneration,
-    MarketplaceJob,
-    MarketplaceListingConfiguration,
-    MarketplacePublication,
-)
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
-from .capabilities import supports_operation
-from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
+from rest_framework import serializers
+
 from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profile,
@@ -18,14 +11,20 @@ from apps.catalog.otto_shipping_profiles import (
 from apps.marketplace.kaufland.payload_builder import (
     KAUFLAND_STOREFRONTS,
 )
+from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
+
+from .capabilities import supports_operation
+from .models import (
+    MarketplaceContentGeneration,
+    MarketplaceJob,
+    MarketplaceListingConfiguration,
+    MarketplacePublication,
+)
+
 
 class MarketplaceTargetSerializer(serializers.Serializer):
-    marketplace = serializers.ChoiceField(
-        choices=("hood", "otto", "kaufland")
-    )
-    account = serializers.ChoiceField(
-        choices=("jv", "xl")
-    )
+    marketplace = serializers.ChoiceField(choices=("hood", "otto", "kaufland"))
+    account = serializers.ChoiceField(choices=("jv", "xl"))
 
 
 class MarketplaceListingStateRequestSerializer(serializers.Serializer):
@@ -57,7 +56,6 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
         allow_empty=False,
     )
 
-
     def validate(self, attrs):
         operation = self.context["operation"]
         targets = attrs.get("targets", [])
@@ -72,20 +70,14 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {
                             "targets": (
-                                "Each marketplace and account pair "
-                                "must be unique."
+                                "Each marketplace and account pair must be unique."
                             )
                         }
                     )
 
                 unique_pairs.add(pair)
 
-            channels = list(
-                dict.fromkeys(
-                    target["marketplace"]
-                    for target in targets
-                )
-            )
+            channels = list(dict.fromkeys(target["marketplace"] for target in targets))
         else:
             channels = list(
                 dict.fromkeys(
@@ -126,17 +118,13 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
             missing = [
                 channel
                 for channel in channels
-                if channel not in {"otto", "hood", "kaufland"} and channel not in payloads
+                if channel not in {"otto", "hood", "kaufland"}
+                and channel not in payloads
             ]
 
             if missing:
                 raise serializers.ValidationError(
-                    {
-                        "payloads": (
-                            "Payload is required for: "
-                            f"{', '.join(missing)}."
-                        )
-                    }
+                    {"payloads": (f"Payload is required for: {', '.join(missing)}.")}
                 )
 
         unknown_payload_channels = set(payloads) - set(channels)
@@ -173,11 +161,7 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
 
         if invalid_accounts:
             raise serializers.ValidationError(
-                {
-                    "accounts": (
-                        "Account values must be either 'jv' or 'xl'."
-                    )
-                }
+                {"accounts": ("Account values must be either 'jv' or 'xl'.")}
             )
 
         return attrs
@@ -190,21 +174,21 @@ class MarketplaceJobSerializer(serializers.ModelSerializer):
     @extend_schema_field(MarketplaceTargetSerializer(many=True))
     def get_requested_targets(self, job):
         return job.request_payload.get("targets", [])
-    
+
     class Meta:
         model = MarketplaceJob
         fields = (
-            "id", 
-            "product_id", 
-            "operation", 
-            "status", 
+            "id",
+            "product_id",
+            "operation",
+            "status",
             "request_id",
-            "requested_channels", 
+            "requested_channels",
             "requested_targets",
-            "results", 
-            "error", 
+            "results",
+            "error",
             "created_at",
-            "started_at", 
+            "started_at",
             "finished_at",
         )
 
@@ -219,8 +203,7 @@ class MarketplaceContentGenerationRequestSerializer(serializers.Serializer):
 
     def validate_targets(self, targets):
         unique_pairs = {
-            (target["marketplace"], target["account"])
-            for target in targets
+            (target["marketplace"], target["account"]) for target in targets
         }
 
         if len(unique_pairs) != len(targets):
@@ -268,7 +251,6 @@ class MarketplaceContentGenerationSerializer(serializers.ModelSerializer):
             "finished_at",
         )
         read_only_fields = fields
-
 
 
 class MarketplacePublicationFilterSerializer(serializers.Serializer):
@@ -452,7 +434,6 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
     fsc_certified = serializers.BooleanField(required=False, allow_null=True)
     disposal = serializers.BooleanField(required=False, allow_null=True)
 
-
     def validate_shipping_profile_id(self, value):
         account = self.context.get("account")
 
@@ -475,6 +456,7 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
             )
 
         return value
+
     @staticmethod
     def to_storage(validated_data):
         """Convert non-JSON values before storing configuration as JSON."""
@@ -503,7 +485,6 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
         return super().to_representation(data)
 
 
-    
 @extend_schema_serializer(component_name="OttoListingConfigurationResponse")
 class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
     configuration = OttoListingConfigurationSerializer(read_only=True)
@@ -567,7 +548,7 @@ class HoodListingConfigurationSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Дополнительные или исправленные свойства Hood. "
-            "Формат: {\"Farbe\": \"Braun\", \"Stil\": \"Modern\"}."
+            'Формат: {"Farbe": "Braun", "Stil": "Modern"}.'
         ),
     )
 
