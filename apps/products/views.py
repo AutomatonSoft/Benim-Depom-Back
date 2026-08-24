@@ -5,7 +5,7 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import generics, status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -32,6 +32,7 @@ from .serializers import (
     ProductImageReorderSerializer,
     ProductImageSerializer,
     ProductImageUploadSerializer,
+    ProductMultipartCreateSerializer,
     ProductSerializer,
 )
 from .services import (
@@ -73,6 +74,25 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
 
 class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST" and self.request.content_type.startswith(
+            "multipart/form-data"
+        ):
+            return ProductMultipartCreateSerializer
+
+        return super().get_serializer_class()
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+
+        if self.request.method == "POST" and self.request.content_type.startswith(
+            "multipart/form-data"
+        ):
+            throttles.append(ImageUploadRateThrottle())
+
+        return throttles
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -155,6 +175,11 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
     @extend_schema(
         parameters=[IDEMPOTENCY_KEY_HEADER],
+        request={
+            "application/json": ProductSerializer,
+            "multipart/form-data": ProductMultipartCreateSerializer,
+        },
+        responses={201: ProductSerializer},
         description=(
             "Создаёт товар продавца. Передайте Idempotency-Key, чтобы "
             "повторный запрос из мобильной сети не создал дубликат."

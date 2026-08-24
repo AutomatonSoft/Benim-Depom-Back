@@ -1,3 +1,4 @@
+import json
 import warnings
 from decimal import Decimal
 
@@ -8,6 +9,7 @@ from drf_spectacular.utils import (
 )
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
+from rest_framework.fields import empty
 
 from apps.catalog.otto_catalog import (
     OttoCatalogError,
@@ -21,7 +23,7 @@ from .models import (
     ProductImage,
     ProductVariant,
 )
-from .services import create_product, update_product
+from .services import create_product, create_product_with_images, update_product
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
@@ -559,6 +561,111 @@ class ProductImageUploadSerializer(serializers.Serializer):
             image.seek(0)
 
         return image
+
+
+class MultipartJSONListField(serializers.ListField):
+    """Accept a JSON-encoded list from a multipart form field."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise serializers.ValidationError("Expected a JSON array.") from error
+
+        return super().to_internal_value(data)
+
+
+class MultipartJSONDictField(serializers.DictField):
+    """Accept a JSON-encoded object from a multipart form field."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise serializers.ValidationError("Expected a JSON object.") from error
+
+        return super().to_internal_value(data)
+
+
+class MultipartImageListField(serializers.ListField):
+    """Read repeated ``images`` fields from Django's multipart QueryDict."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "getlist"):
+            values = dictionary.getlist(self.field_name) or dictionary.getlist(
+                f"{self.field_name}[]"
+            )
+            if values:
+                return values
+
+        return super().get_value(dictionary)
+
+
+@extend_schema_serializer(component_name="ProductsMultipartCreate")
+class ProductMultipartCreateSerializer(ProductSerializer):
+    """Product creation payload for ``multipart/form-data`` clients."""
+
+    variants = MultipartJSONListField(
+        child=ProductVariantSerializer(),
+        allow_empty=False,
+        help_text="JSON array of product variants.",
+    )
+    otto_attributes = MultipartJSONDictField(
+        required=False,
+        default=dict,
+        help_text="Optional JSON object with OTTO attribute values.",
+    )
+    images = MultipartImageListField(
+        child=serializers.ImageField(),
+        min_length=1,
+        max_length=10,
+        write_only=True,
+        help_text="One to ten image files. The first image becomes primary.",
+    )
+
+    def validate_images(self, images):
+        image_validator = ProductImageUploadSerializer()
+        errors = {}
+        validated_images = []
+
+        for index, image in enumerate(images):
+            try:
+                validated_images.append(image_validator.validate_image(image))
+            except serializers.ValidationError as error:
+                errors[str(index)] = error.detail
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return validated_images
+
+    def create(self, validated_data):
+        variants_data = validated_data.pop("variants")
+        image_files = validated_data.pop("images")
+
+        return create_product_with_images(
+            owner=self.context["request"].user,
+            data=validated_data,
+            variants_data=variants_data,
+            image_files=image_files,
+        )
+
+    def to_representation(self, instance):
+        return ProductSerializer(instance, context=self.context).data
 
 
 @extend_schema_serializer(component_name="ProductsImageReorder")
