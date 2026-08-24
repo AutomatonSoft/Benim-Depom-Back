@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from apps.products.models import Product, ProductImage
@@ -53,6 +55,77 @@ def test_seller_creates_product_and_other_seller_cannot_access_it(
         ).status_code
         == 404
     )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_creates_product_with_initial_images_in_one_multipart_request(
+    api_client,
+    seller,
+    product_type,
+    image_file,
+):
+    authenticate(api_client, seller)
+    payload = product_payload(product_type)
+    payload.pop("otto_category_id")
+    payload.pop("otto_category_group_id")
+    payload["variants"] = json.dumps(payload["variants"])
+    payload["images"] = [image_file("first.png"), image_file("second.png")]
+
+    response = api_client.post(
+        "/api/v1/products/",
+        payload,
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    assert response.data["otto_category_id"] is None
+    assert len(response.data["images"]) == 2
+    assert response.data["images"][0]["is_primary"] is True
+    assert response.data["images"][1]["is_primary"] is False
+    assert ProductImage.objects.filter(product_id=response.data["id"]).count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
+    api_client,
+    seller,
+    product_type,
+    image_file,
+):
+    authenticate(api_client, seller)
+    invalid_variants_response = api_client.post(
+        "/api/v1/products/",
+        {
+            "title": "Multipart chair",
+            "product_type": product_type,
+            "unit_price": "1000.00",
+            "currency": "TRY",
+            "variants": "not-json",
+            "images": [image_file("invalid.png")],
+        },
+        format="multipart",
+    )
+
+    assert invalid_variants_response.status_code == 400
+    assert Product.objects.count() == 0
+
+    too_many_images_response = api_client.post(
+        "/api/v1/products/",
+        {
+            "title": "Multipart chair",
+            "product_type": product_type,
+            "unit_price": "1000.00",
+            "currency": "TRY",
+            "variants": json.dumps(product_payload(product_type)["variants"]),
+            "images": [image_file(f"image-{index}.png") for index in range(11)],
+        },
+        format="multipart",
+    )
+
+    assert too_many_images_response.status_code == 400
+    assert Product.objects.count() == 0
 
 
 @pytest.mark.integration

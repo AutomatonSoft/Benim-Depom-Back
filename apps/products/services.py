@@ -24,6 +24,42 @@ def create_product(
     return product
 
 
+def create_product_with_images(
+    *,
+    owner,
+    data: dict[str, Any],
+    variants_data: list[dict[str, Any]],
+    image_files: list,
+) -> Product:
+    """Create a draft product and its initial images in one API operation."""
+    saved_image_files = []
+
+    try:
+        with transaction.atomic():
+            product = create_product(
+                owner=owner,
+                data=data,
+                variants_data=variants_data,
+            )
+
+            for position, image_file in enumerate(image_files):
+                image = upload_product_image(
+                    product=product,
+                    image_file=image_file,
+                    is_primary=position == 0,
+                )
+                saved_image_files.append(image.image)
+
+            return product
+    except Exception:
+        # Database changes are rolled back by the transaction, while FTP/media
+        # storage is external to that transaction. Remove any already uploaded
+        # files on a best-effort basis to avoid orphaned media.
+        for saved_image in saved_image_files:
+            saved_image.delete(save=False)
+        raise
+
+
 @transaction.atomic
 def update_product(
     *,
