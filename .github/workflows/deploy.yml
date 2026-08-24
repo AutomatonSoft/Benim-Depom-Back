@@ -43,6 +43,8 @@ jobs:
           context: .
           file: Dockerfile.prod
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
