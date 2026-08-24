@@ -9,6 +9,7 @@ from drf_spectacular.utils import (
 )
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
+from rest_framework.fields import empty
 
 from apps.catalog.otto_catalog import (
     OttoCatalogError,
@@ -565,6 +566,12 @@ class ProductImageUploadSerializer(serializers.Serializer):
 class MultipartJSONListField(serializers.ListField):
     """Accept a JSON-encoded list from a multipart form field."""
 
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
+
     def to_internal_value(self, data):
         if isinstance(data, str):
             try:
@@ -577,6 +584,12 @@ class MultipartJSONListField(serializers.ListField):
 
 class MultipartJSONDictField(serializers.DictField):
     """Accept a JSON-encoded object from a multipart form field."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
 
     def to_internal_value(self, data):
         if isinstance(data, str):
