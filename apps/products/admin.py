@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import Product, ProductImage, ProductVariant
 
+
 class ProductVariantInLine(admin.TabularInline):
     model = ProductVariant
     extra = 0
@@ -23,10 +24,8 @@ class ProductAdmin(admin.ModelAdmin):
         "created_at",
     )
 
-    list_filter = ("status", "product_type", "category")
+    list_filter = ("status", "product_type")
     search_fields = ("title", "owner__username", "owner__email")
-    list_select_related = ("owner", "product_type", "category")
+    list_select_related = ("owner",)
     readonly_fields = ("created_at", "updated_at")
     inlines = (ProductVariantInLine, ProductImageInline)
-
-

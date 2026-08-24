@@ -1,0 +1,2 @@
+# Optional dependency for staging load tests. Do not install in production.
+locust>=2.38,<3.0

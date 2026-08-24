@@ -1,8 +1,10 @@
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from .models import ModerationDecision
 
 
+@extend_schema_serializer(component_name="ModerationDecision")
 class ModerationDecisionSerializer(serializers.ModelSerializer):
     manager_username = serializers.CharField(
         source="manager.username",
@@ -22,6 +24,7 @@ class ModerationDecisionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+@extend_schema_serializer(component_name="ModerationApprove")
 class ApproveProductSerializer(serializers.Serializer):
     comment = serializers.CharField(
         required=False,
@@ -30,6 +33,7 @@ class ApproveProductSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="ModerationReject")
 class RejectProductSerializer(serializers.Serializer):
     comment = serializers.CharField(
         max_length=2000,
@@ -38,8 +42,6 @@ class RejectProductSerializer(serializers.Serializer):
 
     def validate_comment(self, comment):
         if not comment:
-            raise serializers.ValidationError(
-                "A rejection reason is required."
-            )
+            raise serializers.ValidationError("A rejection reason is required.")
 
         return comment

@@ -46,6 +46,23 @@ class Notification(models.Model):
             "product_availability_reminder",
             "Product availability reminder",
         )
+        MANAGER_MESSAGE = "manager_message", "Manager message"
+        PRODUCT_DEACTIVATED = "product_deactivated", "Product deactivated"
+        PRODUCT_DEACTIVATION_REQUESTED = (
+            "product_deactivation_requested",
+            "Product deactivation requested",
+        )
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="sent_notifications",
+        null=True,
+        blank=True,
+    )
+
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -79,3 +96,58 @@ class Notification(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.username}: {self.notification_type}"
+
+
+class PushDelivery(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        INVALID = "invalid", "Invalid device token"
+
+    notification = models.ForeignKey(
+        Notification,
+        on_delete=models.CASCADE,
+        related_name="push_deliveries",
+    )
+    device_token = models.ForeignKey(
+        DeviceToken,
+        on_delete=models.CASCADE,
+        related_name="push_deliveries",
+    )
+
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    last_error = models.CharField(max_length=500, blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("id",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("notification", "device_token"),
+                name="unique_notification_push_delivery",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("status", "updated_at"),
+                name="push_delivery_updated_idx",
+            )
+        ]
+
+    def __str__(self):
+        return (
+            f"notification={self.notification_id} / "
+            f"device={self.device_token_id} / {self.status}"
+        )

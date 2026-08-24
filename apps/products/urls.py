@@ -1,13 +1,16 @@
 from django.urls import path
 
 from .views import (
+    ProductAvailabilityView,
+    ProductDeactivateView,
     ProductDetailView,
     ProductImageDeleteView,
     ProductImagePrimaryView,
+    ProductImageProcessView,
     ProductImageReorderView,
     ProductImageUploadView,
     ProductListCreateView,
-    ProductAvailabilityView,
+    ProductWithdrawView,
 )
 
 app_name = "products"
@@ -39,5 +42,20 @@ urlpatterns = [
         "<int:product_pk>/availability/",
         ProductAvailabilityView.as_view(),
         name="product-availability",
+    ),
+    path(
+        "<int:product_pk>/images/<int:image_pk>/process/",
+        ProductImageProcessView.as_view(),
+        name="product-image-process",
+    ),
+    path(
+        "<int:product_pk>/deactivate/",
+        ProductDeactivateView.as_view(),
+        name="product-deactivate",
+    ),
+    path(
+        "<int:product_pk>/withdraw/",
+        ProductWithdrawView.as_view(),
+        name="product-withdraw",
     ),
 ]

@@ -1,0 +1,56 @@
+from django.conf import settings
+from django.db import models
+
+
+class EanCode(models.Model):
+    class Account(models.TextChoices):
+        JV = "jv", "JV"
+        XL = "xl", "XL"
+
+    class State(models.TextChoices):
+        AVAILABLE = "available", "Available"
+        RESERVED = "reserved", "Reserved"
+        CONSUMED = "consumed", "Consumed"
+
+    code = models.CharField(max_length=14, unique=True)
+    account = models.CharField(max_length=2, choices=Account.choices)
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="ean_codes",
+        null=True,
+        blank=True,
+    )
+    state = models.CharField(
+        max_length=16, choices=State.choices, default=State.AVAILABLE
+    )
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="imported_ean_codes",
+        null=True,
+        blank=True,
+    )
+    imported_at = models.DateTimeField(auto_now_add=True)
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("id",)
+        indexes = [
+            models.Index(
+                fields=("account", "product"),
+                name="ean_account_product_idx",
+            ),
+            models.Index(
+                fields=("account", "id"),
+                condition=models.Q(
+                    state="available",
+                    product__isnull=True,
+                ),
+                name="ean_available_account_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account}: {self.code}"

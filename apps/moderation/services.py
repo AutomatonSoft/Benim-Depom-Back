@@ -1,11 +1,82 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
+from apps.ean.services import assign_ean_codes_to_product
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
 from apps.products.models import Product
-from django.utils import timezone
 
 from .models import ModerationDecision
+
+
+def validate_product_otto_data_for_submission(product: Product) -> None:
+    """
+    Validates the selected OTTO category when the seller sends a product
+    to moderation. Attribute relevance is used only by the UI for ordering;
+    HIGH, MEDIUM and LOW attributes are all optional.
+    """
+    if product.unit_price is None:
+        raise ValidationError(
+            {"unit_price": ("Set the price per unit before submitting the product.")}
+        )
+
+    if product.otto_category_id is None:
+        raise ValidationError(
+            {
+                "otto_category_id": (
+                    "Select an OTTO category before submitting the product."
+                )
+            }
+        )
+
+    if product.otto_category_group_id is None:
+        raise ValidationError(
+            {
+                "otto_category_group_id": (
+                    "Select an OTTO category group before submitting the product."
+                )
+            }
+        )
+
+    try:
+        catalog = get_otto_catalog()
+    except OttoCatalogError as exc:
+        raise ValidationError(
+            {"detail": "OTTO catalog is temporarily unavailable."}
+        ) from exc
+
+    category = catalog["categories_by_id"].get(product.otto_category_id)
+
+    if category is None:
+        raise ValidationError(
+            {"otto_category_id": "The selected OTTO category no longer exists."}
+        )
+
+    actual_group_id = int(category["category_group_id"])
+
+    if actual_group_id != product.otto_category_group_id:
+        raise ValidationError(
+            {
+                "otto_category_group_id": (
+                    "The selected OTTO category does not belong to the selected group."
+                )
+            }
+        )
+
+    attributes = catalog["attributes_by_group_id"].get(
+        product.otto_category_group_id,
+    )
+
+    if attributes is None:
+        raise ValidationError(
+            {
+                "otto_category_group_id": (
+                    "No attribute configuration was found for this OTTO category group."
+                )
+            }
+        )
 
 
 @transaction.atomic
@@ -30,6 +101,8 @@ def submit_product_for_moderation(*, product: Product) -> Product:
             {"images": "The product must contain at least one image."}
         )
 
+    validate_product_otto_data_for_submission(product)
+
     product.status = Product.Status.SUBMITTED
     product.save(update_fields=("status", "updated_at"))
 
@@ -49,9 +122,11 @@ def approve_product(
         Product.Status.SUBMITTED,
         Product.Status.UNDER_REVIEW,
     }:
-        raise ValidationError(
-            {"detail": "Only submitted products can be approved."}
-        )
+        raise ValidationError({"detail": "Only submitted products can be approved."})
+
+    # EANs are consumed only for a product the manager actually approves.
+    # The same transaction prevents a partial approval if a pool is empty.
+    assign_ean_codes_to_product(product=product)
 
     product.status = Product.Status.APPROVED
     product.approved_at = timezone.now()
@@ -99,9 +174,7 @@ def reject_product(
         Product.Status.SUBMITTED,
         Product.Status.UNDER_REVIEW,
     }:
-        raise ValidationError(
-            {"detail": "Only submitted products can be rejected."}
-        )
+        raise ValidationError({"detail": "Only submitted products can be rejected."})
 
     product.status = Product.Status.REJECTED
     product.save(update_fields=("status", "updated_at"))
@@ -126,5 +199,3 @@ def reject_product(
     )
 
     return product
-
-

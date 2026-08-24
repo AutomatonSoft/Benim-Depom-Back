@@ -14,18 +14,13 @@ class BaseCatalogModel(models.Model):
         return self.name
 
 
-class Category(BaseCatalogModel):
+class ProductType(BaseCatalogModel):
     pass
 
 
-class ProductType(BaseCatalogModel):
-    pass 
-
-
 class Material(BaseCatalogModel):
-    pass 
+    pass
 
 
 class Color(BaseCatalogModel):
     hex_code = models.CharField(max_length=7, blank=True)
-

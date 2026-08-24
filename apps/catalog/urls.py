@@ -1,18 +1,34 @@
 from django.urls import path
 
 from .views import (
-    CategoryListView,
-    ColorListView,
-    MaterialListView,
-    ProductTypeListView,
+    OttoCategoryGroupAttributesView,
+    OttoCategoryGroupCategoriesView,
+    OttoCategoryGroupListView,
+    OttoShippingProfileListView,
 )
 
 app_name = "catalog"
 
 
 urlpatterns = [
-    path("categories/", CategoryListView.as_view(), name="categories"),
-    path("types/", ProductTypeListView.as_view(), name="product-types"),
-    path("materials/", MaterialListView.as_view(), name="materials"),
-    path("colors/", ColorListView.as_view(), name="colors"),
+    path(
+        "otto/category-groups/",
+        OttoCategoryGroupListView.as_view(),
+        name="otto-category-group-list",
+    ),
+    path(
+        "otto/category-groups/<int:group_id>/categories/",
+        OttoCategoryGroupCategoriesView.as_view(),
+        name="otto-category-group-categories",
+    ),
+    path(
+        "otto/category-groups/<int:group_id>/attributes/",
+        OttoCategoryGroupAttributesView.as_view(),
+        name="otto-category-group-attributes",
+    ),
+    path(
+        "otto/shipping-profiles/",
+        OttoShippingProfileListView.as_view(),
+        name="otto-shipping-profile-list",
+    ),
 ]
