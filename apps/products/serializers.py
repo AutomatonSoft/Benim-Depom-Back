@@ -290,7 +290,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_attributes",
             getattr(self.instance, "otto_attributes", {}),
         )
-        attributes_were_sent = "otto_attributes" in attrs
+        attributes_were_sent = "otto_attributes" in self.initial_data
 
         if category_id is None and group_id is None and not attributes_were_sent:
             return
