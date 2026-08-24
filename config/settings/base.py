@@ -178,7 +178,7 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Marketplace Backend API",
+    "TITLE": "Benim Depom Backend API",
     "DESCRIPTION": (
         "API for the seller mobile application and manager web panel. "
         "Operations are grouped by client and business domain."
