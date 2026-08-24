@@ -77,9 +77,8 @@ class ProductListCreateView(generics.ListCreateAPIView):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_serializer_class(self):
-        if (
-            self.request.method == "POST"
-            and self.request.content_type.startswith("multipart/form-data")
+        if self.request.method == "POST" and self.request.content_type.startswith(
+            "multipart/form-data"
         ):
             return ProductMultipartCreateSerializer
 
@@ -88,9 +87,8 @@ class ProductListCreateView(generics.ListCreateAPIView):
     def get_throttles(self):
         throttles = super().get_throttles()
 
-        if (
-            self.request.method == "POST"
-            and self.request.content_type.startswith("multipart/form-data")
+        if self.request.method == "POST" and self.request.content_type.startswith(
+            "multipart/form-data"
         ):
             throttles.append(ImageUploadRateThrottle())
 
