@@ -125,7 +125,7 @@ jobs:
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
-            up -d --wait --wait-timeout 120
+            up -d --force-recreate --wait --wait-timeout 120
 
           curl --fail --silent --show-error \
             http://127.0.0.1:18081/api/v1/health/

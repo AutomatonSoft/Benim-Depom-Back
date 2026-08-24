@@ -258,7 +258,7 @@ SPECTACULAR_SETTINGS["TAGS"] = [
         "name": "EAN pool",
         "description": "Импорт, остаток и просмотр EAN-пула JV/XL.",
     },
-    {
+    {   
         "name": "Notifications",
         "description": "Уведомления в приложении и регистрация FCM-устройств.",
     },
