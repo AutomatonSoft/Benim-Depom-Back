@@ -135,6 +135,20 @@ jobs:
             -f docker-compose.prod.yml \
             up -d --force-recreate --no-deps --wait --wait-timeout 120 nginx
 
+          expected_image="ghcr.io/ravilkadev0/benim-depom-back:${IMAGE_TAG}"
+          expected_revision="${IMAGE_TAG#sha-}"
+          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image")"
+          image_revision="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "$expected_image")"
+          web_container_id="$(docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            ps -q web)"
+          running_image_id="$(docker inspect --format '{{.Image}}' "$web_container_id")"
+
+          test "$image_revision" = "$expected_revision"
+          test "$running_image_id" = "$expected_image_id"
+
           curl --fail --silent --show-error \
             http://127.0.0.1:18081/api/v1/health/
 

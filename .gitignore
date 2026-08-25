@@ -30,3 +30,6 @@ staticfiles/
 secrets/
 *.firebase-adminsdk-*.json
 .codebase-memory
+
+# One-off OpenAI catalog translation batch inputs and IDs.
+.translation-work/

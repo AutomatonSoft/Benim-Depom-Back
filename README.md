@@ -260,6 +260,9 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | `GET` | `otto/category-groups/` | authenticated | Группы local OTTO JSON-catalog. |
 | `GET` | `otto/category-groups/{group_id}/categories/` | authenticated | Категории выбранной группы. |
 | `GET` | `otto/category-groups/{group_id}/attributes/` | authenticated | Attributes выбранной группы. |
+| `GET` | `otto/category-groups/tr/` | authenticated | Те же группы на турецком языке. |
+| `GET` | `otto/category-groups/{group_id}/categories/tr/` | authenticated | Категории выбранной группы на турецком языке. |
+| `GET` | `otto/category-groups/{group_id}/attributes/tr/` | authenticated | Атрибуты выбранной группы на турецком языке. |
 | `GET` | `otto/shipping-profiles/?account=jv\|xl` | manager/admin | OTTO delivery profiles для аккаунта. |
 
 ### Products и images
