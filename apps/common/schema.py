@@ -116,6 +116,18 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Получить атрибуты группы OTTO",
         (
             "GET",
+            "/api/v1/catalog/otto/category-groups/{language}/",
+        ): "Получить локализованные группы категорий OTTO",
+        (
+            "GET",
+            "/api/v1/catalog/otto/category-groups/{group_id}/categories/{language}/",
+        ): "Получить локализованные категории группы OTTO",
+        (
+            "GET",
+            "/api/v1/catalog/otto/category-groups/{group_id}/attributes/{language}/",
+        ): "Получить локализованные атрибуты группы OTTO",
+        (
+            "GET",
             "/api/v1/catalog/otto/shipping-profiles/",
         ): "Получить профили доставки OTTO",
         # Marketplace jobs and publication states
