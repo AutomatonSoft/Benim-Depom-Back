@@ -15,7 +15,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/ravilkadev0/benim-depom-back
+  IMAGE_NAME: ghcr.io/automatonsoft/benim-depom-back
   DEPLOY_DIR: /home/alikhan/apps/benim-depom
 
 jobs:
@@ -137,7 +137,7 @@ jobs:
             -f docker-compose.prod.yml \
             up -d --force-recreate --no-deps --wait --wait-timeout 120 nginx
 
-          expected_image="ghcr.io/ravilkadev0/benim-depom-back:${IMAGE_TAG}"
+          expected_image="ghcr.io/automatonsoft/benim-depom-back:${IMAGE_TAG}"
           expected_revision="${IMAGE_TAG#sha-}"
           expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image")"
           image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_image")"
@@ -160,4 +160,7 @@ jobs:
             -f docker-compose.prod.yml \
             ps
           REMOTE
+
+
+          
 

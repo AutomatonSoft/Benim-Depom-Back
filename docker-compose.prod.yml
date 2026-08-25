@@ -1,7 +1,7 @@
 name: benim-depom
 
 x-app-common: &app-common
-  image: ghcr.io/ravilkadev0/benim-depom-back:${IMAGE_TAG:?Set IMAGE_TAG in .deploy.env}
+  image: ghcr.io/automatonsoft/benim-depom-back:${IMAGE_TAG:?Set IMAGE_TAG in .deploy.env}
   restart: unless-stopped
   init: true
   env_file:
@@ -61,6 +61,7 @@ services:
       retries: 3
       start_period: 45s
     stop_grace_period: 30s
+
 
   worker_marketplace:
     <<: *app-common
