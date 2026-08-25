@@ -307,7 +307,33 @@ def test_otto_catalog_endpoints_return_turkish_overlay(api_client):
         for attribute in attributes.data
     )
 
-    unavailable_language = api_client.get(
+    fallback_to_turkish = api_client.get(
         "/api/v1/catalog/otto/category-groups/en/",
+        {"search": "Sandalyeler"},
     )
-    assert unavailable_language.status_code == 404
+    assert fallback_to_turkish.status_code == 200
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Sandalyeler"
+        for group in fallback_to_turkish.data["results"]
+    )
+
+    fallback_categories = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/categories/en/",
+        {"limit": 200},
+    )
+    assert fallback_categories.status_code == 200
+    assert any(
+        category["category_id"] == 26822
+        and category["name"] == "Yemek odası sandalyesi"
+        for category in fallback_categories.data["results"]
+    )
+
+    fallback_attributes = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/attributes/en/",
+    )
+    assert fallback_attributes.status_code == 200
+    assert any(
+        attribute["attribute_id"] == 177052
+        and attribute["name"] == "Kaplama aşınma direnci"
+        for attribute in fallback_attributes.data
+    )

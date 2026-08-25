@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.otto_catalog import (
+    SUPPORTED_OTTO_CATALOG_LANGUAGES,
     OttoCatalogError,
     UnsupportedOttoCatalogLanguage,
     get_otto_catalog,
@@ -74,8 +75,19 @@ class OttoCatalogLocalizationMixin:
     """Loads the base catalog and one optional in-memory language overlay."""
 
     def get_catalog_and_translation(self, language: str):
+        normalized_language = language.casefold()
+        effective_language = (
+            normalized_language
+            if normalized_language in SUPPORTED_OTTO_CATALOG_LANGUAGES
+            else "tr"
+        )
+
         try:
-            return get_otto_catalog(), get_otto_catalog_translation(language), None
+            return (
+                get_otto_catalog(),
+                get_otto_catalog_translation(effective_language),
+                None,
+            )
         except UnsupportedOttoCatalogLanguage:
             return (
                 None,
@@ -166,7 +178,8 @@ class OttoCategoryGroupListView(
         summary="List OTTO category groups",
         description=(
             "Returns OTTO category groups from the local JSON catalog. "
-            "Append /tr/ for Turkish; without a suffix the response is German."
+            "Without a suffix the response is German. Append /de/ for German or "
+            "/tr/ for Turkish; an unsupported suffix falls back to Turkish."
         ),
         parameters=[
             OpenApiParameter(
@@ -235,7 +248,8 @@ class OttoCategoryGroupCategoriesView(
         summary="List categories in an OTTO group",
         description=(
             "Returns selectable OTTO subcategories for one category group. "
-            "Append /tr/ for Turkish; without a suffix the response is German."
+            "Without a suffix the response is German. Append /de/ for German or "
+            "/tr/ for Turkish; an unsupported suffix falls back to Turkish."
         ),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
@@ -278,8 +292,9 @@ class OttoCategoryGroupAttributesView(OttoCatalogLocalizationMixin, APIView):
         tags=["OTTO - Catalog"],
         summary="Get attributes for an OTTO category group",
         description=(
-            "Returns attribute definitions for the selected group. Append /tr/ "
-            "for Turkish; without a suffix the response is German. "
+            "Returns attribute definitions for the selected group. Without a suffix "
+            "the response is German. Append /de/ for German or /tr/ for Turkish; "
+            "an unsupported suffix falls back to Turkish. "
             "HIGH, MEDIUM and LOW relevance values are used only to order "
             "the manager/mobile UI; all attributes are optional."
         ),
