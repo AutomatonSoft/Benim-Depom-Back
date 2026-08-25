@@ -270,3 +270,44 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
     assert response.status_code == 200
     seller.refresh_from_db()
     assert seller.is_email_verified is False
+
+
+@pytest.mark.integration
+def test_otto_catalog_endpoints_return_turkish_overlay(api_client):
+    groups = api_client.get(
+        "/api/v1/catalog/otto/category-groups/tr/",
+        {"search": "Sandalyeler"},
+    )
+    assert groups.status_code == 200
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Sandalyeler"
+        for group in groups.data["results"]
+    )
+
+    categories = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/categories/tr/",
+        {"limit": 200},
+    )
+    assert categories.status_code == 200
+    assert any(
+        category["category_id"] == 26822
+        and category["category_group"] == "Sandalyeler"
+        and category["name"] == "Yemek odası sandalyesi"
+        for category in categories.data["results"]
+    )
+
+    attributes = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/attributes/tr/",
+    )
+    assert attributes.status_code == 200
+    assert any(
+        attribute["attribute_id"] == 177052
+        and attribute["name"] == "Kaplama aşınma direnci"
+        and attribute["attribute_group"] == "Malzeme"
+        for attribute in attributes.data
+    )
+
+    unavailable_language = api_client.get(
+        "/api/v1/catalog/otto/category-groups/en/",
+    )
+    assert unavailable_language.status_code == 404

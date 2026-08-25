@@ -17,14 +17,29 @@ urlpatterns = [
         name="otto-category-group-list",
     ),
     path(
+        "otto/category-groups/<str:language>/",
+        OttoCategoryGroupListView.as_view(),
+        name="otto-category-group-list-localized",
+    ),
+    path(
         "otto/category-groups/<int:group_id>/categories/",
         OttoCategoryGroupCategoriesView.as_view(),
         name="otto-category-group-categories",
     ),
     path(
+        "otto/category-groups/<int:group_id>/categories/<str:language>/",
+        OttoCategoryGroupCategoriesView.as_view(),
+        name="otto-category-group-categories-localized",
+    ),
+    path(
         "otto/category-groups/<int:group_id>/attributes/",
         OttoCategoryGroupAttributesView.as_view(),
         name="otto-category-group-attributes",
+    ),
+    path(
+        "otto/category-groups/<int:group_id>/attributes/<str:language>/",
+        OttoCategoryGroupAttributesView.as_view(),
+        name="otto-category-group-attributes-localized",
     ),
     path(
         "otto/shipping-profiles/",

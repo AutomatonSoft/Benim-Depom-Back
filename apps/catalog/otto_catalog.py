@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from hashlib import sha256
 from typing import Any
 
 from django.conf import settings
@@ -9,10 +10,16 @@ from django.conf import settings
 CATALOG_DIR = settings.BASE_DIR / "data" / "otto"
 CATEGORIES_FILE = CATALOG_DIR / "categories.json"
 ATTRIBUTES_FILE = CATALOG_DIR / "attributes_by_group.json"
+TRANSLATIONS_DIR = CATALOG_DIR / "translations"
+SUPPORTED_OTTO_CATALOG_LANGUAGES = frozenset({"de", "tr"})
 
 
 class OttoCatalogError(Exception):
     """The local OTTO catalog is unavailable or malformed."""
+
+
+class UnsupportedOttoCatalogLanguage(OttoCatalogError):
+    """The requested OTTO catalog translation is not available."""
 
 
 @lru_cache(maxsize=1)
@@ -75,8 +82,82 @@ def get_otto_catalog() -> dict[str, Any]:
     }
 
 
+def _file_sha256(path) -> str:
+    return sha256(path.read_bytes()).hexdigest()
+
+
+@lru_cache(maxsize=3)
+def get_otto_catalog_translation(language: str) -> dict[str, Any] | None:
+    """
+    Load one translated catalog overlay once per Django process.
+
+    The base German catalog stays the source of truth for IDs and technical
+    fields. A translation contains visible strings only and is looked up by
+    existing IDs, so API requests do not read JSON files from disk.
+    """
+    normalized_language = language.casefold()
+    if normalized_language not in SUPPORTED_OTTO_CATALOG_LANGUAGES:
+        raise UnsupportedOttoCatalogLanguage(
+            f"Unsupported OTTO catalog language: {language}."
+        )
+
+    if normalized_language == "de":
+        return None
+
+    translation_dir = TRANSLATIONS_DIR / normalized_language
+    categories_translation_file = translation_dir / "categories.json"
+    attributes_translation_file = translation_dir / "attributes_by_group.json"
+
+    try:
+        categories_translation = json.loads(
+            categories_translation_file.read_text(encoding="utf-8")
+        )
+        attributes_translation = json.loads(
+            attributes_translation_file.read_text(encoding="utf-8")
+        )
+    except FileNotFoundError as exc:
+        raise UnsupportedOttoCatalogLanguage(
+            f"OTTO catalog translation '{normalized_language}' is unavailable."
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise OttoCatalogError(
+            "OTTO catalog translation contains invalid JSON."
+        ) from exc
+
+    source = categories_translation.get("source")
+    if not isinstance(source, dict):
+        raise OttoCatalogError("OTTO catalog translation has no source metadata.")
+
+    if source.get("categories_sha256") != _file_sha256(CATEGORIES_FILE):
+        raise OttoCatalogError("OTTO category translation is out of date.")
+
+    if source.get("attributes_by_group_sha256") != _file_sha256(ATTRIBUTES_FILE):
+        raise OttoCatalogError("OTTO attribute translation is out of date.")
+
+    if (
+        categories_translation.get("language") != normalized_language
+        or attributes_translation.get("language") != normalized_language
+    ):
+        raise OttoCatalogError("OTTO catalog translation language metadata is invalid.")
+
+    categories = categories_translation.get("categories")
+    groups = categories_translation.get("groups")
+    attribute_groups = attributes_translation.get("groups")
+    if not all(
+        isinstance(value, dict) for value in (categories, groups, attribute_groups)
+    ):
+        raise OttoCatalogError("OTTO catalog translation has an unexpected structure.")
+
+    return {
+        "categories": categories,
+        "groups": groups,
+        "attribute_groups": attribute_groups,
+    }
+
+
 def clear_otto_catalog_cache() -> None:
     """
     Needed only after manually replacing JSON files without restarting Django.
     """
     get_otto_catalog.cache_clear()
+    get_otto_catalog_translation.cache_clear()
