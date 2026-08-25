@@ -140,7 +140,7 @@ jobs:
           expected_image="ghcr.io/ravilkadev0/benim-depom-back:${IMAGE_TAG}"
           expected_revision="${IMAGE_TAG#sha-}"
           expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image")"
-          image_revision="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "$expected_image")"
+          image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_image")"
           web_container_id="$(docker compose \
             --project-name benim-depom \
             --env-file .deploy.env \
