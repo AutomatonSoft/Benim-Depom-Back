@@ -11,7 +11,7 @@ CATALOG_DIR = settings.BASE_DIR / "data" / "otto"
 CATEGORIES_FILE = CATALOG_DIR / "categories.json"
 ATTRIBUTES_FILE = CATALOG_DIR / "attributes_by_group.json"
 TRANSLATIONS_DIR = CATALOG_DIR / "translations"
-SUPPORTED_OTTO_CATALOG_LANGUAGES = frozenset({"de", "tr"})
+SUPPORTED_OTTO_CATALOG_LANGUAGES = frozenset({"de", "en", "tr"})
 
 
 class OttoCatalogError(Exception):
