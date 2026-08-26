@@ -274,8 +274,18 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
 
 
 @pytest.mark.integration
-def test_otto_catalog_endpoints_return_english_overlay(api_client):
+def test_otto_catalog_endpoints_return_localized_overlays(api_client):
     clear_otto_catalog_cache()
+
+    turkish_groups = api_client.get(
+        "/api/v1/catalog/otto/category-groups/tr/",
+        {"search": "Sandalyeler"},
+    )
+    assert turkish_groups.status_code == 200, turkish_groups.data
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Sandalyeler"
+        for group in turkish_groups.data["results"]
+    )
 
     english_groups = api_client.get(
         "/api/v1/catalog/otto/category-groups/en/",

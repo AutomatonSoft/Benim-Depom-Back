@@ -83,7 +83,9 @@ def get_otto_catalog() -> dict[str, Any]:
 
 
 def _file_sha256(path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return sha256(
+        path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")
+    ).hexdigest()
 
 
 @lru_cache(maxsize=3)

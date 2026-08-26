@@ -62,7 +62,9 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def json_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(
+        path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")
+    ).hexdigest()
 
 
 def write_json_atomically(path: Path, payload: dict[str, Any]) -> None:
