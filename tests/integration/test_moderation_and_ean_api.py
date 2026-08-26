@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from apps.ean.models import EanCode
@@ -12,21 +14,38 @@ def authenticate(client, user):
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_submit_requires_image_and_does_not_reserve_eans(
-    api_client, seller, product_factory, product_image_factory
+def test_product_creation_requires_image_and_does_not_reserve_eans(
+    api_client, seller, product_type, image_file
 ):
-    product = product_factory(owner=seller)
     authenticate(api_client, seller)
 
-    response = api_client.post(f"/api/v1/products/{product.id}/submit/")
+    payload = {
+        "title": "Moderation chair",
+        "product_type": product_type,
+        "unit_price": "1000.00",
+        "currency": "TRY",
+        "variants": json.dumps(
+            [
+                {
+                    "color_hex": "#5B91C8",
+                    "materials": ["Wood"],
+                    "width_cm": "50.00",
+                    "height_cm": "90.00",
+                    "length_cm": "55.00",
+                    "quantity": 3,
+                }
+            ]
+        ),
+    }
+    response = api_client.post("/api/v1/products/", payload, format="multipart")
     assert response.status_code == 400
     assert "images" in response.data
 
-    product_image_factory(product=product)
-    response = api_client.post(f"/api/v1/products/{product.id}/submit/")
-    assert response.status_code == 200
-    product.refresh_from_db()
-    assert product.status == Product.Status.SUBMITTED
+    payload["images"] = [image_file()]
+    response = api_client.post("/api/v1/products/", payload, format="multipart")
+    assert response.status_code == 201
+    assert response.data["status"] == Product.Status.SUBMITTED
+    product = Product.objects.get(pk=response.data["id"])
     assert product.ean_jv == "" and product.ean_xl == ""
 
 

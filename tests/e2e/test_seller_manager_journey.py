@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from apps.accounts.models import User
@@ -50,30 +52,25 @@ def test_seller_to_manager_approval_and_deactivation_journey(
             "currency": "TRY",
             "otto_category_id": 26822,
             "otto_category_group_id": 3593,
-            "variants": [
-                {
-                    "color_hex": "#112233",
-                    "materials": ["Wood"],
-                    "width_cm": "50",
-                    "height_cm": "90",
-                    "length_cm": "55",
-                    "quantity": 2,
-                }
-            ],
+            "variants": json.dumps(
+                [
+                    {
+                        "color_hex": "#112233",
+                        "materials": ["Wood"],
+                        "width_cm": "50",
+                        "height_cm": "90",
+                        "length_cm": "55",
+                        "quantity": 2,
+                    }
+                ]
+            ),
+            "images": [image_file()],
         },
-        format="json",
+        format="multipart",
     )
     assert create.status_code == 201
     product_id = create.data["id"]
-    assert (
-        api_client.post(
-            f"/api/v1/products/{product_id}/images/",
-            {"image": image_file(), "is_primary": True},
-            format="multipart",
-        ).status_code
-        == 201
-    )
-    assert api_client.post(f"/api/v1/products/{product_id}/submit/").status_code == 200
+    assert create.data["status"] == Product.Status.SUBMITTED
 
     manager = User.objects.create_user(
         username="journey_manager", password=password, role=User.Role.MANAGER
@@ -156,29 +153,25 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
             "currency": "TRY",
             "otto_category_id": 26822,
             "otto_category_group_id": 3593,
-            "variants": [
-                {
-                    "color_hex": "#FFFFFF",
-                    "materials": ["Metal"],
-                    "width_cm": "1",
-                    "height_cm": "1",
-                    "length_cm": "1",
-                    "quantity": 1,
-                }
-            ],
+            "variants": json.dumps(
+                [
+                    {
+                        "color_hex": "#FFFFFF",
+                        "materials": ["Metal"],
+                        "width_cm": "1",
+                        "height_cm": "1",
+                        "length_cm": "1",
+                        "quantity": 1,
+                    }
+                ]
+            ),
+            "images": [image_file()],
         },
-        format="json",
+        format="multipart",
     )
     product_id = create.data["id"]
-    assert (
-        api_client.post(
-            f"/api/v1/products/{product_id}/images/",
-            {"image": image_file()},
-            format="multipart",
-        ).status_code
-        == 201
-    )
-    assert api_client.post(f"/api/v1/products/{product_id}/submit/").status_code == 200
+    assert create.status_code == 201
+    assert create.data["status"] == Product.Status.SUBMITTED
     assert (
         api_client.post(f"/api/v1/products/{product_id}/withdraw/").status_code == 204
     )

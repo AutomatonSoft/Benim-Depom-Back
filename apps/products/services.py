@@ -31,7 +31,11 @@ def create_product_with_images(
     variants_data: list[dict[str, Any]],
     image_files: list,
 ) -> Product:
-    """Create a draft product and its initial images in one API operation."""
+    """Create and submit a product with its initial images atomically.
+
+    The temporary draft exists only inside this transaction: image upload
+    requires an editable product, while moderation requires persisted images.
+    """
     saved_image_files = []
 
     try:
@@ -50,7 +54,10 @@ def create_product_with_images(
                 )
                 saved_image_files.append(image.image)
 
-            return product
+            # Lazy import avoids a products <-> moderation import cycle.
+            from apps.moderation.services import submit_product_for_moderation
+
+            return submit_product_for_moderation(product=product)
     except Exception:
         # Database changes are rolled back by the transaction, while FTP/media
         # storage is external to that transaction. Remove any already uploaded

@@ -166,6 +166,15 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=dict,
     )
+    resubmit_for_moderation = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "Seller-only flag for a rejected product. Set true after all "
+            "corrections are complete to send it back to moderation."
+        ),
+    )
     variants = ProductVariantSerializer(many=True, required=False)
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
@@ -186,6 +195,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_category_name",
             "otto_category_group_name",
             "otto_attributes",
+            "resubmit_for_moderation",
             "status",
             "ean_jv",
             "ean_xl",
@@ -276,6 +286,37 @@ class ProductSerializer(serializers.ModelSerializer):
             )
 
         self._validate_otto_catalog_data(attrs)
+
+        if attrs.get("resubmit_for_moderation"):
+            request = self.context.get("request")
+
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "A newly created product is submitted automatically."
+                        )
+                    }
+                )
+
+            if request and is_manager(request.user):
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "Only the product seller can resubmit a rejected product."
+                        )
+                    }
+                )
+
+            if self.instance.status != Product.Status.REJECTED:
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "Only a rejected product can be resubmitted."
+                        )
+                    }
+                )
+
         return attrs
 
     def _validate_otto_catalog_data(self, attrs):
@@ -464,6 +505,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
+        validated_data.pop("resubmit_for_moderation", None)
 
         return create_product(
             owner=self.context["request"].user,
@@ -473,12 +515,24 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         variants_data = validated_data.pop("variants", None)
+        resubmit_for_moderation = validated_data.pop(
+            "resubmit_for_moderation",
+            False,
+        )
 
-        return update_product(
+        product = update_product(
             product=instance,
             data=validated_data,
             variants_data=variants_data,
         )
+
+        if resubmit_for_moderation:
+            # Lazy import avoids a products <-> moderation import cycle.
+            from apps.moderation.services import submit_product_for_moderation
+
+            return submit_product_for_moderation(product=product)
+
+        return product
 
 
 @extend_schema_serializer(component_name="ProductsAvailability")
@@ -656,6 +710,7 @@ class ProductMultipartCreateSerializer(ProductSerializer):
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
         image_files = validated_data.pop("images")
+        validated_data.pop("resubmit_for_moderation", None)
 
         return create_product_with_images(
             owner=self.context["request"].user,
