@@ -75,7 +75,7 @@ class Product(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.DRAFT,
-        db_index=True,  
+        db_index=True,
     )
     ean_jv = models.CharField(
         max_length=14,
