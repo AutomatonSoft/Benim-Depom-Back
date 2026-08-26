@@ -22,6 +22,11 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
             {"unit_price": ("Set the price per unit before submitting the product.")}
         )
 
+    # OTTO category data is optional at seller submission time. When a
+    # category is selected, both identifiers must still be present and valid.
+    if product.otto_category_id is None and product.otto_category_group_id is None:
+        return
+
     if product.otto_category_id is None:
         raise ValidationError(
             {
