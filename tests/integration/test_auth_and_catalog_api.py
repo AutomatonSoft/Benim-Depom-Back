@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import issue_email_verification_code
+from apps.catalog.otto_catalog import clear_otto_catalog_cache
 
 
 def authenticate(client, user):
@@ -274,11 +275,13 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
 
 @pytest.mark.integration
 def test_otto_catalog_endpoints_return_english_overlay(api_client):
+    clear_otto_catalog_cache()
+
     english_groups = api_client.get(
         "/api/v1/catalog/otto/category-groups/en/",
         {"search": "Chairs"},
     )
-    assert english_groups.status_code == 200
+    assert english_groups.status_code == 200, english_groups.data
     assert any(
         group["category_group_id"] == 3593 and group["category_group"] == "Chairs"
         for group in english_groups.data["results"]
@@ -288,7 +291,7 @@ def test_otto_catalog_endpoints_return_english_overlay(api_client):
         "/api/v1/catalog/otto/category-groups/3593/categories/en/",
         {"limit": 200},
     )
-    assert english_categories.status_code == 200
+    assert english_categories.status_code == 200, english_categories.data
     assert any(
         category["category_id"] == 26822
         and category["category_group"] == "Chairs"
@@ -299,7 +302,7 @@ def test_otto_catalog_endpoints_return_english_overlay(api_client):
     english_attributes = api_client.get(
         "/api/v1/catalog/otto/category-groups/3593/attributes/en/",
     )
-    assert english_attributes.status_code == 200
+    assert english_attributes.status_code == 200, english_attributes.data
     assert any(
         attribute["attribute_id"] == 177052
         and attribute["name"] == "Cover abrasion resistance"
