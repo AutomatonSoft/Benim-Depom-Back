@@ -7,6 +7,7 @@ on:
 
   pull_request:
     branches:
+      - local
       - dev
       - main
 
@@ -27,6 +28,11 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
+          if [[ "${{ github.base_ref }}" == "local" && "${{ github.head_ref }}" != feature/* ]]; then
+            echo "Only Pull Requests feature/* -> local are allowed."
+            exit 1
+          fi
+
           if [[ "${{ github.base_ref }}" == "dev" && "${{ github.head_ref }}" != "local" ]]; then
             echo "Only Pull Requests local -> dev are allowed."
             exit 1
@@ -131,6 +137,7 @@ jobs:
   build-production-image:
     name: Build production image
     needs: test-and-lint
+    if: github.base_ref == 'main'
     runs-on: ubuntu-latest
 
     steps:
