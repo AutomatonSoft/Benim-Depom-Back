@@ -29,13 +29,17 @@ from typing import Any
 
 from openai import OpenAI
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE_DIR = ROOT_DIR / "data" / "otto"
 DEFAULT_OUTPUT_DIR = DEFAULT_SOURCE_DIR / "translations" / "tr"
 DEFAULT_WORK_DIR = ROOT_DIR / ".translation-work" / "otto-tr"
 MODEL = "gpt-5-mini"
 LANGUAGE = "tr"
+LANGUAGE_NAME = "Turkish"
+BATCH_PREFIX = "otto-tr"
+TRANSLATION_SCHEMA_NAME = "otto_turkish_catalog_translations"
+RETRY_SCHEMA_NAME = "otto_turkish_catalog_retry"
+TRANSLATION_PURPOSE = "otto_catalog_tr_translation"
 MAX_ENTRIES_PER_REQUEST = 35
 MAX_SOURCE_CHARS_PER_REQUEST = 10_000
 
@@ -58,7 +62,9 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def json_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(
+        path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8")
+    ).hexdigest()
 
 
 def write_json_atomically(path: Path, payload: dict[str, Any]) -> None:
@@ -296,7 +302,7 @@ def batch_line(custom_id: str, entries: list[dict[str, str]], model: str) -> dic
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "otto_turkish_catalog_translations",
+                    "name": TRANSLATION_SCHEMA_NAME,
                     "strict": True,
                     "schema": TRANSLATION_SCHEMA,
                 }
@@ -356,7 +362,7 @@ def command_dry_run(args: argparse.Namespace) -> int:
     group_entries = sum(entry["key"].startswith("group:") for entry in entries)
     attribute_entries = len(entries) - category_entries - group_entries
     print(
-        "Prepared Turkish translation input: "
+        f"Prepared {LANGUAGE_NAME} translation input: "
         f"{len(entries)} catalog fields "
         f"({group_entries} groups, {category_entries} categories, "
         f"{attribute_entries} attribute fields), reduced to "
@@ -385,7 +391,7 @@ def command_submit(args: argparse.Namespace) -> int:
         for index, chunk in enumerate(chunks, start=1):
             file.write(
                 json.dumps(
-                    batch_line(f"otto-tr-{index:05d}", chunk, args.model),
+                    batch_line(f"{BATCH_PREFIX}-{index:05d}", chunk, args.model),
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )
@@ -400,7 +406,7 @@ def command_submit(args: argparse.Namespace) -> int:
         input_file_id=uploaded_file.id,
         endpoint="/v1/responses",
         completion_window="24h",
-        metadata={"purpose": "otto_catalog_tr_translation", "language": LANGUAGE},
+        metadata={"purpose": TRANSLATION_PURPOSE, "language": LANGUAGE},
     )
     state = make_state(
         batch_id=batch.id,
@@ -429,7 +435,9 @@ def command_status(args: argparse.Namespace) -> int:
     state = read_json(args.work_dir / "batch-state.json")
     batch_id = state.get("batch_id")
     if state.get("language") != LANGUAGE or not isinstance(batch_id, str):
-        raise TranslationError("The saved Batch state is not a Turkish catalog Batch.")
+        raise TranslationError(
+            f"The saved Batch state is not a {LANGUAGE_NAME} catalog Batch."
+        )
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=60, max_retries=2)
     batch = client.batches.retrieve(batch_id)
@@ -611,7 +619,7 @@ def retry_missing_translations(
             text={
                 "format": {
                     "type": "json_schema",
-                    "name": "otto_turkish_catalog_retry",
+                    "name": RETRY_SCHEMA_NAME,
                     "strict": True,
                     "schema": TRANSLATION_SCHEMA,
                 }
@@ -713,7 +721,9 @@ def command_collect(args: argparse.Namespace) -> int:
     state_path = args.work_dir / "batch-state.json"
     state = read_json(state_path)
     if state.get("language") != LANGUAGE or not isinstance(state.get("batch_id"), str):
-        raise TranslationError("The saved Batch state is not a Turkish catalog Batch.")
+        raise TranslationError(
+            f"The saved Batch state is not a {LANGUAGE_NAME} catalog Batch."
+        )
 
     (
         categories_payload,
@@ -733,7 +743,7 @@ def command_collect(args: argparse.Namespace) -> int:
         )
 
     expected_keys_by_request = {
-        f"otto-tr-{index:05d}": {entry["key"] for entry in chunk}
+        f"{BATCH_PREFIX}-{index:05d}": {entry["key"] for entry in chunk}
         for index, chunk in enumerate(chunks, start=1)
     }
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=120, max_retries=2)
@@ -786,14 +796,14 @@ def command_collect(args: argparse.Namespace) -> int:
     attributes_path = args.output_dir / "attributes_by_group.json"
     if (categories_path.exists() or attributes_path.exists()) and not args.overwrite:
         raise TranslationError(
-            "Turkish translation files already exist. Pass --overwrite only "
+            f"{LANGUAGE_NAME} translation files already exist. Pass --overwrite only "
             "after reviewing the current files."
         )
 
     write_json_atomically(categories_path, categories_output)
     write_json_atomically(attributes_path, attributes_output)
     print(
-        "Turkish translation files written successfully: "
+        f"{LANGUAGE_NAME} translation files written successfully: "
         f"{categories_path} and {attributes_path}. "
         f"Validated translations: {len(translations)}."
     )
