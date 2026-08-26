@@ -96,7 +96,7 @@ class OttoCatalogLocalizationMixin:
                     {
                         "detail": (
                             "Unsupported OTTO catalog language. "
-                            "Available languages: de, tr."
+                            "Available languages: de, en, tr."
                         )
                     },
                     status=status.HTTP_404_NOT_FOUND,
@@ -179,7 +179,8 @@ class OttoCategoryGroupListView(
         description=(
             "Returns OTTO category groups from the local JSON catalog. "
             "Without a suffix the response is German. Append /de/ for German or "
-            "/tr/ for Turkish; an unsupported suffix falls back to Turkish."
+            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
+            "to Turkish."
         ),
         parameters=[
             OpenApiParameter(
@@ -249,7 +250,8 @@ class OttoCategoryGroupCategoriesView(
         description=(
             "Returns selectable OTTO subcategories for one category group. "
             "Without a suffix the response is German. Append /de/ for German or "
-            "/tr/ for Turkish; an unsupported suffix falls back to Turkish."
+            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
+            "to Turkish."
         ),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
@@ -293,8 +295,8 @@ class OttoCategoryGroupAttributesView(OttoCatalogLocalizationMixin, APIView):
         summary="Get attributes for an OTTO category group",
         description=(
             "Returns attribute definitions for the selected group. Without a suffix "
-            "the response is German. Append /de/ for German or /tr/ for Turkish; "
-            "an unsupported suffix falls back to Turkish. "
+            "the response is German. Append /de/ for German, /tr/ for Turkish, or "
+            "/en/ for English; an unsupported suffix falls back to Turkish. "
             "HIGH, MEDIUM and LOW relevance values are used only to order "
             "the manager/mobile UI; all attributes are optional."
         ),
