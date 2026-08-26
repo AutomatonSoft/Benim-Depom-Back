@@ -175,14 +175,13 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
     @extend_schema(
         parameters=[IDEMPOTENCY_KEY_HEADER],
-        request={
-            "application/json": ProductSerializer,
-            "multipart/form-data": ProductMultipartCreateSerializer,
-        },
+        request={"multipart/form-data": ProductMultipartCreateSerializer},
         responses={201: ProductSerializer},
         description=(
-            "Создаёт товар продавца. Передайте Idempotency-Key, чтобы "
-            "повторный запрос из мобильной сети не создал дубликат."
+            "Создаёт товар продавца с одним-десятью исходными фото и сразу "
+            "отправляет его на модерацию. Принимается только multipart/form-data, "
+            "чтобы товар не попал на модерацию без фото. Передайте "
+            "Idempotency-Key для защиты от дублирующего запроса мобильного клиента."
         ),
     )
     def post(self, request, *args, **kwargs):
@@ -196,6 +195,17 @@ class ProductListCreateView(generics.ListCreateAPIView):
         ),
     )
     def create(self, request, *args, **kwargs):
+        if not request.content_type.startswith("multipart/form-data"):
+            return Response(
+                {
+                    "detail": (
+                        "Product creation requires multipart/form-data with at "
+                        "least one image."
+                    )
+                },
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+
         try:
             claim = claim_idempotency_key(request=request, endpoint="products:create")
         except IdempotencyKeyReuseError:

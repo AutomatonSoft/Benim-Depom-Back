@@ -58,10 +58,6 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Запросить отключение товара",
         # Moderation
         (
-            "POST",
-            "/api/v1/products/{product_pk}/submit/",
-        ): "Отправить товар на модерацию",
-        (
             "GET",
             "/api/v1/products/{product_pk}/moderation-history/",
         ): "Получить историю модерации",
@@ -229,7 +225,7 @@ class MarketplaceAutoSchema(AutoSchema):
         if path.startswith("/api/v1/notifications/"):
             return ["Notifications"]
         if path.startswith("/api/v1/products/"):
-            if "moderation-history" in path or path.endswith("submit/"):
+            if "moderation-history" in path:
                 return ["Moderation"]
             if "/images/" in path:
                 return ["Product images"]

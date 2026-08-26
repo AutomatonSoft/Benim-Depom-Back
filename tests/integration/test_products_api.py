@@ -33,18 +33,27 @@ def product_payload(product_type, **overrides):
     return payload
 
 
+def multipart_product_payload(product_type, image_file, **overrides):
+    payload = product_payload(product_type, **overrides)
+    payload["variants"] = json.dumps(payload["variants"])
+    payload["images"] = [image_file()]
+    return payload
+
+
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_seller_creates_product_and_other_seller_cannot_access_it(
-    api_client, seller, second_seller, product_type
+    api_client, seller, second_seller, product_type, image_file
 ):
     authenticate(api_client, seller)
     response = api_client.post(
-        "/api/v1/products/", product_payload(product_type), format="json"
+        "/api/v1/products/",
+        multipart_product_payload(product_type, image_file),
+        format="multipart",
     )
     assert response.status_code == 201
     product_id = response.data["id"]
-    assert response.data["status"] == Product.Status.DRAFT
+    assert response.data["status"] == Product.Status.SUBMITTED
     assert response.data["variants"][0]["color_hex"] == "#5B91C8"
 
     authenticate(api_client, second_seller)
@@ -80,6 +89,7 @@ def test_seller_creates_product_with_initial_images_in_one_multipart_request(
 
     assert response.status_code == 201
     assert response.data["otto_category_id"] is None
+    assert response.data["status"] == Product.Status.SUBMITTED
     assert len(response.data["images"]) == 2
     assert response.data["images"][0]["is_primary"] is True
     assert response.data["images"][1]["is_primary"] is False
@@ -131,32 +141,35 @@ def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_product_api_rejects_invalid_variant_and_non_seller_create(
-    api_client, manager, seller, product_type
+    api_client, manager, seller, product_type, image_file
 ):
     authenticate(api_client, seller)
     response = api_client.post(
         "/api/v1/products/",
-        product_payload(product_type, variants=[]),
-        format="json",
+        multipart_product_payload(product_type, image_file, variants=[]),
+        format="multipart",
     )
     assert response.status_code == 400
 
     response = api_client.post(
         "/api/v1/products/",
-        product_payload(
+        multipart_product_payload(
             product_type,
+            image_file,
             variants=[
                 {**product_payload(product_type)["variants"][0], "color_hex": "blue"}
             ],
         ),
-        format="json",
+        format="multipart",
     )
     assert response.status_code == 400
 
     authenticate(api_client, manager)
     assert (
         api_client.post(
-            "/api/v1/products/", product_payload(product_type), format="json"
+            "/api/v1/products/",
+            multipart_product_payload(product_type, image_file),
+            format="multipart",
         ).status_code
         == 403
     )
@@ -164,13 +177,19 @@ def test_product_api_rejects_invalid_variant_and_non_seller_create(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_product_api_rejects_direct_ean_assignment(api_client, seller, product_type):
+def test_product_api_rejects_direct_ean_assignment(
+    api_client, seller, product_type, image_file
+):
     authenticate(api_client, seller)
 
     response = api_client.post(
         "/api/v1/products/",
-        product_payload(product_type, ean_jv="4012345678901"),
-        format="json",
+        multipart_product_payload(
+            product_type,
+            image_file,
+            ean_jv="4012345678901",
+        ),
+        format="multipart",
     )
 
     assert response.status_code == 400
@@ -246,6 +265,33 @@ def test_seller_cannot_deactivate_draft_or_delete_submitted_product(
     product.status = Product.Status.SUBMITTED
     product.save(update_fields=["status"])
     assert api_client.delete(f"/api/v1/products/{product.id}/").status_code == 403
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_can_resubmit_a_rejected_product_with_patch(
+    api_client,
+    seller,
+    product_factory,
+    product_image_factory,
+):
+    product = product_factory(owner=seller, status=Product.Status.REJECTED)
+    product_image_factory(product=product)
+    authenticate(api_client, seller)
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "title": "Corrected chair",
+            "resubmit_for_moderation": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["status"] == Product.Status.SUBMITTED
+    product.refresh_from_db()
+    assert product.status == Product.Status.SUBMITTED
 
 
 @pytest.mark.integration
