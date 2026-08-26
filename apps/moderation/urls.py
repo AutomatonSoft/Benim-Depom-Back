@@ -8,17 +8,11 @@ from .views import (
     ManagerRequestProductAvailabilityView,
     ManagerSendProductNotificationView,
     ProductModerationHistoryView,
-    SubmitProductView,
 )
 
 app_name = "moderation"
 
 urlpatterns = [
-    path(
-        "products/<int:product_pk>/submit/",
-        SubmitProductView.as_view(),
-        name="product-submit",
-    ),
     path(
         "products/<int:product_pk>/moderation-history/",
         ProductModerationHistoryView.as_view(),
