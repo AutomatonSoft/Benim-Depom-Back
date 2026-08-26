@@ -301,7 +301,9 @@ def test_otto_catalog_endpoints_return_localized_overlays(api_client):
         "/api/v1/catalog/otto/category-groups/invalid/",
         {"search": "Chairs"},
     )
-    assert unsupported_language_groups.status_code == 200, unsupported_language_groups.data
+    assert unsupported_language_groups.status_code == 200, (
+        unsupported_language_groups.data
+    )
     assert any(
         group["category_group_id"] == 3593 and group["category_group"] == "Chairs"
         for group in unsupported_language_groups.data["results"]
