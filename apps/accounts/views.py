@@ -33,7 +33,7 @@ from .serializers import (
     RegisterSerializer,
 )
 from .services import (
-    complete_password_reset, 
+    complete_password_reset,
     issue_email_verification_code,
     request_password_reset,
     resend_email_verification_code,
