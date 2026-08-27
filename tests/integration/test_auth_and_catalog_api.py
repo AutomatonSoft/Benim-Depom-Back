@@ -103,6 +103,35 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_manager_lists_only_sellers_with_search_and_activity_filter(
+    api_client,
+    manager,
+    seller,
+    second_seller,
+):
+    seller.first_name = "Nikita"
+    seller.email = "nikita@example.com"
+    seller.save(update_fields=("first_name", "email"))
+    second_seller.is_active = False
+    second_seller.save(update_fields=("is_active",))
+
+    authenticate(api_client, seller)
+    response = api_client.get("/api/v1/manager/users/sellers/")
+    assert response.status_code == 403
+
+    authenticate(api_client, manager)
+    response = api_client.get(
+        "/api/v1/manager/users/sellers/",
+        {"search": "nikita", "is_active": "true"},
+    )
+    assert response.status_code == 200
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["id"] == seller.id
+    assert response.data["results"][0]["role"] == User.Role.SELLER
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_profile_refresh_and_logout_blacklist_refresh_token(
     api_client, seller, password
 ):

@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -16,6 +17,7 @@ from apps.common.throttles import (
     RegistrationRateThrottle,
 )
 
+from .models import User
 from .serializers import (
     EmailVerificationResendSerializer,
     EmailVerificationSerializer,
@@ -154,6 +156,37 @@ class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
             ProfileSerializer(user, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class ManagerSellerListView(generics.ListAPIView):
+    """Paginated seller directory for managers."""
+
+    serializer_class = ProfileSerializer
+    permission_classes = [IsManager]
+
+    def get_queryset(self):
+        queryset = User.objects.filter(role=User.Role.SELLER).order_by("-date_joined")
+        search = self.request.query_params.get("search", "").strip()
+
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+            )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active:
+            if is_active not in {"true", "false"}:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({"is_active": "Use true or false."})
+
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset
 
 
 class MeView(generics.RetrieveUpdateAPIView):
