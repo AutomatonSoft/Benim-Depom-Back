@@ -249,6 +249,7 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
     seller,
     password,
     monkeypatch,
+    django_capture_on_commit_callbacks,
 ):
     seller.email = "reset@example.com"
     seller.save(update_fields=("email",))
@@ -273,11 +274,12 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
     assert unknown.status_code == 202
     assert sent == []
 
-    requested = api_client.post(
-        "/api/v1/auth/password/reset/request/",
-        {"email": seller.email},
-        format="json",
-    )
+    with django_capture_on_commit_callbacks(execute=True):
+        requested = api_client.post(
+            "/api/v1/auth/password/reset/request/",
+            {"email": seller.email},
+            format="json",
+        )
     assert requested.status_code == 202
     assert len(sent) == 1
 
