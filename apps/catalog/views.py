@@ -79,7 +79,7 @@ class OttoCatalogLocalizationMixin:
         effective_language = (
             normalized_language
             if normalized_language in SUPPORTED_OTTO_CATALOG_LANGUAGES
-            else "tr"
+            else "en"
         )
 
         try:
@@ -180,7 +180,7 @@ class OttoCategoryGroupListView(
             "Returns OTTO category groups from the local JSON catalog. "
             "Without a suffix the response is German. Append /de/ for German or "
             "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
-            "to Turkish."
+            "to English."
         ),
         parameters=[
             OpenApiParameter(
@@ -251,7 +251,7 @@ class OttoCategoryGroupCategoriesView(
             "Returns selectable OTTO subcategories for one category group. "
             "Without a suffix the response is German. Append /de/ for German or "
             "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
-            "to Turkish."
+            "to English."
         ),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
@@ -296,7 +296,7 @@ class OttoCategoryGroupAttributesView(OttoCatalogLocalizationMixin, APIView):
         description=(
             "Returns attribute definitions for the selected group. Without a suffix "
             "the response is German. Append /de/ for German, /tr/ for Turkish, or "
-            "/en/ for English; an unsupported suffix falls back to Turkish. "
+            "/en/ for English; an unsupported suffix falls back to English. "
             "HIGH, MEDIUM and LOW relevance values are used only to order "
             "the manager/mobile UI; all attributes are optional."
         ),
