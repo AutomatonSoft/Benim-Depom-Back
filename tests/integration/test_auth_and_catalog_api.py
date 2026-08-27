@@ -176,6 +176,168 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+):
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    assert login.status_code == 200
+    access, refresh = login.data["access"], login.data["refresh"]
+
+    wrong_password = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": "wrong-password",
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert wrong_password.status_code == 400
+
+    changed = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": password,
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert changed.status_code == 204
+
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {
+                "username": seller.username,
+                "password": "DifferentPassword123!",
+            },
+            format="json",
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_password_reset_changes_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    seller.email = "reset@example.com"
+    seller.save(update_fields=("email",))
+    sent = []
+    monkeypatch.setattr(
+        "apps.accounts.views.send_password_reset_code.delay",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    refresh = login.data["refresh"]
+
+    unknown = api_client.post(
+        "/api/v1/auth/password/reset/request/",
+        {"email": "unknown@example.com"},
+        format="json",
+    )
+    assert unknown.status_code == 202
+    assert sent == []
+
+    with django_capture_on_commit_callbacks(execute=True):
+        requested = api_client.post(
+            "/api/v1/auth/password/reset/request/",
+            {"email": seller.email},
+            format="json",
+        )
+    assert requested.status_code == 202
+    assert len(sent) == 1
+
+    wrong_code = "000000" if sent[0]["code"] != "000000" else "999999"
+    wrong = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": wrong_code},
+        format="json",
+    )
+    assert wrong.status_code == 400
+
+    seller.refresh_from_db()
+    assert seller.password_reset_attempts == 1
+    verified = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": sent[0]["code"]},
+        format="json",
+    )
+    assert verified.status_code == 200
+
+    completed = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+    )
+    assert completed.status_code == 204
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": "DifferentPassword123!"},
+            format="json",
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_email_verification_rejects_wrong_code_and_hides_unknown_resend(
     api_client,
     seller,
