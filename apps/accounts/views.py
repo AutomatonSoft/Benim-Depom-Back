@@ -14,6 +14,8 @@ from apps.common.throttles import (
     EmailVerificationResendRateThrottle,
     LoginRateThrottle,
     ManagerMutationThrottleMixin,
+    PasswordResetRequestRateThrottle,
+    PasswordResetVerifyRateThrottle,
     RegistrationRateThrottle,
 )
 
@@ -23,15 +25,23 @@ from .serializers import (
     EmailVerificationSerializer,
     LogoutSerializer,
     ManagerCreateSerializer,
+    PasswordChangeSerializer,
+    PasswordResetCompleteSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetVerifySerializer,
     ProfileSerializer,
     RegisterSerializer,
 )
 from .services import (
+    complete_password_reset, 
     issue_email_verification_code,
+    request_password_reset,
     resend_email_verification_code,
+    revoke_refresh_tokens,
     verify_email_code,
+    verify_password_reset_code,
 )
-from .tasks import send_email_verification_code
+from .tasks import send_email_verification_code, send_password_reset_code
 
 
 class RegisterView(generics.CreateAPIView):
@@ -212,4 +222,87 @@ class LogoutView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [LoginRateThrottle]
+
+    @extend_schema(request=PasswordChangeSerializer, responses={204: None})
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            request.user.set_password(serializer.validated_data["new_password"])
+            request.user.save(update_fields=("password",))
+
+            revoke_refresh_tokens(user=request.user)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRequestRateThrottle]
+
+    @extend_schema(request=PasswordResetRequestSerializer, responses={202: dict})
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            result = request_password_reset(
+                email=serializer.validated_data["email"],
+            )
+            if result is not None:
+                user, code = result
+                transaction.on_commit(
+                    lambda: send_password_reset_code.delay(
+                        email=user.email,
+                        code=code,
+                    )
+                )
+
+        return Response(
+            {
+                "detail": (
+                    "If an active account uses this email, a reset code was sent."
+                )
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class PasswordResetVerifyView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetVerifyRateThrottle]
+
+    @extend_schema(request=PasswordResetVerifySerializer, responses={200: dict})
+    def post(self, request):
+        serializer = PasswordResetVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reset_token = verify_password_reset_code(
+            email=serializer.validated_data["email"],
+            code=serializer.validated_data["code"],
+        )
+        return Response({"reset_token": reset_token}, status=status.HTTP_200_OK)
+
+
+class PasswordResetCompleteView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetVerifyRateThrottle]
+
+    @extend_schema(request=PasswordResetCompleteSerializer, responses={204: None})
+    def post(self, request):
+        serializer = PasswordResetCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        complete_password_reset(
+            reset_token=serializer.validated_data["reset_token"],
+            new_password=serializer.validated_data["new_password"],
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
