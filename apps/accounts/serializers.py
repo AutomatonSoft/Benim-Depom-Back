@@ -164,6 +164,89 @@ class LogoutSerializer(serializers.Serializer):
             ) from exc
 
 
+@extend_schema_serializer(component_name="AuthPasswordChange")
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+    )
+    new_password_confirm = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+    )
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {"current_password": "Current password is incorrect."}
+            )
+
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "Passwords do not match."}
+            )
+
+        if user.check_password(attrs["new_password"]):
+            raise serializers.ValidationError(
+                {"new_password": "Choose a different password."}
+            )
+
+        validate_password(attrs["new_password"], user)
+        return attrs
+
+
+@extend_schema_serializer(component_name="AuthPasswordResetRequest")
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+@extend_schema_serializer(component_name="AuthPasswordResetVerify")
+class PasswordResetVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6, trim_whitespace=True)
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_code(self, value):
+        if not value.isdecimal():
+            raise serializers.ValidationError(
+                "Reset code must contain exactly 6 digits."
+            )
+        return value
+
+
+@extend_schema_serializer(component_name="AuthPasswordResetComplete")
+class PasswordResetCompleteSerializer(serializers.Serializer):
+    reset_token = serializers.CharField(trim_whitespace=False)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+    )
+    new_password_confirm = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+    )
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "Passwords do not match."}
+            )
+        return attrs
+
+
 @extend_schema_serializer(component_name="EmailVerification")
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
