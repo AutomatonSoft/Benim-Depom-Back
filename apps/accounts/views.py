@@ -235,8 +235,8 @@ class PasswordChangeView(APIView):
         request=PasswordChangeSerializer,
         responses={204: None},
         description=(
-            "Changes the current authenticated user's password and revokes "
-            "all of their refresh tokens."
+            "Изменяет пароль авторизованного пользователя и отзывает все "
+            "его refresh-токены."
         ),
     )
     def post(self, request):
@@ -263,8 +263,8 @@ class PasswordResetRequestView(APIView):
         request=PasswordResetRequestSerializer,
         responses={202: PasswordResetRequestResponseSerializer},
         description=(
-            "Sends a six-digit password reset code to the email address. "
-            "The response does not reveal whether an account exists."
+            "Отправляет шестизначный код сброса пароля на email. Ответ не "
+            "раскрывает, зарегистрирован ли такой пользователь."
         ),
     )
     def post(self, request):
@@ -302,8 +302,8 @@ class PasswordResetVerifyView(APIView):
         request=PasswordResetVerifySerializer,
         responses={200: PasswordResetVerifyResponseSerializer},
         description=(
-            "Validates the six-digit reset code and returns a short-lived "
-            "reset_token for the password reset step."
+            "Проверяет шестизначный код и возвращает короткоживущий "
+            "reset_token для установки нового пароля."
         ),
     )
     def post(self, request):
@@ -324,8 +324,8 @@ class PasswordResetCompleteView(APIView):
         request=PasswordResetCompleteSerializer,
         responses={204: None},
         description=(
-            "Sets a new password using reset_token and revokes all existing "
-            "refresh tokens. The client should then return to login."
+            "Устанавливает новый пароль по reset_token и отзывает все "
+            "активные refresh-токены. После этого пользователь входит заново."
         ),
     )
     def post(self, request):

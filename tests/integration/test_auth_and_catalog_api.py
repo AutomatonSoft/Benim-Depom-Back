@@ -311,6 +311,18 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
     )
     assert verified.status_code == 200
 
+    weak_password = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "password",
+            "new_password_confirm": "password",
+        },
+        format="json",
+    )
+    assert weak_password.status_code == 400
+    assert "new_password" in weak_password.data
+
     completed = api_client.post(
         "/api/v1/auth/password/reset/complete/",
         {

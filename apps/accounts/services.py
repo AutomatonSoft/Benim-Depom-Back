@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.password_validation import validate_password
 from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -243,7 +244,10 @@ def complete_password_reset(*, reset_token: str, new_password: str) -> None:
         ):
             raise invalid_error
 
-        validate_password(new_password, user)
+        try:
+            validate_password(new_password, user)
+        except DjangoValidationError as exc:
+            raise ValidationError({"new_password": list(exc.messages)}) from exc
         user.set_password(new_password)
         user.password_reset_code_hash = ""
         user.password_reset_expires_at = None
