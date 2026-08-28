@@ -68,6 +68,14 @@ class LoginRateThrottle(IPRateThrottle):
         return super().parse_rate(rate)
 
 
+class PasswordResetRequestRateThrottle(IPRateThrottle):
+    scope = "password_reset_request"
+
+
+class PasswordResetVerifyRateThrottle(IPRateThrottle):
+    scope = "password_reset_verify"
+
+
 class AiGenerationRateThrottle(UserRateThrottle):
     scope = "ai_generation"
 

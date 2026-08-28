@@ -167,6 +167,8 @@ REST_FRAMEWORK = {
         "manager_mutation": "84/min",
         "email_verification": "17/min",
         "email_verification_resend": "17/min",
+        "password_reset_request": "5/min",
+        "password_reset_verify": "10/min",
     },
 }
 
@@ -348,6 +350,8 @@ CELERY_TASK_QUEUES = (
     Queue("maintenance", Exchange("maintenance", type="direct"), "maintenance"),
 )
 CELERY_TASK_ROUTES = {
+    "apps.accounts.tasks.send_email_verification_code": {"queue": "notifications"},
+    "apps.accounts.tasks.send_password_reset_code": {"queue": "notifications"},
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
@@ -684,6 +688,22 @@ EMAIL_VERIFICATION_MAX_ATTEMPTS = env.int(
 EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = env.int(
     "EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
     default=60,
+)
+PASSWORD_RESET_CODE_TTL_MINUTES = env.int(
+    "PASSWORD_RESET_CODE_TTL_MINUTES",
+    default=10,
+)
+PASSWORD_RESET_MAX_ATTEMPTS = env.int(
+    "PASSWORD_RESET_MAX_ATTEMPTS",
+    default=5,
+)
+PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = env.int(
+    "PASSWORD_RESET_RESEND_COOLDOWN_SECONDS",
+    default=60,
+)
+PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
+    "PASSWORD_RESET_TOKEN_TTL_MINUTES",
+    default=10,
 )
 
 BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(

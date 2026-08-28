@@ -1,16 +1,27 @@
 from datetime import timedelta
 
 import pytest
+from django.core import mail
 from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import issue_email_verification_code
+from apps.accounts.tasks import send_password_reset_code
 from apps.catalog.otto_catalog import clear_otto_catalog_cache
 
 
 def authenticate(client, user):
     client.force_authenticate(user=user)
     return client
+
+
+@pytest.mark.integration
+def test_password_reset_email_task_sends_code():
+    send_password_reset_code.run(email="reset@example.com", code="123456")
+
+    message = mail.outbox[-1]
+    assert message.to == ["reset@example.com"]
+    assert "123456" in message.body
 
 
 @pytest.mark.integration
@@ -103,6 +114,35 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_manager_lists_only_sellers_with_search_and_activity_filter(
+    api_client,
+    manager,
+    seller,
+    second_seller,
+):
+    seller.first_name = "Nikita"
+    seller.email = "nikita@example.com"
+    seller.save(update_fields=("first_name", "email"))
+    second_seller.is_active = False
+    second_seller.save(update_fields=("is_active",))
+
+    authenticate(api_client, seller)
+    response = api_client.get("/api/v1/manager/users/sellers/")
+    assert response.status_code == 403
+
+    authenticate(api_client, manager)
+    response = api_client.get(
+        "/api/v1/manager/users/sellers/",
+        {"search": "nikita", "is_active": "true"},
+    )
+    assert response.status_code == 200
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["id"] == seller.id
+    assert response.data["results"][0]["role"] == User.Role.SELLER
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_profile_refresh_and_logout_blacklist_refresh_token(
     api_client, seller, password
 ):
@@ -142,6 +182,180 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(
             "/api/v1/auth/refresh/", {"refresh": refresh}, format="json"
         ).status_code
         == 401
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+):
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    assert login.status_code == 200
+    access, refresh = login.data["access"], login.data["refresh"]
+
+    wrong_password = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": "wrong-password",
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert wrong_password.status_code == 400
+
+    changed = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": password,
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert changed.status_code == 204
+
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {
+                "username": seller.username,
+                "password": "DifferentPassword123!",
+            },
+            format="json",
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_password_reset_changes_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    seller.email = "reset@example.com"
+    seller.save(update_fields=("email",))
+    sent = []
+    monkeypatch.setattr(
+        "apps.accounts.views.send_password_reset_code.delay",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    refresh = login.data["refresh"]
+
+    unknown = api_client.post(
+        "/api/v1/auth/password/reset/request/",
+        {"email": "unknown@example.com"},
+        format="json",
+    )
+    assert unknown.status_code == 202
+    assert sent == []
+
+    with django_capture_on_commit_callbacks(execute=True):
+        requested = api_client.post(
+            "/api/v1/auth/password/reset/request/",
+            {"email": seller.email},
+            format="json",
+        )
+    assert requested.status_code == 202
+    assert len(sent) == 1
+
+    wrong_code = "000000" if sent[0]["code"] != "000000" else "999999"
+    wrong = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": wrong_code},
+        format="json",
+    )
+    assert wrong.status_code == 400
+
+    seller.refresh_from_db()
+    assert seller.password_reset_attempts == 1
+    verified = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": sent[0]["code"]},
+        format="json",
+    )
+    assert verified.status_code == 200
+
+    weak_password = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "password",
+            "new_password_confirm": "password",
+        },
+        format="json",
+    )
+    assert weak_password.status_code == 400
+    assert "new_password" in weak_password.data
+
+    completed = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+    )
+    assert completed.status_code == 204
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": "DifferentPassword123!"},
+            format="json",
+        ).status_code
+        == 200
     )
 
 
