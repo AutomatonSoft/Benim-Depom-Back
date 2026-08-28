@@ -27,7 +27,9 @@ from .serializers import (
     ManagerCreateSerializer,
     PasswordChangeSerializer,
     PasswordResetCompleteSerializer,
+    PasswordResetRequestResponseSerializer,
     PasswordResetRequestSerializer,
+    PasswordResetVerifyResponseSerializer,
     PasswordResetVerifySerializer,
     ProfileSerializer,
     RegisterSerializer,
@@ -229,7 +231,14 @@ class PasswordChangeView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [LoginRateThrottle]
 
-    @extend_schema(request=PasswordChangeSerializer, responses={204: None})
+    @extend_schema(
+        request=PasswordChangeSerializer,
+        responses={204: None},
+        description=(
+            "Changes the current authenticated user's password and revokes "
+            "all of their refresh tokens."
+        ),
+    )
     def post(self, request):
         serializer = PasswordChangeSerializer(
             data=request.data,
@@ -250,7 +259,14 @@ class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetRequestRateThrottle]
 
-    @extend_schema(request=PasswordResetRequestSerializer, responses={202: dict})
+    @extend_schema(
+        request=PasswordResetRequestSerializer,
+        responses={202: PasswordResetRequestResponseSerializer},
+        description=(
+            "Sends a six-digit password reset code to the email address. "
+            "The response does not reveal whether an account exists."
+        ),
+    )
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -282,7 +298,14 @@ class PasswordResetVerifyView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetVerifyRateThrottle]
 
-    @extend_schema(request=PasswordResetVerifySerializer, responses={200: dict})
+    @extend_schema(
+        request=PasswordResetVerifySerializer,
+        responses={200: PasswordResetVerifyResponseSerializer},
+        description=(
+            "Validates the six-digit reset code and returns a short-lived "
+            "reset_token for the password reset step."
+        ),
+    )
     def post(self, request):
         serializer = PasswordResetVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -297,7 +320,14 @@ class PasswordResetCompleteView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetVerifyRateThrottle]
 
-    @extend_schema(request=PasswordResetCompleteSerializer, responses={204: None})
+    @extend_schema(
+        request=PasswordResetCompleteSerializer,
+        responses={204: None},
+        description=(
+            "Sets a new password using reset_token and revokes all existing "
+            "refresh tokens. The client should then return to login."
+        ),
+    )
     def post(self, request):
         serializer = PasswordResetCompleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
