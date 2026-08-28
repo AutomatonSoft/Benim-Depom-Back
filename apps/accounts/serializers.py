@@ -4,7 +4,6 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-
 from .models import User
 from .services import register_user
 
@@ -168,7 +167,6 @@ class LogoutSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"refresh": "Invalid or expired refresh token"}
             ) from exc
-
 
 
 @extend_schema_serializer(component_name="EmailVerification")
