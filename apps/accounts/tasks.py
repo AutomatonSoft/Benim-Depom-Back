@@ -47,7 +47,9 @@ def send_password_reset_code(*, email: str, code: str) -> None:
         f"Your password reset code: {code}\n\n"
         f"The code expires in {settings.PASSWORD_RESET_CODE_TTL_MINUTES} minutes."
     )
-    html_body = f"<p>Your password reset code:</p><h2>{code}</h2>"(
+    html_body = (
+        "<p>Your password reset code:</p>"
+        f"<h2>{code}</h2>"
         "<p>The code expires in "
         f"{settings.PASSWORD_RESET_CODE_TTL_MINUTES} minutes.</p>"
     )

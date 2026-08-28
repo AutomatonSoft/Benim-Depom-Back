@@ -1,16 +1,27 @@
 from datetime import timedelta
 
 import pytest
+from django.core import mail
 from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import issue_email_verification_code
+from apps.accounts.tasks import send_password_reset_code
 from apps.catalog.otto_catalog import clear_otto_catalog_cache
 
 
 def authenticate(client, user):
     client.force_authenticate(user=user)
     return client
+
+
+@pytest.mark.integration
+def test_password_reset_email_task_sends_code():
+    send_password_reset_code.run(email="reset@example.com", code="123456")
+
+    message = mail.outbox[-1]
+    assert message.to == ["reset@example.com"]
+    assert "123456" in message.body
 
 
 @pytest.mark.integration
