@@ -21,6 +21,19 @@ class MarketplaceAutoSchema(AutoSchema):
         ("PUT", "/api/v1/auth/me/"): "Заменить свой профиль",
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",
         ("GET", "/api/v1/manager/users/sellers/"): "List sellers for manager",
+        ("POST", "/api/v1/auth/password/change/"): "Change password",
+        (
+            "POST",
+            "/api/v1/auth/password/reset/request/",
+        ): "Request password reset code",
+        (
+            "POST",
+            "/api/v1/auth/password/reset/verify/",
+        ): "Verify password reset code",
+        (
+            "POST",
+            "/api/v1/auth/password/reset/complete/",
+        ): "Set new password",
         # Product lifecycle
         ("GET", "/api/v1/products/"): "Получить список своих товаров",
         ("POST", "/api/v1/products/"): "Создать товар",

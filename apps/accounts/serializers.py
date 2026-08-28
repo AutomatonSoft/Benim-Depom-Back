@@ -247,6 +247,16 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         return attrs
 
 
+@extend_schema_serializer(component_name="AuthPasswordResetRequestResponse")
+class PasswordResetRequestResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField(read_only=True)
+
+
+@extend_schema_serializer(component_name="AuthPasswordResetVerifyResponse")
+class PasswordResetVerifyResponseSerializer(serializers.Serializer):
+    reset_token = serializers.CharField(read_only=True)
+
+
 @extend_schema_serializer(component_name="EmailVerification")
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
