@@ -95,8 +95,12 @@ def update_product(
 EDITABLE_PRODUCT_STATUSES = {Product.Status.DRAFT, Product.Status.REJECTED}
 
 
-def ensure_product_is_editable(product: Product) -> None:
-    if product.status not in EDITABLE_PRODUCT_STATUSES:
+def ensure_product_is_editable(
+    product: Product,
+    *,
+    allow_after_approval: bool = False,
+) -> None:
+    if not allow_after_approval and product.status not in EDITABLE_PRODUCT_STATUSES:
         raise ValidationError(
             {"detail": ("Only draft or rejected products can be changed")}
         )
@@ -108,10 +112,14 @@ def upload_product_image(
     product: Product,
     image_file,
     is_primary: bool,
+    allow_after_approval: bool = False,
 ) -> ProductImage:
 
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
-    ensure_product_is_editable(locked_product)
+    ensure_product_is_editable(
+        locked_product,
+        allow_after_approval=allow_after_approval,
+    )
 
     images_queryset = ProductImage.objects.select_for_update().filter(
         product=locked_product
@@ -144,9 +152,13 @@ def delete_product_image(
     *,
     product: Product,
     image: ProductImage,
+    allow_after_approval: bool = False,
 ) -> None:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
-    ensure_product_is_editable(locked_product)
+    ensure_product_is_editable(
+        locked_product,
+        allow_after_approval=allow_after_approval,
+    )
 
     image = ProductImage.objects.select_for_update().get(
         pk=image.pk, product=locked_product
@@ -181,10 +193,13 @@ def delete_product_image(
 
 @transaction.atomic
 def make_product_image_primary(
-    *, product: Product, image: ProductImage
+    *, product: Product, image: ProductImage, allow_after_approval: bool = False
 ) -> ProductImage:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
-    ensure_product_is_editable(locked_product)
+    ensure_product_is_editable(
+        locked_product,
+        allow_after_approval=allow_after_approval,
+    )
 
     image = ProductImage.objects.select_for_update().get(
         pk=image.pk, product=locked_product
@@ -203,9 +218,13 @@ def reorder_product_images(
     *,
     product: Product,
     image_ids: list[int],
+    allow_after_approval: bool = False,
 ) -> None:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
-    ensure_product_is_editable(locked_product)
+    ensure_product_is_editable(
+        locked_product,
+        allow_after_approval=allow_after_approval,
+    )
 
     images = list(
         ProductImage.objects.select_for_update()
