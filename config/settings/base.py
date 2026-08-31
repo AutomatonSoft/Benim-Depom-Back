@@ -160,17 +160,26 @@ REST_FRAMEWORK = {
         "apps.common.throttles.ManagerMutationRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "registration": "5/min",
-        "login": "17/min",
-        "ai_generation": "4/min",
-        "image_upload": "17/min",
-        "manager_mutation": "84/min",
-        "email_verification": "17/min",
-        "email_verification_resend": "17/min",
-        "password_reset_request": "5/min",
-        "password_reset_verify": "10/min",
+        "registration": "15/min",
+        "login": "30/min",
+        "ai_generation": "10/min",
+        "image_upload": "30/min",
+        "manager_mutation": "184/min",
+        "email_verification": "30/min",
+        "email_verification_resend": "25/min",
+        "password_reset_request": "30/min",
+        "password_reset_verify": "30/min",
     },
 }
+
+# Load-testing escape hatch: neutralizes every throttle scope (including
+# per-view throttles that cannot be removed via settings) by raising the
+# rates instead of deleting them, which would break SimpleRateThrottle.
+# Meant for short-lived use on stage only; never enable on production.
+if env.bool("LOAD_TEST_DISABLE_THROTTLING", default=False):
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+        scope: "1000000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+    }
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),

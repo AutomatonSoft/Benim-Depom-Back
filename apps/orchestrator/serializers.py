@@ -227,6 +227,27 @@ class MarketplaceContentGenerationApplyRequestSerializer(
     )
 
 
+@extend_schema_serializer(component_name="MarketplaceContentGenerationEditRequest")
+class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
+    """Manager edits of a completed AI draft before it is applied."""
+
+    title = serializers.CharField(
+        max_length=100,
+        help_text="German marketplace title, maximum 100 characters.",
+    )
+    description = serializers.CharField(
+        help_text=(
+            "German description consisting of two or three plain-text "
+            "paragraphs separated by an empty line."
+        ),
+    )
+    bullet_points = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False,
+        help_text="Three to five concise German product highlights.",
+    )
+
+
 @extend_schema_serializer(component_name="MarketplaceContentGeneration")
 class MarketplaceContentGenerationSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(read_only=True)

@@ -60,14 +60,16 @@ IDEMPOTENCY_KEY_HEADER = OpenApiParameter(
 
 
 def get_editable_product_for_user(*, user, product_id: int) -> Product:
+    queryset = Product.objects.exclude(status=Product.Status.ARCHIVED)
+
+    if is_manager(user):
+        return get_object_or_404(queryset, pk=product_id)
+
     return get_object_or_404(
-        Product.objects.filter(
+        queryset.filter(
             pk=product_id,
             owner=user,
-            status__in=(
-                Product.Status.DRAFT,
-                Product.Status.REJECTED,
-            ),
+            status__in=(Product.Status.DRAFT, Product.Status.REJECTED),
         )
     )
 
@@ -311,8 +313,8 @@ class ProductDetailView(
         instance.save(update_fields=("status", "updated_at"))
 
 
-class ProductImageUploadView(APIView):
-    permission_classes = [IsAuthenticated, IsSeller]
+class ProductImageUploadView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [ImageUploadRateThrottle]
 
@@ -333,6 +335,7 @@ class ProductImageUploadView(APIView):
             product=product,
             image_file=serializer.validated_data["image"],
             is_primary=serializer.validated_data["is_primary"],
+            allow_after_approval=is_manager(request.user),
         )
 
         return Response(
@@ -341,8 +344,8 @@ class ProductImageUploadView(APIView):
         )
 
 
-class ProductImageDeleteView(APIView):
-    permission_classes = [IsAuthenticated, IsSeller]
+class ProductImageDeleteView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(request=None, responses={204: None})
     def delete(self, request, product_pk: int, image_pk: int):
@@ -356,13 +359,17 @@ class ProductImageDeleteView(APIView):
             product=product,
         )
 
-        delete_product_image(product=product, image=image)
+        delete_product_image(
+            product=product,
+            image=image,
+            allow_after_approval=is_manager(request.user),
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ProductImagePrimaryView(APIView):
-    permission_classes = [IsAuthenticated, IsSeller]
+class ProductImagePrimaryView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(request=None, responses={200: ProductImageSerializer})
     def post(self, request, product_pk: int, image_pk: int):
@@ -379,6 +386,7 @@ class ProductImagePrimaryView(APIView):
         image = make_product_image_primary(
             product=product,
             image=image,
+            allow_after_approval=is_manager(request.user),
         )
 
         return Response(
@@ -386,8 +394,8 @@ class ProductImagePrimaryView(APIView):
         )
 
 
-class ProductImageReorderView(APIView):
-    permission_classes = [IsAuthenticated, IsSeller]
+class ProductImageReorderView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(request=ProductImageReorderSerializer, responses={204: None})
     def post(self, request, product_pk: int):
@@ -402,6 +410,7 @@ class ProductImageReorderView(APIView):
         reorder_product_images(
             product=product,
             image_ids=serializer.validated_data["image_ids"],
+            allow_after_approval=is_manager(request.user),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -36,8 +36,10 @@ from apps.products.models import Product
 from apps.products.views import IDEMPOTENCY_KEY_HEADER
 
 from .ai_content import (
+    GeneratedContentValidationError,
     build_product_snapshot,
     universal_content_to_marketplace_configuration,
+    validate_universal_content,
 )
 from .listing_state_services import create_listing_state_jobs
 from .models import (
@@ -52,6 +54,7 @@ from .serializers import (
     KauflandListingConfigurationResponseSerializer,
     KauflandListingConfigurationSerializer,
     MarketplaceContentGenerationApplyRequestSerializer,
+    MarketplaceContentGenerationEditRequestSerializer,
     MarketplaceContentGenerationRequestSerializer,
     MarketplaceContentGenerationSerializer,
     MarketplaceJobRequestSerializer,
@@ -984,7 +987,10 @@ class ProductMarketplaceContentGenerationCreateView(
         )
 
 
-class MarketplaceContentGenerationDetailView(APIView):
+class MarketplaceContentGenerationDetailView(
+    ManagerMutationThrottleMixin,
+    APIView,
+):
     """Returns the current state and generated draft."""
 
     permission_classes = (IsAuthenticated, IsManager)
@@ -1001,6 +1007,53 @@ class MarketplaceContentGenerationDetailView(APIView):
             ),
             pk=generation_id,
         )
+
+        return Response(MarketplaceContentGenerationSerializer(generation).data)
+
+    @extend_schema(
+        request=MarketplaceContentGenerationEditRequestSerializer,
+        responses={200: MarketplaceContentGenerationSerializer},
+        description=(
+            "Saves manager edits of a completed AI draft. The edited draft "
+            "is what gets copied into marketplace configurations on apply."
+        ),
+    )
+    def patch(self, request, generation_id):
+        serializer = MarketplaceContentGenerationEditRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            content = validate_universal_content(serializer.validated_data)
+        except GeneratedContentValidationError as error:
+            return Response(
+                {"detail": str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            generation = get_object_or_404(
+                MarketplaceContentGeneration.objects.select_for_update(),
+                pk=generation_id,
+            )
+
+            if generation.status != MarketplaceContentGeneration.Status.SUCCEEDED:
+                return Response(
+                    {
+                        "detail": (
+                            "Only a successfully completed AI generation can be edited."
+                        )
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            result = dict(generation.result or {})
+            universal = dict(result.get("universal") or {})
+            universal["content"] = content
+            result["universal"] = universal
+            generation.result = result
+            generation.save(update_fields=("result",))
 
         return Response(MarketplaceContentGenerationSerializer(generation).data)
 

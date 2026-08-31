@@ -1,7 +1,9 @@
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from apps.accounts.models import User
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.ean.services import assign_ean_codes_to_product
 from apps.notifications.models import Notification
@@ -110,6 +112,23 @@ def submit_product_for_moderation(*, product: Product) -> Product:
 
     product.status = Product.Status.SUBMITTED
     product.save(update_fields=("status", "updated_at"))
+
+    managers = User.objects.filter(
+        Q(role__in=(User.Role.MANAGER, User.Role.ADMIN)) | Q(is_superuser=True),
+        is_active=True,
+    ).distinct()
+    for manager in managers:
+        transaction.on_commit(
+            lambda manager=manager: create_notification(
+                user=manager,
+                sender=product.owner,
+                product=product,
+                notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
+                title="New product awaiting review",
+                body=f"{product.owner.username} submitted '{product.title}' for moderation.",
+                data={"product_id": product.id},
+            )
+        )
 
     return product
 
