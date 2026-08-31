@@ -1,9 +1,9 @@
 from datetime import timedelta
 from pathlib import Path
-from celery.schedules import crontab
-from kombu import Exchange, Queue
 
 import environ
+from celery.schedules import crontab
+from kombu import Exchange, Queue
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -138,9 +138,7 @@ STORAGES = {
         "BACKEND": "apps.common.ftp_storage.FTPMediaStorage",
     },
     "staticfiles": {
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-        ),
+        "BACKEND": ("django.contrib.staticfiles.storage.StaticFilesStorage"),
     },
 }
 
@@ -158,17 +156,19 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "apps.common.schema.MarketplaceAutoSchema",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
-        "DEFAULT_THROTTLE_CLASSES": [
+    "DEFAULT_THROTTLE_CLASSES": [
         "apps.common.throttles.ManagerMutationRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "registration": "5/hour",
-        "login": "10/15m",
-        "ai_generation": "10/hour",
-        "image_upload": "60/hour",
-        "manager_mutation": "120/hour",
-        "email_verification": "10/hour",
-        "email_verification_resend": "3/hour",
+        "registration": "5/min",
+        "login": "17/min",
+        "ai_generation": "4/min",
+        "image_upload": "17/min",
+        "manager_mutation": "84/min",
+        "email_verification": "17/min",
+        "email_verification_resend": "17/min",
+        "password_reset_request": "5/min",
+        "password_reset_verify": "10/min",
     },
 }
 
@@ -180,7 +180,7 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Marketplace Backend API",
+    "TITLE": "Benim Depom Backend API",
     "DESCRIPTION": (
         "API for the seller mobile application and manager web panel. "
         "Operations are grouped by client and business domain."
@@ -350,6 +350,8 @@ CELERY_TASK_QUEUES = (
     Queue("maintenance", Exchange("maintenance", type="direct"), "maintenance"),
 )
 CELERY_TASK_ROUTES = {
+    "apps.accounts.tasks.send_email_verification_code": {"queue": "notifications"},
+    "apps.accounts.tasks.send_password_reset_code": {"queue": "notifications"},
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
@@ -357,11 +359,19 @@ CELERY_TASK_ROUTES = {
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
     "apps.notifications.tasks.send_notification_push": {"queue": "notifications"},
-    "apps.notifications.tasks.send_product_availability_reminders": {"queue": "notifications"},
+    "apps.notifications.tasks.send_product_availability_reminders": {
+        "queue": "notifications"
+    },
     "apps.orchestrator.tasks.recover_stale_orchestrator_jobs": {"queue": "maintenance"},
-    "apps.idempotency.tasks.purge_expired_idempotency_records": {"queue": "maintenance"},
-    "apps.notifications.tasks.recover_stale_product_image_processing": {"queue": "maintenance",},
-    "apps.notifications.tasks.recover_stale_push_deliveries": {"queue": "maintenance",},
+    "apps.idempotency.tasks.purge_expired_idempotency_records": {
+        "queue": "maintenance"
+    },
+    "apps.notifications.tasks.recover_stale_product_image_processing": {
+        "queue": "maintenance",
+    },
+    "apps.notifications.tasks.recover_stale_push_deliveries": {
+        "queue": "maintenance",
+    },
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
@@ -424,6 +434,7 @@ KAUFLAND_API_BASE_URL = env(
     "KAUFLAND_API_BASE_URL",
     default="https://kl.automatonsoft.de",
 ).rstrip("/")
+
 KAUFLAND_API_GET_BY_EAN_ENDPOINT = env(
     "KAUFLAND_API_GET_BY_EAN_ENDPOINT",
     default="/api/products/product/{ean}/",
@@ -434,7 +445,7 @@ KAUFLAND_API_CREATE_ENDPOINT = env(
 )
 KAUFLAND_API_UPDATE_ENDPOINT = env(
     "KAUFLAND_API_UPDATE_ENDPOINT",
-    default="/api/products/{ean}/change/",
+    default="/api/products/ean/change/",
 )
 KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
@@ -562,10 +573,7 @@ OPENAI_TEXT_RETRY_DELAY_SECONDS = env.float(
 
 CELERY_BEAT_SCHEDULE = {
     "send-product-availability-reminders-daily": {
-        "task": (
-            "apps.notifications.tasks."
-            "send_product_availability_reminders"
-        ),
+        "task": ("apps.notifications.tasks.send_product_availability_reminders"),
         "schedule": crontab(hour=10, minute=0),
     },
     "recover-stale-orchestrator-jobs": {
@@ -577,10 +585,7 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=25),
     },
     "recover-stale-product-image-processing": {
-        "task": (
-            "apps.notifications.tasks."
-            "recover_stale_product_image_processing"
-        ),
+        "task": ("apps.notifications.tasks.recover_stale_product_image_processing"),
         "schedule": crontab(minute="*/10"),
     },
     "recover-stale-push-deliveries": {
@@ -610,10 +615,7 @@ PUSH_DELIVERY_RECOVERY_BATCH_SIZE = env.int(
     default=500,
 )
 
-IDEMPOTENCY_TTL_HOURS = env.int(
-    "IDEMPOTENCY_TTL_HOURS",
-    default=24
-)
+IDEMPOTENCY_TTL_HOURS = env.int("IDEMPOTENCY_TTL_HOURS", default=24)
 IDEMPOTENCY_CLEANUP_BATCH_SIZE = env.int(
     "IDEMPOTENCY_CLEANUP_BATCH_SIZE",
     default=5000,
@@ -686,6 +688,22 @@ EMAIL_VERIFICATION_MAX_ATTEMPTS = env.int(
 EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = env.int(
     "EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
     default=60,
+)
+PASSWORD_RESET_CODE_TTL_MINUTES = env.int(
+    "PASSWORD_RESET_CODE_TTL_MINUTES",
+    default=10,
+)
+PASSWORD_RESET_MAX_ATTEMPTS = env.int(
+    "PASSWORD_RESET_MAX_ATTEMPTS",
+    default=5,
+)
+PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = env.int(
+    "PASSWORD_RESET_RESEND_COOLDOWN_SECONDS",
+    default=60,
+)
+PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
+    "PASSWORD_RESET_TOKEN_TTL_MINUTES",
+    default=10,
 )
 
 BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(

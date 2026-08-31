@@ -1,15 +1,27 @@
 from datetime import timedelta
 
 import pytest
+from django.core import mail
 from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import issue_email_verification_code
+from apps.accounts.tasks import send_password_reset_code
+from apps.catalog.otto_catalog import clear_otto_catalog_cache
 
 
 def authenticate(client, user):
     client.force_authenticate(user=user)
     return client
+
+
+@pytest.mark.integration
+def test_password_reset_email_task_sends_code():
+    send_password_reset_code.run(email="reset@example.com", code="123456")
+
+    message = mail.outbox[-1]
+    assert message.to == ["reset@example.com"]
+    assert "123456" in message.body
 
 
 @pytest.mark.integration
@@ -102,7 +114,38 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_profile_refresh_and_logout_blacklist_refresh_token(api_client, seller, password):
+def test_manager_lists_only_sellers_with_search_and_activity_filter(
+    api_client,
+    manager,
+    seller,
+    second_seller,
+):
+    seller.first_name = "Nikita"
+    seller.email = "nikita@example.com"
+    seller.save(update_fields=("first_name", "email"))
+    second_seller.is_active = False
+    second_seller.save(update_fields=("is_active",))
+
+    authenticate(api_client, seller)
+    response = api_client.get("/api/v1/manager/users/sellers/")
+    assert response.status_code == 403
+
+    authenticate(api_client, manager)
+    response = api_client.get(
+        "/api/v1/manager/users/sellers/",
+        {"search": "nikita", "is_active": "true"},
+    )
+    assert response.status_code == 200
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["id"] == seller.id
+    assert response.data["results"][0]["role"] == User.Role.SELLER
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_profile_refresh_and_logout_blacklist_refresh_token(
+    api_client, seller, password
+):
     login = api_client.post(
         "/api/v1/auth/login/",
         {"username": seller.username, "password": password},
@@ -120,13 +163,200 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(api_client, seller, 
     assert response.status_code == 200
     assert response.data["preferred_language"] == "tr"
 
-    refresh_response = api_client.post("/api/v1/auth/refresh/", {"refresh": refresh}, format="json")
+    refresh_response = api_client.post(
+        "/api/v1/auth/refresh/", {"refresh": refresh}, format="json"
+    )
     assert refresh_response.status_code == 200
     refresh = refresh_response.data.get("refresh", refresh)
-    assert api_client.post(
-        "/api/v1/auth/logout/", {"refresh": refresh}, format="json", HTTP_AUTHORIZATION=f"Bearer {access}"
-    ).status_code == 204
-    assert api_client.post("/api/v1/auth/refresh/", {"refresh": refresh}, format="json").status_code == 401
+    assert (
+        api_client.post(
+            "/api/v1/auth/logout/",
+            {"refresh": refresh},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        ).status_code
+        == 204
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/", {"refresh": refresh}, format="json"
+        ).status_code
+        == 401
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+):
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    assert login.status_code == 200
+    access, refresh = login.data["access"], login.data["refresh"]
+
+    wrong_password = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": "wrong-password",
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert wrong_password.status_code == 400
+
+    changed = api_client.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": password,
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+        HTTP_AUTHORIZATION=f"Bearer {access}",
+    )
+    assert changed.status_code == 204
+
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {
+                "username": seller.username,
+                "password": "DifferentPassword123!",
+            },
+            format="json",
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_password_reset_changes_password_and_revokes_refresh_tokens(
+    api_client,
+    seller,
+    password,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    seller.email = "reset@example.com"
+    seller.save(update_fields=("email",))
+    sent = []
+    monkeypatch.setattr(
+        "apps.accounts.views.send_password_reset_code.delay",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"username": seller.username, "password": password},
+        format="json",
+    )
+    refresh = login.data["refresh"]
+
+    unknown = api_client.post(
+        "/api/v1/auth/password/reset/request/",
+        {"email": "unknown@example.com"},
+        format="json",
+    )
+    assert unknown.status_code == 202
+    assert sent == []
+
+    with django_capture_on_commit_callbacks(execute=True):
+        requested = api_client.post(
+            "/api/v1/auth/password/reset/request/",
+            {"email": seller.email},
+            format="json",
+        )
+    assert requested.status_code == 202
+    assert len(sent) == 1
+
+    wrong_code = "000000" if sent[0]["code"] != "000000" else "999999"
+    wrong = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": wrong_code},
+        format="json",
+    )
+    assert wrong.status_code == 400
+
+    seller.refresh_from_db()
+    assert seller.password_reset_attempts == 1
+    verified = api_client.post(
+        "/api/v1/auth/password/reset/verify/",
+        {"email": seller.email, "code": sent[0]["code"]},
+        format="json",
+    )
+    assert verified.status_code == 200
+
+    weak_password = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "password",
+            "new_password_confirm": "password",
+        },
+        format="json",
+    )
+    assert weak_password.status_code == 400
+    assert "new_password" in weak_password.data
+
+    completed = api_client.post(
+        "/api/v1/auth/password/reset/complete/",
+        {
+            "reset_token": verified.data["reset_token"],
+            "new_password": "DifferentPassword123!",
+            "new_password_confirm": "DifferentPassword123!",
+        },
+        format="json",
+    )
+    assert completed.status_code == 204
+    assert (
+        api_client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": refresh},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": password},
+            format="json",
+        ).status_code
+        == 401
+    )
+    assert (
+        api_client.post(
+            "/api/v1/auth/login/",
+            {"username": seller.username, "password": "DifferentPassword123!"},
+            format="json",
+        ).status_code
+        == 200
+    )
 
 
 @pytest.mark.integration
@@ -209,11 +439,14 @@ def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_code
     valid_code = issue_email_verification_code(user=seller)
     wrong_code = "000000" if valid_code != "000000" else "999999"
     for _ in range(5):
-        assert api_client.post(
-            "/api/v1/auth/email/verify/",
-            {"email": seller.email, "code": wrong_code},
-            format="json",
-        ).status_code == 400
+        assert (
+            api_client.post(
+                "/api/v1/auth/email/verify/",
+                {"email": seller.email, "code": wrong_code},
+                format="json",
+            ).status_code
+            == 400
+        )
 
     exhausted = api_client.post(
         "/api/v1/auth/email/verify/",
@@ -254,3 +487,61 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
     assert seller.is_email_verified is False
 
 
+@pytest.mark.integration
+def test_otto_catalog_endpoints_return_localized_overlays(api_client):
+    clear_otto_catalog_cache()
+
+    turkish_groups = api_client.get(
+        "/api/v1/catalog/otto/category-groups/tr/",
+        {"search": "Sandalyeler"},
+    )
+    assert turkish_groups.status_code == 200, turkish_groups.data
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Sandalyeler"
+        for group in turkish_groups.data["results"]
+    )
+
+    english_groups = api_client.get(
+        "/api/v1/catalog/otto/category-groups/en/",
+        {"search": "Chairs"},
+    )
+    assert english_groups.status_code == 200, english_groups.data
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Chairs"
+        for group in english_groups.data["results"]
+    )
+
+    unsupported_language_groups = api_client.get(
+        "/api/v1/catalog/otto/category-groups/invalid/",
+        {"search": "Chairs"},
+    )
+    assert unsupported_language_groups.status_code == 200, (
+        unsupported_language_groups.data
+    )
+    assert any(
+        group["category_group_id"] == 3593 and group["category_group"] == "Chairs"
+        for group in unsupported_language_groups.data["results"]
+    )
+
+    english_categories = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/categories/en/",
+        {"limit": 200},
+    )
+    assert english_categories.status_code == 200, english_categories.data
+    assert any(
+        category["category_id"] == 26822
+        and category["category_group"] == "Chairs"
+        and category["name"] == "Dining chair"
+        for category in english_categories.data["results"]
+    )
+
+    english_attributes = api_client.get(
+        "/api/v1/catalog/otto/category-groups/3593/attributes/en/",
+    )
+    assert english_attributes.status_code == 200, english_attributes.data
+    assert any(
+        attribute["attribute_id"] == 177052
+        and attribute["name"] == "Cover abrasion resistance"
+        and attribute["attribute_group"] == "Material"
+        for attribute in english_attributes.data
+    )

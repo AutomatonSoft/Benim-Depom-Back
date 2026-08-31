@@ -1,10 +1,10 @@
+from django.db import transaction
+
 from apps.accounts.models import User
 from apps.products.models import Product
 
-from django.db import transaction
-
-from .tasks import send_notification_push
 from .models import Notification
+from .tasks import send_notification_push
 
 
 def create_notification(
@@ -17,7 +17,7 @@ def create_notification(
     body: str = "",
     data: dict | None = None,
 ) -> Notification:
-    
+
     notification = Notification.objects.create(
         user=user,
         sender=sender,
@@ -28,9 +28,6 @@ def create_notification(
         data=data or {},
     )
 
-    transaction.on_commit(
-        lambda: send_notification_push.delay(notification.id)
-    )
+    transaction.on_commit(lambda: send_notification_push.delay(notification.id))
 
     return notification
-

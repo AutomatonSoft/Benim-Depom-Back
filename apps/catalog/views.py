@@ -4,19 +4,27 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
-from apps.common.permissions import IsManager
-
+from apps.catalog.otto_catalog import (
+    SUPPORTED_OTTO_CATALOG_LANGUAGES,
+    OttoCatalogError,
+    UnsupportedOttoCatalogLanguage,
+    get_otto_catalog,
+    get_otto_catalog_translation,
+)
 from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profiles,
 )
+from apps.common.permissions import IsManager
+
 from .otto_serializers import (
     OttoCategoryAttributeSerializer,
     OttoCategoryGroupSerializer,
     OttoCategorySerializer,
     OttoShippingProfileSerializer,
 )
+
+
 class OttoCatalogPaginationMixin:
     """
     Pagination in RAM. The catalog itself is already cached as Python dicts.
@@ -28,9 +36,7 @@ class OttoCatalogPaginationMixin:
     def paginate_items(self, items):
         try:
             page = int(self.request.query_params.get("page", 1))
-            limit = int(
-                self.request.query_params.get("limit", self.default_limit)
-            )
+            limit = int(self.request.query_params.get("limit", self.default_limit))
         except (TypeError, ValueError):
             return None, Response(
                 {"detail": "page and limit must be integers."},
@@ -65,7 +71,106 @@ class OttoCatalogPaginationMixin:
         )
 
 
-class OttoCategoryGroupListView(OttoCatalogPaginationMixin, APIView):
+class OttoCatalogLocalizationMixin:
+    """Loads the base catalog and one optional in-memory language overlay."""
+
+    def get_catalog_and_translation(self, language: str):
+        normalized_language = language.casefold()
+        effective_language = (
+            normalized_language
+            if normalized_language in SUPPORTED_OTTO_CATALOG_LANGUAGES
+            else "en"
+        )
+
+        try:
+            return (
+                get_otto_catalog(),
+                get_otto_catalog_translation(effective_language),
+                None,
+            )
+        except UnsupportedOttoCatalogLanguage:
+            return (
+                None,
+                None,
+                Response(
+                    {
+                        "detail": (
+                            "Unsupported OTTO catalog language. "
+                            "Available languages: de, en, tr."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        except OttoCatalogError:
+            return (
+                None,
+                None,
+                Response(
+                    {"detail": "OTTO catalog is temporarily unavailable."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
+
+    @staticmethod
+    def localize_group(group: dict, translation: dict | None) -> dict:
+        localized_group = dict(group)
+        if translation:
+            group_id = str(group["category_group_id"])
+            localized_group["category_group"] = translation["groups"].get(
+                group_id,
+                group["category_group"],
+            )
+        return localized_group
+
+    @staticmethod
+    def localize_category(category: dict, translation: dict | None) -> dict:
+        localized_category = dict(category)
+        if translation:
+            category_id = str(category["categoryId"])
+            group_id = str(category["category_group_id"])
+            localized_category["name"] = translation["categories"].get(
+                category_id,
+                category["name"],
+            )
+            localized_category["category_group"] = translation["groups"].get(
+                group_id,
+                category["category_group"],
+            )
+        return localized_category
+
+    @staticmethod
+    def localize_attributes(
+        group_id: int,
+        attributes: list[dict],
+        translation: dict | None,
+    ) -> list[dict]:
+        if not translation:
+            return attributes
+
+        translated_attributes = (
+            translation["attribute_groups"]
+            .get(
+                str(group_id),
+                {},
+            )
+            .get("attributes", {})
+        )
+
+        return [
+            {
+                **attribute,
+                **translated_attributes.get(str(attribute["attributeId"]), {}),
+            }
+            for attribute in attributes
+        ]
+
+
+class OttoCategoryGroupListView(
+    OttoCatalogLocalizationMixin,
+    OttoCatalogPaginationMixin,
+    APIView,
+):
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -73,7 +178,9 @@ class OttoCategoryGroupListView(OttoCatalogPaginationMixin, APIView):
         summary="List OTTO category groups",
         description=(
             "Returns OTTO category groups from the local JSON catalog. "
-            "Use search to filter by the displayed German group name."
+            "Without a suffix the response is German. Append /de/ for German or "
+            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
+            "to English."
         ),
         parameters=[
             OpenApiParameter(
@@ -87,25 +194,26 @@ class OttoCategoryGroupListView(OttoCatalogPaginationMixin, APIView):
         ],
         responses={200: OttoCategoryGroupSerializer(many=True)},
     )
-    def get(self, request):
-        try:
-            catalog = get_otto_catalog()
-        except OttoCatalogError:
-            return Response(
-                {"detail": "OTTO catalog is temporarily unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+    def get(self, request, language: str = "de"):
+        catalog, translation, error_response = self.get_catalog_and_translation(
+            language
+        )
+        if error_response:
+            return error_response
 
         search = request.query_params.get("search", "").strip().casefold()
 
         groups = [
-            {
-                "category_group_id": group_id,
-                "category_group": group["category_group"],
-                "category_count": len(
-                    catalog["categories_by_group_id"].get(group_id, [])
-                ),
-            }
+            self.localize_group(
+                {
+                    "category_group_id": group_id,
+                    "category_group": group["category_group"],
+                    "category_count": len(
+                        catalog["categories_by_group_id"].get(group_id, [])
+                    ),
+                },
+                translation,
+            )
             for group_id, group in catalog["groups_by_id"].items()
         ]
 
@@ -129,14 +237,21 @@ class OttoCategoryGroupListView(OttoCatalogPaginationMixin, APIView):
         return Response(payload)
 
 
-class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
+class OttoCategoryGroupCategoriesView(
+    OttoCatalogLocalizationMixin,
+    OttoCatalogPaginationMixin,
+    APIView,
+):
     permission_classes = [AllowAny]
 
     @extend_schema(
         tags=["OTTO - Catalog"],
         summary="List categories in an OTTO group",
         description=(
-            "Returns selectable OTTO subcategories for one category group."
+            "Returns selectable OTTO subcategories for one category group. "
+            "Without a suffix the response is German. Append /de/ for German or "
+            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
+            "to English."
         ),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
@@ -144,14 +259,12 @@ class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
         ],
         responses={200: OttoCategorySerializer(many=True)},
     )
-    def get(self, request, group_id: int):
-        try:
-            catalog = get_otto_catalog()
-        except OttoCatalogError:
-            return Response(
-                {"detail": "OTTO catalog is temporarily unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+    def get(self, request, group_id: int, language: str = "de"):
+        catalog, translation, error_response = self.get_catalog_and_translation(
+            language
+        )
+        if error_response:
+            return error_response
 
         categories = catalog["categories_by_group_id"].get(group_id)
         if categories is None:
@@ -160,7 +273,10 @@ class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        payload, error_response = self.paginate_items(categories)
+        localized_categories = [
+            self.localize_category(category, translation) for category in categories
+        ]
+        payload, error_response = self.paginate_items(localized_categories)
         if error_response:
             return error_response
 
@@ -171,27 +287,27 @@ class OttoCategoryGroupCategoriesView(OttoCatalogPaginationMixin, APIView):
         return Response(payload)
 
 
-class OttoCategoryGroupAttributesView(APIView):
+class OttoCategoryGroupAttributesView(OttoCatalogLocalizationMixin, APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(
         tags=["OTTO - Catalog"],
         summary="Get attributes for an OTTO category group",
         description=(
-            "Returns attribute definitions for the selected group. "
+            "Returns attribute definitions for the selected group. Without a suffix "
+            "the response is German. Append /de/ for German, /tr/ for Turkish, or "
+            "/en/ for English; an unsupported suffix falls back to English. "
             "HIGH, MEDIUM and LOW relevance values are used only to order "
             "the manager/mobile UI; all attributes are optional."
         ),
         responses={200: OttoCategoryAttributeSerializer(many=True)},
     )
-    def get(self, request, group_id: int):
-        try:
-            catalog = get_otto_catalog()
-        except OttoCatalogError:
-            return Response(
-                {"detail": "OTTO catalog is temporarily unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+    def get(self, request, group_id: int, language: str = "de"):
+        catalog, translation, error_response = self.get_catalog_and_translation(
+            language
+        )
+        if error_response:
+            return error_response
 
         attributes = catalog["attributes_by_group_id"].get(group_id)
         if attributes is None:
@@ -200,9 +316,15 @@ class OttoCategoryGroupAttributesView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        localized_attributes = self.localize_attributes(
+            group_id,
+            attributes,
+            translation,
+        )
+
         return Response(
             OttoCategoryAttributeSerializer(
-                attributes,
+                localized_attributes,
                 many=True,
             ).data
         )

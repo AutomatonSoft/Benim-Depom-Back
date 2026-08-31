@@ -70,10 +70,7 @@ class Product(models.Model):
         max_length=255,
         blank=True,
     )
-    otto_attributes = models.JSONField(
-        default=dict,
-        blank=True
-    )
+    otto_attributes = models.JSONField(default=dict, blank=True)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -114,7 +111,7 @@ class Product(models.Model):
         null=True,
         blank=True,
     )
-    
+
     availability_confirmed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -252,7 +249,6 @@ class ProductImage(models.Model):
 
 
 class ProductGeneratedImage(models.Model):
-    
     class Mode(models.TextChoices):
         WHITE = "white", "White background"
         INTERIOR = "interior", "Interior"

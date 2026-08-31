@@ -14,10 +14,10 @@ from apps.orchestrator.tasks import (
     check_otto_marketplace_status,
     extract_otto_process_id,
     get_expected_otto_marketplace_statuses,
-    get_otto_process_result,
-    request_for_non_hood_channel,
     get_otto_async_process_payload,
+    get_otto_process_result,
     is_otto_process_pending,
+    request_for_non_hood_channel,
 )
 
 
@@ -28,7 +28,10 @@ def test_marketplace_job_is_queued_for_a_manager(
     product = product_factory(owner=manager)
     api_client.force_authenticate(manager)
 
-    with patch("apps.orchestrator.views.execute_marketplace_job.delay") as delay, django_capture_on_commit_callbacks(execute=True):
+    with (
+        patch("apps.orchestrator.views.execute_marketplace_job.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         response = api_client.post(
             f"/api/v1/orchestrator/products/{product.id}/search/",
             {
@@ -100,9 +103,7 @@ def test_in_progress_publication_rejects_a_conflicting_operation(
     publication.refresh_from_db()
 
     assert publication.status == MarketplacePublication.Status.PUBLISHING
-    assert publication.status_before_operation == (
-        MarketplacePublication.Status.ACTIVE
-    )
+    assert publication.status_before_operation == (MarketplacePublication.Status.ACTIVE)
 
     with pytest.raises(ValueError, match="Cannot delete publication"):
         start_publication_attempt(
@@ -195,6 +196,7 @@ def test_extracts_otto_process_id_from_pending_response():
 
     assert extract_otto_process_id(response) == "05654b90-50c2-4a90-a37b-3f54c40b1892"
 
+
 def test_otto_deactivation_nested_pending_response_is_supported():
     response_payload = {
         "success": True,
@@ -207,17 +209,14 @@ def test_otto_deactivation_nested_pending_response_is_supported():
                 {
                     "rel": "self",
                     "href": (
-                        "/v5/products/update-tasks/"
-                        "ef844153-cc84-40a2-b563-167668e8f5ff"
+                        "/v5/products/update-tasks/ef844153-cc84-40a2-b563-167668e8f5ff"
                     ),
                 }
             ],
         },
     }
 
-    assert get_otto_async_process_payload(response_payload)["state"] == (
-        "pending"
-    )
+    assert get_otto_async_process_payload(response_payload)["state"] == ("pending")
 
     assert extract_otto_process_id(response_payload) == (
         "ef844153-cc84-40a2-b563-167668e8f5ff"
@@ -231,6 +230,7 @@ def test_otto_deactivation_nested_pending_response_is_supported():
         }
     )
 
+
 def test_otto_process_checks_final_endpoints_until_a_result_is_found():
     class ProcessClient:
         def __init__(self):
@@ -239,7 +239,11 @@ def test_otto_process_checks_final_endpoints_until_a_result_is_found():
         def request(self, base_url, method, path, **kwargs):
             self.paths.append(path)
             if path.endswith("/succeeded"):
-                return {"ok": True, "status_code": 200, "details": {"results": [{"variation": "/v5/products/1"}]}}
+                return {
+                    "ok": True,
+                    "status_code": 200,
+                    "details": {"results": [{"variation": "/v5/products/1"}]},
+                }
             return {"ok": False, "status_code": 404, "details": {"detail": "Not ready"}}
 
     client = ProcessClient()
@@ -395,12 +399,15 @@ def test_pending_otto_process_is_not_marked_published_or_consumed(
         },
     }
 
-    with patch(
-        "apps.orchestrator.tasks.request_for_non_hood_channel",
-        return_value=pending,
-    ), patch(
-        "apps.orchestrator.tasks.check_otto_publication_process.apply_async"
-    ) as schedule:
+    with (
+        patch(
+            "apps.orchestrator.tasks.request_for_non_hood_channel",
+            return_value=pending,
+        ),
+        patch(
+            "apps.orchestrator.tasks.check_otto_publication_process.apply_async"
+        ) as schedule,
+    ):
         from apps.orchestrator.tasks import execute_marketplace_job
 
         execute_marketplace_job.run(str(job.id))
@@ -427,10 +434,17 @@ def test_pending_otto_process_is_not_marked_published_or_consumed(
             "PATCH",
             "/api/products/ean/change/",
         ),
-        ("otto", MarketplaceJob.Operation.PUBLISH, "POST", "/extermal/create_or_update_product"),
+        (
+            "otto",
+            MarketplaceJob.Operation.PUBLISH,
+            "POST",
+            "/extermal/create_or_update_product",
+        ),
     ],
 )
-def test_marketplace_routes_match_direct_api_contract(channel, operation, expected_method, expected_path):
+def test_marketplace_routes_match_direct_api_contract(
+    channel, operation, expected_method, expected_path
+):
     client = CapturingClient()
     request_for_non_hood_channel(
         client,
@@ -489,9 +503,15 @@ def test_otto_publish_keeps_a_prebuilt_variations_list():
 @pytest.mark.django_db
 def test_hood_search_persists_the_product_snapshot(product_factory, manager):
     product = product_factory(owner=manager, ean_jv="4012345678901")
-    response = {"ok": True, "status_code": 200, "details": {"itemID": "123", "title": "Chair"}}
+    response = {
+        "ok": True,
+        "status_code": 200,
+        "details": {"itemID": "123", "title": "Chair"},
+    }
 
-    with patch("apps.marketplace.hood.services.HoodClient.request", return_value=response):
+    with patch(
+        "apps.marketplace.hood.services.HoodClient.request", return_value=response
+    ):
         result = execute_hood(
             product=product,
             operation=MarketplaceJob.Operation.SEARCH,

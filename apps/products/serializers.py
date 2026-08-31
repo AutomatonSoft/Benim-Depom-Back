@@ -1,13 +1,15 @@
-from decimal import Decimal
+import json
 import warnings
-from django.conf import settings
-from PIL import Image, UnidentifiedImageError
+from decimal import Decimal
 
+from django.conf import settings
 from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
+from rest_framework.fields import empty
 
 from apps.catalog.otto_catalog import (
     OttoCatalogError,
@@ -21,7 +23,7 @@ from .models import (
     ProductImage,
     ProductVariant,
 )
-from .services import create_product, update_product
+from .services import create_product, create_product_with_images, update_product
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
@@ -63,9 +65,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         normalized = [value.strip() for value in values]
 
         if any(not value for value in normalized):
-            raise serializers.ValidationError(
-                "Material names must not be empty."
-            )
+            raise serializers.ValidationError("Material names must not be empty.")
 
         if len({value.casefold() for value in normalized}) != len(normalized):
             raise serializers.ValidationError(
@@ -90,11 +90,11 @@ class ProductGeneratedImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsImage")
 class ProductImageSerializer(serializers.ModelSerializer):
-
     generated_images = ProductGeneratedImageSerializer(
         many=True,
         read_only=True,
     )
+
     class Meta:
         model = ProductImage
         fields = (
@@ -166,6 +166,15 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=dict,
     )
+    resubmit_for_moderation = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "Seller-only flag for a rejected product. Set true after all "
+            "corrections are complete to send it back to moderation."
+        ),
+    )
     variants = ProductVariantSerializer(many=True, required=False)
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
@@ -186,6 +195,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_category_name",
             "otto_category_group_name",
             "otto_attributes",
+            "resubmit_for_moderation",
             "status",
             "ean_jv",
             "ean_xl",
@@ -223,9 +233,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_total_quantity(self, product) -> int:
         return sum(variant.quantity for variant in product.variants.all())
 
-    @extend_schema_field(
-        serializers.DecimalField(max_digits=14, decimal_places=2)
-    )
+    @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
     def get_total_amount(self, product):
         total = product.unit_price * sum(
             variant.quantity for variant in product.variants.all()
@@ -245,9 +253,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """Validate draft data without requiring a complete OTTO form."""
         protected_ean_fields = {
-            field
-            for field in ("ean_jv", "ean_xl")
-            if field in self.initial_data
+            field for field in ("ean_jv", "ean_xl") if field in self.initial_data
         }
 
         if protected_ean_fields:
@@ -280,6 +286,37 @@ class ProductSerializer(serializers.ModelSerializer):
             )
 
         self._validate_otto_catalog_data(attrs)
+
+        if attrs.get("resubmit_for_moderation"):
+            request = self.context.get("request")
+
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "A newly created product is submitted automatically."
+                        )
+                    }
+                )
+
+            if request and is_manager(request.user):
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "Only the product seller can resubmit a rejected product."
+                        )
+                    }
+                )
+
+            if self.instance.status != Product.Status.REJECTED:
+                raise serializers.ValidationError(
+                    {
+                        "resubmit_for_moderation": (
+                            "Only a rejected product can be resubmitted."
+                        )
+                    }
+                )
+
         return attrs
 
     def _validate_otto_catalog_data(self, attrs):
@@ -296,7 +333,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_attributes",
             getattr(self.instance, "otto_attributes", {}),
         )
-        attributes_were_sent = "otto_attributes" in attrs
+        attributes_were_sent = "otto_attributes" in self.initial_data
 
         if category_id is None and group_id is None and not attributes_were_sent:
             return
@@ -468,6 +505,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
+        validated_data.pop("resubmit_for_moderation", None)
 
         return create_product(
             owner=self.context["request"].user,
@@ -477,23 +515,35 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         variants_data = validated_data.pop("variants", None)
+        resubmit_for_moderation = validated_data.pop(
+            "resubmit_for_moderation",
+            False,
+        )
 
-        return update_product(
+        product = update_product(
             product=instance,
             data=validated_data,
             variants_data=variants_data,
         )
 
+        if resubmit_for_moderation:
+            # Lazy import avoids a products <-> moderation import cycle.
+            from apps.moderation.services import submit_product_for_moderation
+
+            return submit_product_for_moderation(product=product)
+
+        return product
+
+
 @extend_schema_serializer(component_name="ProductsAvailability")
 class ProductAvailabilitySerializer(serializers.Serializer):
     is_available = serializers.BooleanField()
+
 
 @extend_schema_serializer(component_name="ProductsImageUpload")
 class ProductImageUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
     is_primary = serializers.BooleanField(default=False)
-
-
 
     def validate_image(self, image):
         allowed_formats = {
@@ -503,9 +553,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
         }
 
         if image.size > settings.PRODUCT_IMAGE_MAX_UPLOAD_BYTES:
-            raise serializers.ValidationError(
-                "Image size must not exceed 10 MB."
-            )
+            raise serializers.ValidationError("Image size must not exceed 10 MB.")
 
         declared_content_type = getattr(image, "content_type", None)
 
@@ -513,9 +561,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
             declared_content_type
             and declared_content_type not in allowed_formats.values()
         ):
-            raise serializers.ValidationError(
-                "Allowed image formats: JPEG, PNG, WEBP."
-            )
+            raise serializers.ValidationError("Allowed image formats: JPEG, PNG, WEBP.")
 
         try:
             image.seek(0)
@@ -528,9 +574,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
 
                 with Image.open(image) as parsed_image:
                     detected_format = (parsed_image.format or "").upper()
-                    expected_content_type = allowed_formats.get(
-                        detected_format
-                    )
+                    expected_content_type = allowed_formats.get(detected_format)
 
                     if expected_content_type is None:
                         raise serializers.ValidationError(
@@ -542,13 +586,10 @@ class ProductImageUploadSerializer(serializers.Serializer):
                         and declared_content_type != expected_content_type
                     ):
                         raise serializers.ValidationError(
-                            "Image content type does not match its actual "
-                            "format."
+                            "Image content type does not match its actual format."
                         )
 
-                    pixel_count = (
-                        parsed_image.width * parsed_image.height
-                    )
+                    pixel_count = parsed_image.width * parsed_image.height
 
                     if pixel_count > settings.PRODUCT_IMAGE_MAX_PIXELS:
                         raise serializers.ValidationError(
@@ -576,20 +617,121 @@ class ProductImageUploadSerializer(serializers.Serializer):
         return image
 
 
+class MultipartJSONListField(serializers.ListField):
+    """Accept a JSON-encoded list from a multipart form field."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise serializers.ValidationError("Expected a JSON array.") from error
+
+        return super().to_internal_value(data)
+
+
+class MultipartJSONDictField(serializers.DictField):
+    """Accept a JSON-encoded object from a multipart form field."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "get"):
+            return dictionary.get(self.field_name, empty)
+
+        return super().get_value(dictionary)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise serializers.ValidationError("Expected a JSON object.") from error
+
+        return super().to_internal_value(data)
+
+
+class MultipartImageListField(serializers.ListField):
+    """Read repeated ``images`` fields from Django's multipart QueryDict."""
+
+    def get_value(self, dictionary):
+        if hasattr(dictionary, "getlist"):
+            values = dictionary.getlist(self.field_name) or dictionary.getlist(
+                f"{self.field_name}[]"
+            )
+            if values:
+                return values
+
+        return super().get_value(dictionary)
+
+
+@extend_schema_serializer(component_name="ProductsMultipartCreate")
+class ProductMultipartCreateSerializer(ProductSerializer):
+    """Product creation payload for ``multipart/form-data`` clients."""
+
+    variants = MultipartJSONListField(
+        child=ProductVariantSerializer(),
+        allow_empty=False,
+        help_text="JSON array of product variants.",
+    )
+    otto_attributes = MultipartJSONDictField(
+        required=False,
+        default=dict,
+        help_text="Optional JSON object with OTTO attribute values.",
+    )
+    images = MultipartImageListField(
+        child=serializers.ImageField(),
+        min_length=1,
+        max_length=10,
+        write_only=True,
+        help_text="One to ten image files. The first image becomes primary.",
+    )
+
+    def validate_images(self, images):
+        image_validator = ProductImageUploadSerializer()
+        errors = {}
+        validated_images = []
+
+        for index, image in enumerate(images):
+            try:
+                validated_images.append(image_validator.validate_image(image))
+            except serializers.ValidationError as error:
+                errors[str(index)] = error.detail
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return validated_images
+
+    def create(self, validated_data):
+        variants_data = validated_data.pop("variants")
+        image_files = validated_data.pop("images")
+        validated_data.pop("resubmit_for_moderation", None)
+
+        return create_product_with_images(
+            owner=self.context["request"].user,
+            data=validated_data,
+            variants_data=variants_data,
+            image_files=image_files,
+        )
+
+    def to_representation(self, instance):
+        return ProductSerializer(instance, context=self.context).data
+
+
 @extend_schema_serializer(component_name="ProductsImageReorder")
 class ProductImageReorderSerializer(serializers.Serializer):
     image_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
-        allow_empty = False,
+        allow_empty=False,
     )
 
     def validate_image_ids(self, image_ids):
         if len(image_ids) != len(set(image_ids)):
-            raise serializers.ValidationError(
-                "Image identifiers must be unique"
-            )
-
+            raise serializers.ValidationError("Image identifiers must be unique")
 
         return image_ids
-
-    

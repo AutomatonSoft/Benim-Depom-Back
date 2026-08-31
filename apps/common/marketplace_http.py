@@ -7,7 +7,6 @@ from django.conf import settings
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
 
 # Только безопасные запросы можно автоматически повторять.
@@ -61,5 +60,3 @@ def response_payload(response: requests.Response) -> dict[str, Any] | list[Any]:
         return response.json()
     except ValueError:
         return {"raw": response.text[:1500]}
-
-

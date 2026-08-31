@@ -97,19 +97,10 @@ def _get_image_urls(
         errors["image_urls"] = "Select at least one public image."
         return []
 
-    cleaned_urls = [
-        str(url).strip()
-        for url in image_urls
-        if str(url).strip()
-    ]
+    cleaned_urls = [str(url).strip() for url in image_urls if str(url).strip()]
 
-    if not cleaned_urls or any(
-        not _is_public_http_url(url)
-        for url in cleaned_urls
-    ):
-        errors["image_urls"] = (
-            "Every image URL must be a public HTTP(S) URL."
-        )
+    if not cleaned_urls or any(not _is_public_http_url(url) for url in cleaned_urls):
+        errors["image_urls"] = "Every image URL must be a public HTTP(S) URL."
 
     return cleaned_urls
 
@@ -149,29 +140,19 @@ def build_kaufland_create_payload(
 
     delivery = _as_non_negative_int(configuration.get("delivery"))
     if delivery is None:
-        errors["delivery"] = (
-            "Enter delivery time as a whole number of days."
-        )
+        errors["delivery"] = "Enter delivery time as a whole number of days."
 
     storefronts = configuration.get("storefronts") or ["de"]
 
-    if (
-        not isinstance(storefronts, list)
-        or any(
-            str(value).strip() not in KAUFLAND_STOREFRONTS
-            for value in storefronts
-        )
+    if not isinstance(storefronts, list) or any(
+        str(value).strip() not in KAUFLAND_STOREFRONTS for value in storefronts
     ):
         errors["storefronts"] = (
-            "Storefronts may contain only: "
-            f"{', '.join(KAUFLAND_STOREFRONTS)}."
+            f"Storefronts may contain only: {', '.join(KAUFLAND_STOREFRONTS)}."
         )
         cleaned_storefronts: list[str] = []
     else:
-        cleaned_storefronts = [
-            str(value).strip()
-            for value in storefronts
-        ]
+        cleaned_storefronts = [str(value).strip() for value in storefronts]
 
     image_urls = _get_image_urls(configuration, errors)
 
@@ -212,10 +193,7 @@ def build_kaufland_create_payload(
         "length": float(variant.length_cm),
         "width": float(variant.width_cm),
         "amount": variant.quantity,
-        "id_offer": str(
-            configuration.get("id_offer")
-            or ean
-        ).strip(),
+        "id_offer": str(configuration.get("id_offer") or ean).strip(),
         "storefronts": cleaned_storefronts,
     }
 
@@ -242,17 +220,14 @@ def build_kaufland_update_payload(
         configuration.get("storefront")
         or (configuration.get("storefronts") or ["de"])[0]
     ).strip()
-    
+
     if storefront not in KAUFLAND_STOREFRONTS:
         errors["storefront"] = (
-            "Storefront must be one of: "
-            f"{', '.join(KAUFLAND_STOREFRONTS)}."
+            f"Storefront must be one of: {', '.join(KAUFLAND_STOREFRONTS)}."
         )
 
     if not storefront:
-        errors["storefront"] = (
-            "Select the Kaufland storefront to update."
-        )
+        errors["storefront"] = "Select the Kaufland storefront to update."
 
     payload: dict[str, Any] = {
         "ean": ean,

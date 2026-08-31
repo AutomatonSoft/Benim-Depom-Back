@@ -12,14 +12,17 @@ from openai import (
     APITimeoutError,
     InternalServerError,
     OpenAI,
-    RateLimitError
+    RateLimitError,
 )
+
 
 class OpenAITextServiceError(Exception):
     """Safe error for an AI generation job; never contains API credentials"""
 
+
 class OpenAITextConfigurationError(OpenAITextServiceError):
     """OpenAI integration is disabled or incorrectly configured"""
+
 
 class OpenAITextResponseError(OpenAITextServiceError):
     """The provider returned an unusable response"""
@@ -35,21 +38,18 @@ class OpenAITextService:
     """
     Shared OpenAI Responses API client
 
-    It retries transiet failures on the current model, then uses the next model 
+    It retries transiet failures on the current model, then uses the next model
     from OPENAI_TEXT_MODELS. It never logs or exposes OPENAI_API_KEY
     """
+
     RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 
     def __init__(self) -> None:
         if not settings.OPENAI_ENABLED:
-            raise OpenAITextConfigurationError(
-                "OpenAI generation is disabled"
-            )
+            raise OpenAITextConfigurationError("OpenAI generation is disabled")
 
         if not settings.OPENAI_API_KEY:
-            raise OpenAITextConfigurationError(
-                "OPENAI_API_KEY is not configured"
-            )
+            raise OpenAITextConfigurationError("OPENAI_API_KEY is not configured")
 
         if not settings.OPENAI_TEXT_MODELS:
             raise OpenAITextConfigurationError(
@@ -62,17 +62,11 @@ class OpenAITextService:
             max_retries=0,
         )
 
-
     @classmethod
     def _is_retryable_error(cls, error: Exception) -> bool:
         if isinstance(
             error,
-            (
-                APIConnectionError,
-                APITimeoutError,
-                RateLimitError,
-                InternalServerError
-            ),
+            (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError),
         ):
             return True
 
@@ -93,10 +87,8 @@ class OpenAITextService:
         try:
             result = json.loads(output_text)
 
-        except json.JSONDecodeError as error:
-            raise OpenAITextResponseError(
-                "OpenAI returned invalid JSON"
-            )
+        except json.JSONDecodeError:
+            raise OpenAITextResponseError("OpenAI returned invalid JSON")
 
         if not isinstance(result, dict):
             raise OpenAITextResponseError(
@@ -121,34 +113,30 @@ class OpenAITextService:
         """
 
         errors: list[str] = []
-        attempts_per_model = max(
-            settings.OPENAI_TEXT_MAX_RETRIES_PER_MODEL,
-            1
-        )
+        attempts_per_model = max(settings.OPENAI_TEXT_MAX_RETRIES_PER_MODEL, 1)
 
         for model in settings.OPENAI_TEXT_MODELS:
             for attempt in range(1, attempts_per_model + 1):
                 try:
                     response = self.client.responses.create(
-                        model = model,
+                        model=model,
                         instructions=instructions,
                         input=input_text,
-                        text = {
+                        text={
                             "format": {
                                 "type": "json_schema",
                                 "name": schema_name,
                                 "strict": True,
-                                "schema": schema
+                                "schema": schema,
                             }
                         },
                     )
 
                     return OpenAITextResult(
-                        model=model,
-                        data=self._read_json_output(response)
+                        model=model, data=self._read_json_output(response)
                     )
 
-                except OpenAITextResponseError as error:
+                except OpenAITextResponseError:
                     errors.append(f"{model}: invalid structured response")
                     break
 
@@ -164,14 +152,8 @@ class OpenAITextService:
                     )
 
                     if attempt < attempts_per_model:
-                        time.sleep(
-                            settings.OPENAI_TEXT_RETRY_DELAY_SECONDS
-                        )
+                        time.sleep(settings.OPENAI_TEXT_RETRY_DELAY_SECONDS)
         raise OpenAITextServiceError(
             "All configured OpenAI models are temporarily unavailable"
             f"Attempts: {'; '.join(errors)}"
         )
-    
-
-
-        

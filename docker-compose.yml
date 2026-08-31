@@ -67,6 +67,7 @@ services:
       --queues=notifications
       --concurrency=2
       --max-tasks-per-child=500
+      
 
   worker_maintenance:
     <<: *worker-common

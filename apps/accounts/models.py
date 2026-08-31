@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q
 
+
 class User(AbstractUser):
     class Role(models.TextChoices):
         SELLER = "seller", "Seller"
@@ -14,11 +15,7 @@ class User(AbstractUser):
         GERMAN = "de", "Deutsch"
         ENGLISH = "en", "English"
 
-    role = models.CharField(
-        max_length=20,
-        choices=Role.choices,
-        default=Role.SELLER
-    )
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.SELLER)
     phone = models.CharField(max_length=32, blank=True)
     is_email_verified = models.BooleanField(default=False)
 
@@ -37,10 +34,27 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
+    password_reset_code_hash = models.CharField(
+        max_length=128,
+        blank=True,
+    )
+    password_reset_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    password_reset_attempts = models.PositiveSmallIntegerField(
+        default=0,
+    )
+    password_reset_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    password_reset_verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     preferred_language = models.CharField(
-        max_length=5,
-        choices=Language.choices,
-        default=Language.RUSSIAN
+        max_length=5, choices=Language.choices, default=Language.RUSSIAN
     )
 
     class Meta:

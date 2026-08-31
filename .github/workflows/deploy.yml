@@ -1,0 +1,166 @@
+name: Build and deploy production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/automatonsoft/benim-depom-back
+  DEPLOY_DIR: /home/alikhan/apps/benim-depom
+
+jobs:
+  build-and-push:
+    name: Build and publish production image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prod
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to production
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://benim.automatonsoft.de
+
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      IMAGE_TAG: sha-${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure trusted SSH host
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Load deployment SSH key
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+
+      - name: Upload non-secret deployment configuration
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_DIR/nginx'"
+          scp -p docker-compose.prod.yml "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
+          scp -p nginx/default.conf "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/nginx/default.conf"
+
+      - name: Pull image, migrate, and restart project
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "IMAGE_TAG='$IMAGE_TAG' DEPLOY_DIR='$DEPLOY_DIR' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          cd "$DEPLOY_DIR"
+
+          printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG" > .deploy.env.tmp
+          mv .deploy.env.tmp .deploy.env
+          chmod 600 .deploy.env
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            pull
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            up -d --wait postgres redis
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            run --rm --no-deps --no-TTY --interactive=false \
+            web python manage.py migrate --noinput </dev/null
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            run --rm --no-deps --no-TTY --interactive=false \
+            web python manage.py collectstatic --noinput </dev/null
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            up -d --force-recreate --no-deps --wait --wait-timeout 120 \
+            web worker_ai worker_images worker_maintenance \
+            worker_marketplace worker_notifications beat
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            up -d --force-recreate --no-deps --wait --wait-timeout 120 nginx
+
+          expected_image="ghcr.io/automatonsoft/benim-depom-back:${IMAGE_TAG}"
+          expected_revision="${IMAGE_TAG#sha-}"
+          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image")"
+          image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_image")"
+          web_container_id="$(docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            ps -q web)"
+          running_image_id="$(docker inspect --format '{{.Image}}' "$web_container_id")"
+
+          test "$image_revision" = "$expected_revision"
+          test "$running_image_id" = "$expected_image_id"
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:18081/api/v1/health/
+
+          docker compose \
+            --project-name benim-depom \
+            --env-file .deploy.env \
+            -f docker-compose.prod.yml \
+            ps
+          REMOTE
+
+
+          
+

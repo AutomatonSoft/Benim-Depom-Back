@@ -26,7 +26,7 @@ Backend сервиса, где продавцы создают товары из
 
 | Роль | Как создаётся | Возможности |
 | --- | --- | --- |
-| `seller` | Публичная регистрация | Только свои товары, фото, профиль, submit, withdraw, ответ о наличии, заявка на деактивацию, уведомления. |
+| `seller` | Публичная регистрация | Только свои товары, фото, профиль, withdraw, ответ о наличии, заявка на деактивацию, уведомления. |
 | `manager` | Защищённый endpoint web-панели | Все товары, модерация, EAN, уведомления, AI-фото, AI-контент, marketplace-конфигурации и операции. |
 | `admin` | Только разработчик через `createsuperuser` / Django Admin | Всё, что manager, плюс Django Admin. |
 
@@ -35,10 +35,9 @@ Backend сервиса, где продавцы создают товары из
 ## Жизненный цикл товара
 
 ```text
-Seller создаёт draft
-  → добавляет variants и source images
+Seller создаёт товар одним multipart-запросом: variants + source images
+  → товар сразу получает submitted и попадает на модерацию
   → выбирает OTTO category + optional attributes
-  → submit на модерацию
   → manager проверяет/редактирует, при необходимости запускает AI-фото
   → approve: назначаются EAN JV и EAN XL
   → manager готовит marketplace configurations и AI-content draft
@@ -48,8 +47,8 @@ Seller создаёт draft
 
 | Статус товара | Значение |
 | --- | --- |
-| `draft` | Черновик. Seller редактирует товар, варианты и фото. |
-| `submitted` | Отправлен manager-у на модерацию. |
+| `draft` | Технический/устаревший черновик; новые товары в этот статус не попадают. |
+| `submitted` | Автоматически отправлен manager-у при создании. |
 | `under_review` | Резерв под явный этап проверки. |
 | `approved` | Одобрен, EAN назначены, можно публиковать. |
 | `rejected` | Отклонён; seller исправляет и отправляет повторно. |
@@ -150,10 +149,9 @@ Push — только сигнал. После push и при открытии �
 ### Форма товара
 
 1. Запросить OTTO category groups → categories выбранной группы → attributes группы.
-2. Создать draft с минимум одним variant.
-3. Отдельно загрузить одно или несколько фото.
-4. До submit редактировать через `PATCH /products/{id}/`.
-5. Отправить на модерацию.
+2. Создать товар multipart-запросом с минимум одним variant и одним фото.
+3. Товар автоматически уходит на модерацию со статусом `submitted`.
+4. Если manager отклонил товар, исправить его через `PATCH /products/{id}/` и передать `resubmit_for_moderation: true` после завершения правок.
 
 ```json
 {
@@ -260,6 +258,9 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | `GET` | `otto/category-groups/` | authenticated | Группы local OTTO JSON-catalog. |
 | `GET` | `otto/category-groups/{group_id}/categories/` | authenticated | Категории выбранной группы. |
 | `GET` | `otto/category-groups/{group_id}/attributes/` | authenticated | Attributes выбранной группы. |
+| `GET` | `otto/category-groups/tr/` | authenticated | Те же группы на турецком языке. |
+| `GET` | `otto/category-groups/{group_id}/categories/tr/` | authenticated | Категории выбранной группы на турецком языке. |
+| `GET` | `otto/category-groups/{group_id}/attributes/tr/` | authenticated | Атрибуты выбранной группы на турецком языке. |
 | `GET` | `otto/shipping-profiles/?account=jv\|xl` | manager/admin | OTTO delivery profiles для аккаунта. |
 
 ### Products и images
@@ -269,12 +270,12 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
 | `GET` | `` | authenticated | Seller видит свои товары; manager/admin — все. Фильтры и pagination. |
-| `POST` | `` | seller | Создать draft. |
+| `POST` | `` | seller | Создать товар с фото и сразу отправить на модерацию (`multipart/form-data`). |
 | `GET` | `{id}/` | owner/manager/admin | Детали товара. |
-| `PATCH` | `{id}/` | owner draft/rejected или manager/admin | Частично изменить товар/variants. |
+| `PATCH` | `{id}/` | owner rejected или manager/admin | Частично изменить товар/variants; seller может повторно отправить rejected товар флагом `resubmit_for_moderation`. |
 | `DELETE` | `{id}/` | owner/manager/admin | Мягко архивировать допустимый товар. |
 | `POST` | `{id}/availability/` | owner | Ответ на availability request. |
-| `POST` | `{id}/withdraw/` | owner | Withdraw submitted/under_review. |
+| `POST` | `{id}/withdraw/` | owner | Отозвать submitted/under_review. |
 | `POST` | `{id}/deactivate/` | owner | Заявка manager-ам на деактивацию. |
 | `POST` | `{id}/images/` | owner | Source image upload: multipart `image`, optional `is_primary`. |
 | `POST` | `{id}/images/reorder/` | owner | Передать полный порядок image IDs. |
@@ -288,7 +289,6 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 
 | Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/products/{id}/submit/` | owner | Submit на модерацию. |
 | `GET` | `/api/v1/products/{id}/moderation-history/` | owner/manager/admin | История решений. |
 | `GET` | `/api/v1/manager/products/` | manager/admin | Менеджерский список товаров. |
 | `POST` | `/api/v1/manager/products/{id}/approve/` | manager/admin | Approve и назначить EAN JV/XL. |
@@ -447,7 +447,7 @@ apps/
   accounts/                User, JWT, email verification, roles
   products/                products, variants, images, filters
   catalog/                 read-only OTTO catalog and delivery profiles
-  moderation/              submit, approve/reject, history
+  moderation/              approve/reject, history
   ean/                     import, allocation, consumption, summary
   notifications/           in-app notifications, FCM, tasks
   orchestrator/            jobs, publications, configurations, polling, AI

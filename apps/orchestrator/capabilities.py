@@ -2,7 +2,7 @@ MARKETPLACE_OPERATIONS = {
     "hood": {
         "search",
         "publish",
-        "update",   
+        "update",
         "delete",
     },
     "kaufland": {
@@ -26,4 +26,3 @@ def supports_operation(*, marketplace: str, operation: str) -> bool:
         marketplace,
         set(),
     )
-

@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -31,22 +32,29 @@ def product_payload():
     }
 
 
+def multipart_product_payload(image_file):
+    payload = product_payload()
+    payload["variants"] = json.dumps(payload["variants"])
+    payload["images"] = [image_file()]
+    return payload
+
+
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_product_create_is_idempotent(api_client, seller):
+def test_product_create_is_idempotent(api_client, seller, image_file):
     api_client.force_authenticate(seller)
     headers = {"HTTP_IDEMPOTENCY_KEY": "product-create-key-1"}
 
     first = api_client.post(
         "/api/v1/products/",
-        product_payload(),
-        format="json",
+        multipart_product_payload(image_file),
+        format="multipart",
         **headers,
     )
     second = api_client.post(
         "/api/v1/products/",
-        product_payload(),
-        format="json",
+        multipart_product_payload(image_file),
+        format="multipart",
         **headers,
     )
 
@@ -61,54 +69,31 @@ def test_product_create_is_idempotent(api_client, seller):
 def test_idempotency_key_cannot_be_reused_for_another_payload(
     api_client,
     seller,
+    image_file,
 ):
     api_client.force_authenticate(seller)
     headers = {"HTTP_IDEMPOTENCY_KEY": "product-create-key-2"}
 
     first = api_client.post(
         "/api/v1/products/",
-        product_payload(),
-        format="json",
+        multipart_product_payload(image_file),
+        format="multipart",
         **headers,
     )
 
-    changed_payload = product_payload()
+    changed_payload = multipart_product_payload(image_file)
     changed_payload["title"] = "Different chair"
 
     second = api_client.post(
         "/api/v1/products/",
         changed_payload,
-        format="json",
+        format="multipart",
         **headers,
     )
 
     assert first.status_code == 201
     assert second.status_code == 422
     assert Product.objects.filter(owner=seller).count() == 1
-
-
-@pytest.mark.integration
-@pytest.mark.django_db
-def test_submit_is_idempotent(
-    api_client,
-    seller,
-    product_factory,
-    product_image_factory,
-):
-    product = product_factory(owner=seller)
-    product_image_factory(product=product)
-    api_client.force_authenticate(seller)
-
-    headers = {"HTTP_IDEMPOTENCY_KEY": "product-submit-key-1"}
-    url = f"/api/v1/products/{product.id}/submit/"
-
-    first = api_client.post(url, **headers)
-    second = api_client.post(url, **headers)
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert first.data["id"] == second.data["id"]
-    assert second.data["status"] == Product.Status.SUBMITTED
 
 
 @pytest.mark.integration
@@ -201,18 +186,13 @@ def test_ai_generation_is_idempotent(
     api_client.force_authenticate(manager)
 
     headers = {"HTTP_IDEMPOTENCY_KEY": "ai-generation-key-1"}
-    url = (
-        f"/api/v1/orchestrator/products/{product.id}/"
-        "ai-content/generate/"
-    )
+    url = f"/api/v1/orchestrator/products/{product.id}/ai-content/generate/"
     payload = {
         "targets": [{"marketplace": "otto", "account": "jv"}],
     }
 
     with (
-        patch(
-            "apps.orchestrator.views.generate_marketplace_content.delay"
-        ) as delay,
+        patch("apps.orchestrator.views.generate_marketplace_content.delay") as delay,
         django_capture_on_commit_callbacks(execute=True),
     ):
         first = api_client.post(url, payload, format="json", **headers)
@@ -221,10 +201,5 @@ def test_ai_generation_is_idempotent(
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.data["id"] == second.data["id"]
-    assert MarketplaceContentGeneration.objects.filter(
-        product=product
-    ).count() == 1
+    assert MarketplaceContentGeneration.objects.filter(product=product).count() == 1
     delay.assert_called_once()
-
-
-    

@@ -16,7 +16,7 @@ class IPRateThrottle(SimpleRateThrottle):
             "scope": self.scope,
             "ident": ident,
         }
-    
+
 
 class UserRateThrottle(SimpleRateThrottle):
     """Rate limit for authenticated requests by user ID."""
@@ -34,11 +34,14 @@ class UserRateThrottle(SimpleRateThrottle):
 class RegistrationRateThrottle(IPRateThrottle):
     scope = "registration"
 
+
 class EmailVerificationRateThrottle(IPRateThrottle):
     scope = "email_verification"
 
+
 class EmailVerificationResendRateThrottle(IPRateThrottle):
     scope = "email_verification_resend"
+
 
 class LoginRateThrottle(IPRateThrottle):
     scope = "login"
@@ -63,6 +66,14 @@ class LoginRateThrottle(IPRateThrottle):
             )
 
         return super().parse_rate(rate)
+
+
+class PasswordResetRequestRateThrottle(IPRateThrottle):
+    scope = "password_reset_request"
+
+
+class PasswordResetVerifyRateThrottle(IPRateThrottle):
+    scope = "password_reset_verify"
 
 
 class AiGenerationRateThrottle(UserRateThrottle):
@@ -91,7 +102,6 @@ class ManagerMutationRateThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
-    
 class ManagerMutationThrottleMixin:
     """Applies manager mutation rate limiting to write HTTP methods only."""
 
@@ -101,8 +111,7 @@ class ManagerMutationThrottleMixin:
         throttles = super().get_throttles()
 
         already_configured = any(
-            isinstance(throttle, ManagerMutationRateThrottle)
-            for throttle in throttles
+            isinstance(throttle, ManagerMutationRateThrottle) for throttle in throttles
         )
 
         if (

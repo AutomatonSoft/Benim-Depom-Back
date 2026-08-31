@@ -1,21 +1,21 @@
 from django.urls import path
 
 from .views import (
+    MarketplaceContentGenerationDetailView,
     MarketplaceJobDetailView,
+    MarketplacePublicationListView,
+    ProductHoodListingConfigurationView,
+    ProductHoodPayloadPreviewView,
+    ProductKauflandCreatePayloadPreviewView,
+    ProductKauflandListingConfigurationView,
+    ProductKauflandUpdatePayloadPreviewView,
+    ProductMarketplaceContentGenerationApplyView,
+    ProductMarketplaceContentGenerationCreateView,
     ProductMarketplaceJobCreateView,
     ProductMarketplaceListingStateView,
     ProductMarketplacePublicationListView,
-    MarketplacePublicationListView,
     ProductOttoListingConfigurationView,
     ProductOttoPayloadPreviewView,
-    ProductHoodListingConfigurationView,
-    ProductHoodPayloadPreviewView,
-    ProductKauflandListingConfigurationView,
-    ProductKauflandCreatePayloadPreviewView,
-    ProductKauflandUpdatePayloadPreviewView,
-    MarketplaceContentGenerationDetailView,
-    ProductMarketplaceContentGenerationApplyView,
-    ProductMarketplaceContentGenerationCreateView,
 )
 
 app_name = "orchestrator"
@@ -83,8 +83,7 @@ urlpatterns = [
         name="ai-content-generation-detail",
     ),
     path(
-        "products/<int:product_pk>/ai-content/generations/"
-        "<uuid:generation_id>/apply/",
+        "products/<int:product_pk>/ai-content/generations/<uuid:generation_id>/apply/",
         ProductMarketplaceContentGenerationApplyView.as_view(),
         name="product-ai-content-apply",
     ),

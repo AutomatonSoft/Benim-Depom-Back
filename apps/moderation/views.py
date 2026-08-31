@@ -1,28 +1,13 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
-
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from rest_framework.permissions import IsAuthenticated
-from apps.common.permissions import IsManager, IsSeller, is_manager
+from apps.common.permissions import IsManager, is_manager
 from apps.common.throttles import ManagerMutationThrottleMixin
-from apps.products.models import Product
-from apps.products.serializers import ProductSerializer
-from apps.products.services import request_product_availability
-from apps.products.filters import filter_products
-from .models import ModerationDecision
-from .serializers import (
-    ApproveProductSerializer,
-    ModerationDecisionSerializer,
-    RejectProductSerializer,
-)
-from .services import (
-    approve_product,
-    reject_product,
-    submit_product_for_moderation,
-)
 from apps.notifications.models import Notification
 from apps.notifications.serializers import (
     ManagerProductNotificationSerializer,
@@ -32,86 +17,21 @@ from apps.notifications.services import create_notification
 from apps.orchestrator.listing_state_services import create_listing_state_jobs
 from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
-from django.db import transaction
-from apps.idempotency.services import (
-    IdempotencyKeyReuseError,
-    IdempotencyRequestInProgressError,
-    abandon_idempotency_claim,
-    claim_idempotency_key,
-    complete_idempotency_claim,
+from apps.products.filters import filter_products
+from apps.products.models import Product
+from apps.products.serializers import ProductSerializer
+from apps.products.services import request_product_availability
+
+from .models import ModerationDecision
+from .serializers import (
+    ApproveProductSerializer,
+    ModerationDecisionSerializer,
+    RejectProductSerializer,
 )
-from apps.products.views import IDEMPOTENCY_KEY_HEADER
-
-
-
-
-class SubmitProductView(APIView):
-    permission_classes = [IsAuthenticated, IsSeller]
-
-    @extend_schema(
-        request=None,
-        responses={200: ProductSerializer},
-        parameters=[IDEMPOTENCY_KEY_HEADER],
-        description=(
-            "Sends the seller product to moderation. "
-            "Use Idempotency-Key to prevent duplicate submissions."
-        ),
-    )
-    def post(self, request, product_pk: int):
-        try:
-            claim = claim_idempotency_key(
-                request=request,
-                endpoint=f"products:submit:{product_pk}",
-            )
-        except IdempotencyKeyReuseError:
-            return Response(
-                {
-                    "detail": (
-                        "This Idempotency-Key was already used with "
-                        "different request data."
-                    )
-                },
-                status=422,
-            )
-        except IdempotencyRequestInProgressError:
-            return Response(
-                {
-                    "detail": (
-                        "A request with this Idempotency-Key is still "
-                        "being processed. Retry shortly with the same key."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        if claim.is_replay:
-            return Response(
-                claim.replay_body,
-                status=claim.replay_status,
-            )
-
-        try:
-            product = get_object_or_404(
-                Product,
-                pk=product_pk,
-                owner=request.user,
-            )
-            product = submit_product_for_moderation(product=product)
-            response_data = ProductSerializer(
-                product,
-                context={"request": request},
-            ).data
-        except Exception:
-            abandon_idempotency_claim(claim=claim)
-            raise
-
-        complete_idempotency_claim(
-            claim=claim,
-            response_status=status.HTTP_200_OK,
-            response_body=response_data,
-        )
-
-        return Response(response_data, status=status.HTTP_200_OK)
+from .services import (
+    approve_product,
+    reject_product,
+)
 
 
 class ProductModerationHistoryView(generics.ListAPIView):
@@ -122,9 +42,7 @@ class ProductModerationHistoryView(generics.ListAPIView):
         product_queryset = Product.objects.all()
 
         if not is_manager(self.request.user):
-            product_queryset = product_queryset.filter(
-                owner=self.request.user
-            )
+            product_queryset = product_queryset.filter(owner=self.request.user)
 
         product = get_object_or_404(
             product_queryset,
@@ -176,7 +94,7 @@ class ManagerSendProductNotificationView(ManagerMutationThrottleMixin, APIView):
 
     @extend_schema(
         request=ManagerProductNotificationSerializer,
-        responses={201: NotificationSerializer}
+        responses={201: NotificationSerializer},
     )
     def post(self, request, product_pk: int):
         product = get_object_or_404(
@@ -213,6 +131,7 @@ class ManagerSendProductNotificationView(ManagerMutationThrottleMixin, APIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class ManagerApproveProductView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
@@ -232,9 +151,7 @@ class ManagerApproveProductView(ManagerMutationThrottleMixin, APIView):
             comment=serializer.validated_data.get("comment", ""),
         )
 
-        return Response(
-            ProductSerializer(product, context={"request": request}).data
-        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
 class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
@@ -256,9 +173,7 @@ class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
             comment=serializer.validated_data["comment"],
         )
 
-        return Response(
-            ProductSerializer(product, context={"request": request}).data
-        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
 class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIView):
@@ -274,13 +189,12 @@ class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIVie
             product=product,
             manager=request.user,
         )
-        return Response(
-            ProductSerializer(product, context={"request": request}).data
-        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
 class ManagerDeactivateProductView(ManagerMutationThrottleMixin, APIView):
     """Compatibility endpoint: schedule deactivation for every active listing."""
+
     permission_classes = [IsManager]
 
     @extend_schema(

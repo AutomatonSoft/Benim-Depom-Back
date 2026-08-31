@@ -2,14 +2,24 @@ import pytest
 from rest_framework.exceptions import ValidationError
 
 from apps.ean.models import EanCode
-from apps.ean.services import assign_ean_codes_to_product, get_ean_summary, import_ean_codes
-from apps.moderation.services import approve_product, reject_product, submit_product_for_moderation
+from apps.ean.services import (
+    assign_ean_codes_to_product,
+    get_ean_summary,
+    import_ean_codes,
+)
+from apps.moderation.services import (
+    approve_product,
+    reject_product,
+    submit_product_for_moderation,
+)
 from apps.products.models import Product
 
 
 @pytest.mark.integration
 @pytest.mark.django_db(transaction=True)
-def test_ean_import_assignment_is_atomic_and_summary_is_correct(seller, manager, product_factory):
+def test_ean_import_assignment_is_atomic_and_summary_is_correct(
+    seller, manager, product_factory
+):
     result = import_ean_codes(
         account=EanCode.Account.JV,
         raw_codes="4006381333931\n4006381333931\ninvalid",
@@ -21,7 +31,9 @@ def test_ean_import_assignment_is_atomic_and_summary_is_correct(seller, manager,
         assign_ean_codes_to_product(product=product)
     assert not EanCode.objects.filter(product=product).exists()
 
-    EanCode.objects.create(code="9501101530003", account=EanCode.Account.XL, imported_by=manager)
+    EanCode.objects.create(
+        code="9501101530003", account=EanCode.Account.XL, imported_by=manager
+    )
     assigned = assign_ean_codes_to_product(product=product)
     assert {code.account for code in assigned} == {"jv", "xl"}
     product.refresh_from_db()
@@ -34,7 +46,9 @@ def test_ean_import_assignment_is_atomic_and_summary_is_correct(seller, manager,
 
 @pytest.mark.integration
 @pytest.mark.django_db(transaction=True)
-def test_moderation_services_validate_states_and_store_decisions(seller, manager, product_factory, product_image_factory):
+def test_moderation_services_validate_states_and_store_decisions(
+    seller, manager, product_factory, product_image_factory
+):
     draft = product_factory(owner=seller)
     with pytest.raises(ValidationError, match="image"):
         submit_product_for_moderation(product=draft)

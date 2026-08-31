@@ -1,6 +1,5 @@
-from io import BytesIO
-
 import ftplib
+from io import BytesIO
 from itertools import count
 
 import pytest
@@ -12,7 +11,6 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.products.models import Product, ProductImage, ProductVariant
-
 
 User = get_user_model()
 

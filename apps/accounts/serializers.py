@@ -1,4 +1,5 @@
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
@@ -6,6 +7,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
 from .services import register_user
+
+
+def _validate_password_value(*, password, user, field_name: str) -> None:
+    try:
+        validate_password(password, user)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError({field_name: list(exc.messages)}) from exc
 
 
 @extend_schema_serializer(component_name="AuthRegister")
@@ -16,10 +24,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         min_length=8,
         trim_whitespace=False,
     )
-    password_confirm = serializers.CharField(
-        write_only=True,
-        trim_whitespace=False
-    )
+    password_confirm = serializers.CharField(write_only=True, trim_whitespace=False)
 
     class Meta:
         model = User
@@ -53,7 +58,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             username=attrs.get("username"),
             email=attrs.get("email", ""),
         )
-        validate_password(password, user)
+        _validate_password_value(password=password, user=user, field_name="password")
 
         return attrs
 
@@ -64,9 +69,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         email = value.strip().lower()
 
         if User.objects.filter(email__iexact=email).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
+            raise serializers.ValidationError("A user with this email already exists.")
 
         return email
 
@@ -117,7 +120,7 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
             username=attrs.get("username"),
             email=attrs.get("email", ""),
         )
-        validate_password(password, user)
+        _validate_password_value(password=password, user=user, field_name="password")
         return attrs
 
     def create(self, validated_data):

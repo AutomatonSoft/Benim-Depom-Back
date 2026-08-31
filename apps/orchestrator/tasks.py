@@ -1,20 +1,29 @@
 from __future__ import annotations
 
-from datetime import timedelta
 import re
+from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from apps.common.external_json import compact_external_json
+from apps.common.openai_text_service import (
+    OpenAITextService,
+    OpenAITextServiceError,
+)
+from apps.ean.services import consume_ean_code
 from apps.marketplace.hood.services import execute as execute_hood
 from apps.marketplace.otto.constants import OttoMarketplaceStatus
-from django.db import transaction
 
-from apps.ean.services import consume_ean_code
-
+from .ai_content import (
+    GeneratedContentValidationError,
+    build_universal_content_request,
+    validate_universal_content,
+)
 from .client import MarketplaceClient
 from .models import (
     MarketplaceContentGeneration,
@@ -28,16 +37,7 @@ from .publication_services import (
     mark_publication_succeeded,
     start_publication_attempt,
 )
-from apps.common.external_json import compact_external_json
-from apps.common.openai_text_service import (
-    OpenAITextService,
-    OpenAITextServiceError,
-)
-from .ai_content import (
-    GeneratedContentValidationError,
-    build_universal_content_request,
-    validate_universal_content,
-)
+
 
 def path_with_ean(endpoint: str, ean: str) -> str:
     endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
@@ -62,6 +62,7 @@ def normalize_payload(value: Any) -> dict[str, Any]:
 
     return {"raw": value}
 
+
 def get_otto_async_process_payload(
     response_payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -81,10 +82,7 @@ def get_otto_async_process_payload(
 
     nested_response = response_payload.get("response")
 
-    if (
-        isinstance(nested_response, dict)
-        and "state" in nested_response
-    ):
+    if isinstance(nested_response, dict) and "state" in nested_response:
         return nested_response
 
     return response_payload
@@ -113,9 +111,7 @@ def extract_external_id(
 def extract_otto_process_id(response_payload: dict[str, Any]) -> str:
     """Extract the OTTO update-task ID from root or nested API response."""
 
-    process_payload = get_otto_async_process_payload(
-        response_payload
-    )
+    process_payload = get_otto_async_process_payload(response_payload)
 
     for link in process_payload.get("links", []):
         if not isinstance(link, dict) or link.get("rel") != "self":
@@ -148,9 +144,7 @@ def is_otto_process_pending(result: dict[str, Any]) -> bool:
     if not isinstance(response_payload, dict):
         return False
 
-    process_payload = get_otto_async_process_payload(
-        response_payload
-    )
+    process_payload = get_otto_async_process_payload(response_payload)
 
     return str(process_payload.get("state", "")).lower() in {
         "pending",
@@ -187,6 +181,7 @@ def get_otto_process_result(
         if result.get("ok") and isinstance(details, dict) and details.get("results"):
             return {"outcome": outcome, "result": result}
     return None
+
 
 def get_otto_marketplace_status(
     client: MarketplaceClient,
@@ -225,6 +220,7 @@ def get_otto_marketplace_item(
 
     return None
 
+
 def get_expected_otto_marketplace_statuses(
     operation: str,
 ) -> tuple[str, ...]:
@@ -237,16 +233,13 @@ def get_expected_otto_marketplace_statuses(
         MarketplaceJob.Operation.UPDATE,
         MarketplaceJob.Operation.ACTIVATE,
     }:
-        return (
-            OttoMarketplaceStatus.ONLINE,
-        )
+        return (OttoMarketplaceStatus.ONLINE,)
 
     if operation == MarketplaceJob.Operation.DEACTIVATE:
-        return (
-            OttoMarketplaceStatus.INACTIVE,
-        )
+        return (OttoMarketplaceStatus.INACTIVE,)
 
     return ()
+
 
 def _set_job_target_result(
     *,
@@ -288,17 +281,11 @@ def _refresh_job_status(job: MarketplaceJob) -> None:
 def _next_otto_poll_time(response_payload: dict[str, Any]):
     """Uses OTTO's pingAfter from root or nested async response."""
 
-    process_payload = get_otto_async_process_payload(
-        response_payload
-    )
+    process_payload = get_otto_async_process_payload(response_payload)
 
     raw_value = process_payload.get("pingAfter")
 
-    parsed = (
-        parse_datetime(raw_value)
-        if isinstance(raw_value, str)
-        else None
-    )
+    parsed = parse_datetime(raw_value) if isinstance(raw_value, str) else None
 
     if parsed is not None:
         if timezone.is_naive(parsed):
@@ -474,9 +461,7 @@ def request_for_non_hood_channel(
                 )
 
             if not body:
-                raise ValueError(
-                    "OTTO payload must contain at least one variation."
-                )
+                raise ValueError("OTTO payload must contain at least one variation.")
 
             return client.request(
                 settings.OTTO_API_BASE_URL,
@@ -613,16 +598,13 @@ def execute_marketplace_job(self, job_id: str) -> None:
             }
             ean = ""
 
-        response_payload = normalize_payload(
-            result.get("details", {})
-        )
+        response_payload = normalize_payload(result.get("details", {}))
         awaiting_marketplace_confirmation = False
         otto_process_id = ""
 
         if publication is not None:
             otto_async_request_accepted = (
-                marketplace == "otto"
-                and is_otto_process_pending(result)
+                marketplace == "otto" and is_otto_process_pending(result)
             )
 
             if otto_async_request_accepted:
@@ -697,18 +679,13 @@ def execute_marketplace_job(self, job_id: str) -> None:
         else:
             first_successful_publication = False
 
-
         results.append(
             {
                 "marketplace": marketplace,
                 "account": account,
                 "ean": ean,
-                "publication_id": (
-                    publication.id if publication is not None else None
-                ),
-                "first_successful_publication": (
-                    first_successful_publication
-                ),
+                "publication_id": (publication.id if publication is not None else None),
+                "first_successful_publication": (first_successful_publication),
                 "ean_consumed": ean_consumed,
                 "awaiting_marketplace_confirmation": (
                     awaiting_marketplace_confirmation
@@ -822,10 +799,12 @@ def check_otto_publication_process(
         # Wrapper API successfully validated the request, but this still does
         # not mean that the item is already visible on OTTO marketplace.
         # Keep publication in `publishing` and start marketplace-status polling.
-        publication.last_response = compact_external_json({
-            "initial_process_response": publication.last_response,
-            "process_result": response_payload,
-        })
+        publication.last_response = compact_external_json(
+            {
+                "initial_process_response": publication.last_response,
+                "process_result": response_payload,
+            }
+        )
         publication.last_error = {}
         publication.save(
             update_fields=(
@@ -905,9 +884,7 @@ def check_otto_marketplace_status(
     if job is None:
         return
 
-    expected_statuses = get_expected_otto_marketplace_statuses(
-        job.operation
-    )
+    expected_statuses = get_expected_otto_marketplace_statuses(job.operation)
 
     client = MarketplaceClient(str(job.request_id))
 
@@ -924,9 +901,7 @@ def check_otto_marketplace_status(
 
     marketplace_status = ""
     if marketplace_item is not None:
-        marketplace_status = str(
-            marketplace_item.get("status", "")
-        ).upper()
+        marketplace_status = str(marketplace_item.get("status", "")).upper()
 
     if result.get("ok") and marketplace_status in expected_statuses:
         combined_response = {
@@ -935,15 +910,11 @@ def check_otto_marketplace_status(
         }
 
         with transaction.atomic():
-            publication, first_successful_publication = (
-                mark_publication_succeeded(
-                    publication=publication,
-                    job=job,
-                    response_payload=combined_response,
-                    external_id=str(
-                        marketplace_item.get("moin", "")
-                    ),
-                )
+            publication, first_successful_publication = mark_publication_succeeded(
+                publication=publication,
+                job=job,
+                response_payload=combined_response,
+                external_id=str(marketplace_item.get("moin", "")),
             )
 
             ean_consumed = False
@@ -972,8 +943,7 @@ def check_otto_marketplace_status(
                 (
                     link.get("href")
                     for link in marketplace_item.get("links", [])
-                    if isinstance(link, dict)
-                    and link.get("rel") == "shop"
+                    if isinstance(link, dict) and link.get("rel") == "shop"
                 ),
                 "",
             ),
@@ -992,10 +962,12 @@ def check_otto_marketplace_status(
 
     # Save the latest response so the manager can see the actual OTTO state
     # while a publication/deactivation is still being processed.
-    publication.last_response = compact_external_json({
-        "process": publication.last_response,
-        "marketplace_status": response_payload,
-    })
+    publication.last_response = compact_external_json(
+        {
+            "process": publication.last_response,
+            "marketplace_status": response_payload,
+        }
+    )
     publication.save(update_fields=("last_response", "updated_at"))
 
     if attempt >= settings.OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS:
@@ -1053,9 +1025,8 @@ def generate_marketplace_content(
 ) -> dict[str, Any]:
     """Generate one universal German draft, regardless of selected targets."""
     with transaction.atomic():
-        generation = (
-            MarketplaceContentGeneration.objects.select_for_update()
-            .get(pk=generation_id)
+        generation = MarketplaceContentGeneration.objects.select_for_update().get(
+            pk=generation_id
         )
 
         if generation.status in {
@@ -1083,9 +1054,7 @@ def generate_marketplace_content(
     if not generation.input_snapshot:
         generation.status = MarketplaceContentGeneration.Status.FAILED
         generation.error = {
-            "detail": (
-                "The AI generation job has no product input snapshot."
-            )
+            "detail": ("The AI generation job has no product input snapshot.")
         }
         generation.finished_at = timezone.now()
         generation.save(
@@ -1193,9 +1162,7 @@ def recover_stale_orchestrator_jobs() -> dict[str, int]:
     marketplace_cutoff = now - timedelta(
         minutes=settings.ORCHESTRATOR_STALE_JOB_MINUTES
     )
-    content_cutoff = now - timedelta(
-        minutes=settings.AI_CONTENT_STALE_JOB_MINUTES
-    )
+    content_cutoff = now - timedelta(minutes=settings.AI_CONTENT_STALE_JOB_MINUTES)
 
     marketplace_recovered = MarketplaceJob.objects.filter(
         status=MarketplaceJob.Status.RUNNING,

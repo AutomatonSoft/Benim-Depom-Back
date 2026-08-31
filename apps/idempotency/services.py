@@ -15,6 +15,7 @@ from .models import IdempotencyRecord
 class IdempotencyKeyReuseError(Exception):
     """The same key was used for another request payload."""
 
+
 class IdempotencyRequestInProgressError(Exception):
     """The original request is still running."""
 
@@ -28,7 +29,6 @@ class IdempotencyClaim:
     @property
     def is_replay(self) -> bool:
         return self.replay_status is not None
-
 
 
 def _get_key(request) -> str | None:
@@ -71,9 +71,7 @@ def claim_idempotency_key(*, request, endpoint: str) -> IdempotencyClaim:
         return IdempotencyClaim(record=None)
 
     request_hash = _request_hash(request.data)
-    expires_at = timezone.now() + timedelta(
-        hours=settings.IDEMPOTENCY_TTL_HOURS
-    )
+    expires_at = timezone.now() + timedelta(hours=settings.IDEMPOTENCY_TTL_HOURS)
 
     # A simultaneous request can hit the unique constraint. In that case,
     # read the winner's record and return its actual state.
@@ -135,7 +133,6 @@ def claim_idempotency_key(*, request, endpoint: str) -> IdempotencyClaim:
             continue
 
     raise IdempotencyRequestInProgressError
-
 
 
 def complete_idempotency_claim(

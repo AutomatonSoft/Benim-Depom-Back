@@ -1,6 +1,5 @@
 import ipaddress
 import socket
-
 from urllib.parse import urlparse
 
 import requests
@@ -20,6 +19,7 @@ def _allowed_hosts() -> set[str]:
 
     return hosts
 
+
 def _validate_public_host(hostname: str) -> None:
     try:
         addresses = socket.getaddrinfo(
@@ -28,14 +28,9 @@ def _validate_public_host(hostname: str) -> None:
             type=socket.SOCK_STREAM,
         )
     except socket.gaierror as error:
-        raise GeneratedImageDownloadError(
-            "Image host cannot be resolved."
-        ) from error
+        raise GeneratedImageDownloadError("Image host cannot be resolved.") from error
 
-    resolved_ips = {
-        address_info[4][0]
-        for address_info in addresses
-    }
+    resolved_ips = {address_info[4][0] for address_info in addresses}
 
     if not resolved_ips:
         raise GeneratedImageDownloadError(
@@ -51,19 +46,14 @@ def _validate_public_host(hostname: str) -> None:
             )
 
 
-
 def validate_generated_image_url(url: str) -> None:
     parsed = urlparse(url)
 
     if parsed.scheme != "https":
-        raise GeneratedImageDownloadError(
-            "Generated image URL must use HTTPS."
-        )
+        raise GeneratedImageDownloadError("Generated image URL must use HTTPS.")
 
     if not parsed.hostname:
-        raise GeneratedImageDownloadError(
-            "Generated image URL has no host."
-        )
+        raise GeneratedImageDownloadError("Generated image URL has no host.")
 
     if parsed.username or parsed.password:
         raise GeneratedImageDownloadError(
@@ -78,12 +68,9 @@ def validate_generated_image_url(url: str) -> None:
     hostname = parsed.hostname.lower()
 
     if hostname not in _allowed_hosts():
-        raise GeneratedImageDownloadError(
-            "Generated image host is not allowlisted."
-        )
+        raise GeneratedImageDownloadError("Generated image host is not allowlisted.")
 
     _validate_public_host(hostname)
-
 
 
 def download_generated_image(url: str) -> bytes:
@@ -125,8 +112,7 @@ def download_generated_image(url: str) -> bytes:
     content_length = response.headers.get("Content-Length")
     if (
         content_length is not None
-        and int(content_length)
-        > settings.BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES
+        and int(content_length) > settings.BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES
     ):
         response.close()
         raise GeneratedImageDownloadError(
@@ -143,10 +129,7 @@ def download_generated_image(url: str) -> bytes:
 
             downloaded_bytes += len(chunk)
 
-            if (
-                downloaded_bytes
-                > settings.BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES
-            ):
+            if downloaded_bytes > settings.BULK_WHITE_IMAGE_MAX_DOWNLOAD_BYTES:
                 raise GeneratedImageDownloadError(
                     "Generated image exceeds the allowed download size."
                 )
@@ -156,8 +139,6 @@ def download_generated_image(url: str) -> bytes:
         response.close()
 
     if not chunks:
-        raise GeneratedImageDownloadError(
-            "Generated image file is empty."
-        )
+        raise GeneratedImageDownloadError("Generated image file is empty.")
 
     return b"".join(chunks)

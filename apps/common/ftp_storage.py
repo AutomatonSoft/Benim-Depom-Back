@@ -23,27 +23,19 @@ class FTPMediaStorage(Storage):
         self.passive_mode = settings.FTP_MEDIA_PASSIVE_MODE
         self.timeout = settings.FTP_MEDIA_TIMEOUT_SECONDS
 
-        self.remote_root = (
-            "/" + settings.FTP_MEDIA_REMOTE_ROOT.strip("/")
-        ).rstrip("/")
+        self.remote_root = ("/" + settings.FTP_MEDIA_REMOTE_ROOT.strip("/")).rstrip("/")
 
-        self.public_base_url = (
-            settings.FTP_MEDIA_PUBLIC_BASE_URL.rstrip("/")
-        )
+        self.public_base_url = settings.FTP_MEDIA_PUBLIC_BASE_URL.rstrip("/")
 
     def _clean_name(self, name: str) -> str:
-        normalized_name = posixpath.normpath(
-            str(name).replace("\\", "/")
-        ).lstrip("/")
+        normalized_name = posixpath.normpath(str(name).replace("\\", "/")).lstrip("/")
 
         if (
             not normalized_name
             or normalized_name in {".", ".."}
             or normalized_name.startswith("../")
         ):
-            raise SuspiciousFileOperation(
-                f"Invalid FTP file name: {name}"
-            )
+            raise SuspiciousFileOperation(f"Invalid FTP file name: {name}")
 
         return normalized_name
 
@@ -118,9 +110,7 @@ class FTPMediaStorage(Storage):
     def _save(self, name: str, content) -> str:
         clean_name = self._clean_name(name)
         remote_path = self._remote_path(clean_name)
-        temporary_remote_path = (
-            f"{remote_path}.uploading-{uuid4().hex}"
-        )
+        temporary_remote_path = f"{remote_path}.uploading-{uuid4().hex}"
 
         if hasattr(content, "seek"):
             content.seek(0)
@@ -174,7 +164,4 @@ class FTPMediaStorage(Storage):
     def url(self, name: str) -> str:
         clean_name = self._clean_name(name)
 
-        return (
-            f"{self.public_base_url}/"
-            f"{quote(clean_name, safe='/')}"
-        )
+        return f"{self.public_base_url}/{quote(clean_name, safe='/')}"

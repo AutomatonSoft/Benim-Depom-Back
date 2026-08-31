@@ -1,36 +1,49 @@
+from django.db import transaction
+from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
-from drf_spectacular.utils import extend_schema
-from django.db import transaction
-from drf_spectacular.utils import extend_schema
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
-
-from .serializers import (
-    LogoutSerializer,
-    ManagerCreateSerializer,
-    ProfileSerializer,
-    RegisterSerializer,
-    EmailVerificationSerializer,
-    EmailVerificationResendSerializer,
-)
+from apps.common.permissions import IsManager
 from apps.common.throttles import (
-    LoginRateThrottle,
-    ManagerMutationThrottleMixin,
-    RegistrationRateThrottle,
     EmailVerificationRateThrottle,
     EmailVerificationResendRateThrottle,
+    LoginRateThrottle,
+    ManagerMutationThrottleMixin,
+    PasswordResetRequestRateThrottle,
+    PasswordResetVerifyRateThrottle,
+    RegistrationRateThrottle,
+)
+
+from .models import User
+from .serializers import (
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
+    LogoutSerializer,
+    ManagerCreateSerializer,
+    PasswordChangeSerializer,
+    PasswordResetCompleteSerializer,
+    PasswordResetRequestResponseSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetVerifyResponseSerializer,
+    PasswordResetVerifySerializer,
+    ProfileSerializer,
+    RegisterSerializer,
 )
 from .services import (
+    complete_password_reset,
     issue_email_verification_code,
+    request_password_reset,
     resend_email_verification_code,
+    revoke_refresh_tokens,
     verify_email_code,
+    verify_password_reset_code,
 )
-from apps.common.permissions import IsManager
-from .tasks import send_email_verification_code
+from .tasks import send_email_verification_code, send_password_reset_code
 
 
 class RegisterView(generics.CreateAPIView):
@@ -64,6 +77,7 @@ class RegisterView(generics.CreateAPIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class EmailVerificationView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [EmailVerificationRateThrottle]
@@ -71,9 +85,7 @@ class EmailVerificationView(APIView):
     @extend_schema(
         request=EmailVerificationSerializer,
         responses={200: dict},
-        description=(
-            "Verifies the six-digit email code and returns JWT tokens."
-        ),
+        description=("Verifies the six-digit email code and returns JWT tokens."),
     )
     def post(self, request):
         serializer = EmailVerificationSerializer(data=request.data)
@@ -136,6 +148,7 @@ class EmailVerificationResendView(APIView):
             status=status.HTTP_202_ACCEPTED,
         )
 
+
 class LoginView(TokenObtainPairView):
     throttle_classes = [LoginRateThrottle]
     permission_classes = [AllowAny]
@@ -155,6 +168,38 @@ class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
             ProfileSerializer(user, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class ManagerSellerListView(generics.ListAPIView):
+    """Paginated seller directory for managers."""
+
+    serializer_class = ProfileSerializer
+    permission_classes = [IsManager]
+
+    def get_queryset(self):
+        queryset = User.objects.filter(role=User.Role.SELLER).order_by("-date_joined")
+        search = self.request.query_params.get("search", "").strip()
+
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+            )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active:
+            if is_active not in {"true", "false"}:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({"is_active": "Use true or false."})
+
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset
+
 
 class MeView(generics.RetrieveUpdateAPIView):
     # The profile is edited partially. Do not expose PUT as a duplicate
@@ -179,4 +224,115 @@ class LogoutView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [LoginRateThrottle]
+
+    @extend_schema(
+        request=PasswordChangeSerializer,
+        responses={204: None},
+        description=(
+            "Изменяет пароль авторизованного пользователя и отзывает все "
+            "его refresh-токены."
+        ),
+    )
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            request.user.set_password(serializer.validated_data["new_password"])
+            request.user.save(update_fields=("password",))
+
+            revoke_refresh_tokens(user=request.user)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRequestRateThrottle]
+
+    @extend_schema(
+        request=PasswordResetRequestSerializer,
+        responses={202: PasswordResetRequestResponseSerializer},
+        description=(
+            "Отправляет шестизначный код сброса пароля на email. Ответ не "
+            "раскрывает, зарегистрирован ли такой пользователь."
+        ),
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            result = request_password_reset(
+                email=serializer.validated_data["email"],
+            )
+            if result is not None:
+                user, code = result
+                transaction.on_commit(
+                    lambda: send_password_reset_code.delay(
+                        email=user.email,
+                        code=code,
+                    )
+                )
+
+        return Response(
+            {
+                "detail": (
+                    "If an active account uses this email, a reset code was sent."
+                )
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class PasswordResetVerifyView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetVerifyRateThrottle]
+
+    @extend_schema(
+        request=PasswordResetVerifySerializer,
+        responses={200: PasswordResetVerifyResponseSerializer},
+        description=(
+            "Проверяет шестизначный код и возвращает короткоживущий "
+            "reset_token для установки нового пароля."
+        ),
+    )
+    def post(self, request):
+        serializer = PasswordResetVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reset_token = verify_password_reset_code(
+            email=serializer.validated_data["email"],
+            code=serializer.validated_data["code"],
+        )
+        return Response({"reset_token": reset_token}, status=status.HTTP_200_OK)
+
+
+class PasswordResetCompleteView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetVerifyRateThrottle]
+
+    @extend_schema(
+        request=PasswordResetCompleteSerializer,
+        responses={204: None},
+        description=(
+            "Устанавливает новый пароль по reset_token и отзывает все "
+            "активные refresh-токены. После этого пользователь входит заново."
+        ),
+    )
+    def post(self, request):
+        serializer = PasswordResetCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        complete_password_reset(
+            reset_token=serializer.validated_data["reset_token"],
+            new_password=serializer.validated_data["new_password"],
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)

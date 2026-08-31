@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - local
+
+  pull_request:
+    branches:
+      - local
+      - dev
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-branch-flow:
+    name: Validate branch flow
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate allowed Pull Request direction
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          if [[ "${{ github.base_ref }}" == "local" && "${{ github.head_ref }}" != feature/* ]]; then
+            echo "Only Pull Requests feature/* -> local are allowed."
+            exit 1
+          fi
+
+          if [[ "${{ github.base_ref }}" == "dev" && "${{ github.head_ref }}" != "local" ]]; then
+            echo "Only Pull Requests local -> dev are allowed."
+            exit 1
+          fi
+
+          if [[ "${{ github.base_ref }}" == "main" && "${{ github.head_ref }}" != "dev" ]]; then
+            echo "Only Pull Requests dev -> main are allowed."
+            exit 1
+          fi
+
+  test-and-lint:
+    name: Test and lint
+    needs: validate-branch-flow
+    runs-on: ubuntu-latest
+
+    env:
+      DJANGO_ENV: local
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_DEBUG: "false"
+
+      POSTGRES_DB: benim_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 5432
+
+      CELERY_BROKER_URL: redis://127.0.0.1:6379/0
+      CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/1
+      REDIS_CACHE_URL: redis://127.0.0.1:6379/2
+
+      FTP_MEDIA_HOST: example.invalid
+      FTP_MEDIA_PORT: 21
+      FTP_MEDIA_USERNAME: ci
+      FTP_MEDIA_PASSWORD: ci
+      FTP_MEDIA_REMOTE_ROOT: /api-media
+      FTP_MEDIA_PUBLIC_BASE_URL: https://example.invalid/api-media/
+
+      FIREBASE_ENABLED: "false"
+      OPENAI_ENABLED: "false"
+
+      EMAIL_HOST: localhost
+      EMAIL_PORT: 465
+      EMAIL_USE_SSL: "true"
+      EMAIL_USE_TLS: "false"
+      EMAIL_HOST_USER: ci
+      EMAIL_HOST_PASSWORD: ci
+      DEFAULT_FROM_EMAIL: ci@example.invalid
+      EMAIL_TIMEOUT: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: benim_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d benim_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check Python syntax
+        run: python -m compileall -q apps config tests
+
+      - name: Run Ruff linter
+        run: ruff check apps config tests
+
+      - name: Check Ruff formatting
+        run: ruff format --check apps config tests
+
+      - name: Run tests
+        run: pytest -q
+
+  build-production-image:
+    name: Build production image
+    needs: test-and-lint
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build production Docker image
+        run: docker build --file Dockerfile.prod --tag benim-depom-ci:${{ github.sha }} .

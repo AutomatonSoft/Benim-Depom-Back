@@ -2,7 +2,6 @@ from rest_framework.exceptions import ValidationError
 
 from .models import Product
 
-
 ALLOWED_ORDERING = {
     "created_at",
     "-created_at",
@@ -22,9 +21,7 @@ def _get_integer(query_params, name: str) -> int | None:
     try:
         return int(value)
     except ValueError as error:
-        raise ValidationError(
-            {name: "This value must be an integer."}
-        ) from error
+        raise ValidationError({name: "This value must be an integer."}) from error
 
 
 def filter_products(*, queryset, query_params):
@@ -39,9 +36,7 @@ def filter_products(*, queryset, query_params):
         valid_statuses = set(Product.Status.values)
 
         if status_value not in valid_statuses:
-            raise ValidationError(
-                {"status": "Unknown product status."}
-            )
+            raise ValidationError({"status": "Unknown product status."})
 
         queryset = queryset.filter(status=status_value)
 
@@ -79,28 +74,15 @@ def filter_products(*, queryset, query_params):
         normalized_value = is_available.lower()
 
         if normalized_value not in values:
-            raise ValidationError(
-                {
-                    "is_available": (
-                        "Use true or false."
-                    )
-                }
-            )
+            raise ValidationError({"is_available": ("Use true or false.")})
 
-        queryset = queryset.filter(
-            is_available=values[normalized_value]
-        )
+        queryset = queryset.filter(is_available=values[normalized_value])
 
     ordering = query_params.get("ordering", "-created_at")
 
     if ordering not in ALLOWED_ORDERING:
         raise ValidationError(
-            {
-                "ordering": (
-                    "Allowed values: "
-                    f"{', '.join(sorted(ALLOWED_ORDERING))}."
-                )
-            }
+            {"ordering": (f"Allowed values: {', '.join(sorted(ALLOWED_ORDERING))}.")}
         )
 
     return queryset.order_by(ordering).distinct()

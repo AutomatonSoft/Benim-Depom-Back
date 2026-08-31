@@ -2,23 +2,17 @@ from django.urls import path
 
 from .views import (
     ManagerApproveProductView,
+    ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
-    ProductModerationHistoryView,
-    SubmitProductView,
-    ManagerSendProductNotificationView,
     ManagerRequestProductAvailabilityView,
-    ManagerDeactivateProductView,
+    ManagerSendProductNotificationView,
+    ProductModerationHistoryView,
 )
 
 app_name = "moderation"
 
 urlpatterns = [
-    path(
-        "products/<int:product_pk>/submit/",
-        SubmitProductView.as_view(),
-        name="product-submit",
-    ),
     path(
         "products/<int:product_pk>/moderation-history/",
         ProductModerationHistoryView.as_view(),

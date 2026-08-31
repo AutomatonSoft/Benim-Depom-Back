@@ -9,7 +9,7 @@ class ProductTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductType
         fields = (
-            "id", 
+            "id",
             "name",
             "is_active",
             "sort_order",
@@ -20,7 +20,7 @@ class MaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = Material
         fields = (
-            "id", 
+            "id",
             "name",
             "is_active",
             "sort_order",
