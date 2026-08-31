@@ -3,7 +3,7 @@
 #   .\load_tests\throttling-stage.ps1 on      # disable rate limits on stage
 #   .\load_tests\throttling-stage.ps1 off     # restore rate limits on stage
 #   .\load_tests\throttling-stage.ps1 status  # show the current state
-#
+
 # The script only touches /home/alikhan/apps/benim-depom-stage and never
 # the production directory. Turning the flag on/off recreates the "web"
 # container (a few seconds of stage downtime).
