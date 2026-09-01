@@ -27,6 +27,7 @@ from apps.orchestrator.models import MarketplacePublication
 from .filters import filter_products
 from .models import Product, ProductImage
 from .permissions import CanAccessProduct
+from .pricing import latest_rate
 from .serializers import (
     ProductAvailabilitySerializer,
     ProductImageReorderSerializer,
@@ -74,7 +75,16 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
     )
 
 
-class ProductListCreateView(generics.ListCreateAPIView):
+class ExchangeRateSerializerContextMixin:
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["exchange_rate"] = latest_rate()
+        return context
+
+
+class ProductListCreateView(
+    ExchangeRateSerializerContextMixin, generics.ListCreateAPIView
+):
     serializer_class = ProductSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
@@ -251,6 +261,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
 
 class ProductDetailView(
+    ExchangeRateSerializerContextMixin,
     ManagerMutationThrottleMixin,
     generics.RetrieveUpdateDestroyAPIView,
 ):

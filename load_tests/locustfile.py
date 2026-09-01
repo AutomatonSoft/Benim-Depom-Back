@@ -7,7 +7,7 @@ generates AI content, uploads files, sends e-mail, or imports EANs.
 import os
 import time
 
-from locust import HttpUser, between, task
+from locust import HttpUser, between, events, task
 from locust.exception import StopUser
 
 
@@ -16,6 +16,43 @@ ACCESS_REFRESH_AFTER_SECONDS = 10 * 60
 
 def env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
+
+
+def has_login_creds(*, email_env: str, username_env: str, password_env: str, token_env: str) -> bool:
+    if env(token_env):
+        return True
+    login_id = env(email_env) or env(username_env)
+    return bool(login_id and env(password_env))
+
+
+@events.test_start.add_listener
+def _require_seller_and_manager_creds(environment, **_kwargs):
+    missing = []
+    if not has_login_creds(
+        email_env="LOAD_TEST_SELLER_EMAIL",
+        username_env="LOAD_TEST_SELLER_USERNAME",
+        password_env="LOAD_TEST_SELLER_PASSWORD",
+        token_env="LOAD_TEST_SELLER_ACCESS_TOKEN",
+    ):
+        missing.append(
+            "seller: LOAD_TEST_SELLER_EMAIL (or USERNAME) + LOAD_TEST_SELLER_PASSWORD"
+        )
+    if not has_login_creds(
+        email_env="LOAD_TEST_MANAGER_EMAIL",
+        username_env="LOAD_TEST_MANAGER_USERNAME",
+        password_env="LOAD_TEST_MANAGER_PASSWORD",
+        token_env="LOAD_TEST_MANAGER_ACCESS_TOKEN",
+    ):
+        missing.append(
+            "manager: LOAD_TEST_MANAGER_EMAIL (or USERNAME) + LOAD_TEST_MANAGER_PASSWORD"
+        )
+    if missing:
+        environment.runner.quit()
+        raise SystemExit(
+            "Locust credentials are not set in this PowerShell window:\n  - "
+            + "\n  - ".join(missing)
+            + "\nSet them in the same session, then re-run."
+        )
 
 
 class ApiUser(HttpUser):
@@ -52,8 +89,9 @@ class ApiUser(HttpUser):
             return
 
         raise StopUser(
-            f"Set {self.username_env_name}/{self.password_env_name} "
-            f"(preferred for long runs) or {self.token_env_name}."
+            f"Set {self.email_env_name} or {self.username_env_name}, "
+            f"and {self.password_env_name} (same PowerShell window), "
+            f"or {self.token_env_name}."
         )
 
     def _set_access(self, access: str, refresh: str) -> None:

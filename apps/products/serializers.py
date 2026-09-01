@@ -150,6 +150,11 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=Product.Currency.TRY,
     )
+    warehouse_city = serializers.ChoiceField(
+        choices=Product.WarehouseCity.choices,
+        required=True,
+    )
+    listing_price_eur = serializers.SerializerMethodField()
     otto_category_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -189,6 +194,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "product_type",
             "unit_price",
             "currency",
+            "warehouse_city",
+            "listing_price_eur",
             "total_amount",
             "otto_category_id",
             "otto_category_group_id",
@@ -227,11 +234,22 @@ class ProductSerializer(serializers.ModelSerializer):
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
+            "listing_price_eur",
         )
 
     @extend_schema_field(serializers.IntegerField)
     def get_total_quantity(self, product) -> int:
         return sum(variant.quantity for variant in product.variants.all())
+
+    @extend_schema_field(
+        serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    )
+    def get_listing_price_eur(self, product):
+        from .pricing import safe_listing_price_eur
+
+        if "exchange_rate" in self.context:
+            return safe_listing_price_eur(product, rate=self.context["exchange_rate"])
+        return safe_listing_price_eur(product)
 
     @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
     def get_total_amount(self, product):
