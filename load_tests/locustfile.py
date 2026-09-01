@@ -34,13 +34,17 @@ class ApiUser(HttpUser):
     def on_start(self):
         self.refresh_token = ""
         self.access_obtained_at = 0.0
-        self.email = env(self.email_env_name) or env(self.username_env_name)
+        self.login_id = env(self.email_env_name) or env(self.username_env_name)
         self.password = env(self.password_env_name)
         access = env(self.token_env_name)
 
-        if self.email and self.password:
+        if self.login_id and self.password:
             if not self._login():
-                raise StopUser(f"Login failed for {self.email}.")
+                raise StopUser(
+                    f"Login failed for {self.login_id}. "
+                    "After email-login is deployed, set LOAD_TEST_*_EMAIL "
+                    "(not username)."
+                )
             return
 
         if access:
@@ -57,10 +61,15 @@ class ApiUser(HttpUser):
         self.refresh_token = refresh
         self.access_obtained_at = time.monotonic()
 
+    def _login_payload(self) -> dict[str, str]:
+        if "@" in self.login_id:
+            return {"email": self.login_id, "password": self.password}
+        return {"username": self.login_id, "password": self.password}
+
     def _login(self) -> bool:
         with self.client.post(
             "/api/v1/auth/login/",
-            json={"email": self.email, "password": self.password},
+            json=self._login_payload(),
             name="POST /auth/login/ (setup)",
             catch_response=True,
         ) as response:
@@ -98,13 +107,13 @@ class ApiUser(HttpUser):
         age = time.monotonic() - self.access_obtained_at
         if age < ACCESS_REFRESH_AFTER_SECONDS:
             return
-        if not self._refresh() and self.email and self.password:
+        if not self._refresh() and self.login_id and self.password:
             self._login()
 
     def _recover_auth(self) -> bool:
         if self._refresh():
             return True
-        if self.email and self.password:
+        if self.login_id and self.password:
             return self._login()
         return False
 
