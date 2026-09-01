@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
@@ -14,6 +15,15 @@ def _validate_password_value(*, password, user, field_name: str) -> None:
         validate_password(password, user)
     except DjangoValidationError as exc:
         raise serializers.ValidationError({field_name: list(exc.messages)}) from exc
+
+
+@extend_schema_serializer(component_name="AuthLogin")
+class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        email = attrs.get(self.username_field)
+        if isinstance(email, str):
+            attrs[self.username_field] = email.strip().lower()
+        return super().validate(attrs)
 
 
 @extend_schema_serializer(component_name="AuthRegister")
@@ -101,7 +111,7 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
             "preferred_language",
         )
         extra_kwargs = {
-            "email": {"required": False},
+            "email": {"required": True},
             "first_name": {"required": False},
             "last_name": {"required": False},
             "phone": {"required": False},
@@ -122,6 +132,12 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
         )
         _validate_password_value(password=password, user=user, field_name="password")
         return attrs
+
+    def validate_email(self, value):
+        email = value.strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return email
 
     def create(self, validated_data):
         password = validated_data.pop("password")

@@ -23,6 +23,7 @@ from apps.common.throttles import (
 from .models import User
 from .purge import purge_seller
 from .serializers import (
+    EmailTokenObtainPairSerializer,
     EmailVerificationResendSerializer,
     EmailVerificationSerializer,
     LogoutSerializer,
@@ -152,6 +153,7 @@ class EmailVerificationResendView(APIView):
 
 
 class LoginView(TokenObtainPairView):
+    serializer_class = EmailTokenObtainPairSerializer
     throttle_classes = [LoginRateThrottle]
     permission_classes = [AllowAny]
 

@@ -75,6 +75,6 @@ In Locust, sort the Statistics table (or `*_stats.csv`) by p95 and failures:
 the rows at the top are the weak endpoints worth profiling next.
 
 If access tokens are not set, Locust falls back to credentials
-(`LOAD_TEST_SELLER_USERNAME/PASSWORD` and
-`LOAD_TEST_MANAGER_USERNAME/PASSWORD`). Do this only with a low spawn rate:
+(`LOAD_TEST_SELLER_EMAIL` or `LOAD_TEST_SELLER_USERNAME` plus password, and
+the same for manager). The login body is email + password. Do this only with a low spawn rate:
 the login endpoint is intentionally rate limited.
