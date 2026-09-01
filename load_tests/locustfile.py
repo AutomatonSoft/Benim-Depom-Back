@@ -5,9 +5,13 @@ generates AI content, uploads files, sends e-mail, or imports EANs.
 """
 
 import os
+import time
 
 from locust import HttpUser, between, task
 from locust.exception import StopUser
+
+
+ACCESS_REFRESH_AFTER_SECONDS = 10 * 60
 
 
 def env(name: str, default: str = "") -> str:
@@ -15,37 +19,116 @@ def env(name: str, default: str = "") -> str:
 
 
 class ApiUser(HttpUser):
-    """Authenticated user; use an access token to avoid testing login throttling."""
+    """Authenticated user. Prefers login+refresh so long staged runs survive
+    the 15-minute access-token TTL. A shared ACCESS_TOKEN env value cannot
+    be refreshed safely (refresh rotation blacklists the one token).
+    """
 
     abstract = True
     wait_time = between(1, 3)
     token_env_name = ""
     username_env_name = ""
+    email_env_name = ""
     password_env_name = ""
 
     def on_start(self):
-        token = env(self.token_env_name)
-        if not token:
-            username = env(self.username_env_name)
-            password = env(self.password_env_name)
-            if not username or not password:
+        self.refresh_token = ""
+        self.access_obtained_at = 0.0
+        self.login_id = env(self.email_env_name) or env(self.username_env_name)
+        self.password = env(self.password_env_name)
+        access = env(self.token_env_name)
+
+        if self.login_id and self.password:
+            if not self._login():
                 raise StopUser(
-                    f"Set {self.token_env_name} or both "
-                    f"{self.username_env_name}/{self.password_env_name}."
+                    f"Login failed for {self.login_id}. "
+                    "After email-login is deployed, set LOAD_TEST_*_EMAIL "
+                    "(not username)."
                 )
+            return
 
-            response = self.client.post(
-                "/api/v1/auth/login/",
-                json={"username": username, "password": password},
-                name="POST /auth/login/ (setup)",
-            )
+        if access:
+            self._set_access(access, refresh="")
+            return
+
+        raise StopUser(
+            f"Set {self.username_env_name}/{self.password_env_name} "
+            f"(preferred for long runs) or {self.token_env_name}."
+        )
+
+    def _set_access(self, access: str, refresh: str) -> None:
+        self.client.headers.update({"Authorization": f"Bearer {access}"})
+        self.refresh_token = refresh
+        self.access_obtained_at = time.monotonic()
+
+    def _login_payload(self) -> dict[str, str]:
+        if "@" in self.login_id:
+            return {"email": self.login_id, "password": self.password}
+        return {"username": self.login_id, "password": self.password}
+
+    def _login(self) -> bool:
+        with self.client.post(
+            "/api/v1/auth/login/",
+            json=self._login_payload(),
+            name="POST /auth/login/ (setup)",
+            catch_response=True,
+        ) as response:
             if response.status_code != 200:
-                raise StopUser(f"Login failed: HTTP {response.status_code}")
-            token = response.json()["access"]
+                response.failure(f"HTTP {response.status_code}")
+                return False
+            payload = response.json()
+            self._set_access(payload["access"], payload.get("refresh", ""))
+            response.success()
+            return True
 
-        self.client.headers.update({"Authorization": f"Bearer {token}"})
+    def _refresh(self) -> bool:
+        if not self.refresh_token:
+            return False
+        with self.client.post(
+            "/api/v1/auth/refresh/",
+            json={"refresh": self.refresh_token},
+            name="POST /auth/refresh/ (setup)",
+            catch_response=True,
+        ) as response:
+            if response.status_code != 200:
+                response.success()
+                return False
+            payload = response.json()
+            self._set_access(
+                payload["access"],
+                payload.get("refresh", self.refresh_token),
+            )
+            response.success()
+            return True
+
+    def _ensure_fresh_access(self) -> None:
+        if not self.refresh_token:
+            return
+        age = time.monotonic() - self.access_obtained_at
+        if age < ACCESS_REFRESH_AFTER_SECONDS:
+            return
+        if not self._refresh() and self.login_id and self.password:
+            self._login()
+
+    def _recover_auth(self) -> bool:
+        if self._refresh():
+            return True
+        if self.login_id and self.password:
+            return self._login()
+        return False
 
     def get_ok(self, url: str, name: str, expected: tuple[int, ...] = (200,)):
+        self._ensure_fresh_access()
+        with self.client.get(url, name=name, catch_response=True) as response:
+            if response.status_code in expected:
+                response.success()
+                return
+            if response.status_code == 401 and self._recover_auth():
+                response.success()
+            else:
+                response.failure(f"HTTP {response.status_code}")
+                return
+
         with self.client.get(url, name=name, catch_response=True) as response:
             if response.status_code in expected:
                 response.success()
@@ -94,13 +177,6 @@ class PublicCatalogUser(HttpUser):
             name="GET /catalog/otto/category-groups/:id/attributes/",
         )
 
-    @task(1)
-    def shipping_profiles(self):
-        self.client.get(
-            "/api/v1/catalog/otto/shipping-profiles/",
-            name="GET /catalog/otto/shipping-profiles/",
-        )
-
 
 class SellerReadUser(ApiUser):
     """Read actions an authenticated seller performs most often."""
@@ -108,6 +184,7 @@ class SellerReadUser(ApiUser):
     weight = 5
     token_env_name = "LOAD_TEST_SELLER_ACCESS_TOKEN"
     username_env_name = "LOAD_TEST_SELLER_USERNAME"
+    email_env_name = "LOAD_TEST_SELLER_EMAIL"
     password_env_name = "LOAD_TEST_SELLER_PASSWORD"
     product_id = env("LOAD_TEST_SELLER_PRODUCT_ID")
 
@@ -153,6 +230,7 @@ class ManagerReadUser(ApiUser):
     weight = 2
     token_env_name = "LOAD_TEST_MANAGER_ACCESS_TOKEN"
     username_env_name = "LOAD_TEST_MANAGER_USERNAME"
+    email_env_name = "LOAD_TEST_MANAGER_EMAIL"
     password_env_name = "LOAD_TEST_MANAGER_PASSWORD"
     product_id = env("LOAD_TEST_MANAGER_PRODUCT_ID")
     account = env("LOAD_TEST_MARKETPLACE_ACCOUNT", "jv")
@@ -182,6 +260,13 @@ class ManagerReadUser(ApiUser):
     @task(3)
     def eans(self):
         self.get_ok("/api/v1/manager/eans/?page=1&limit=20", "GET /manager/eans/")
+
+    @task(1)
+    def shipping_profiles(self):
+        self.get_ok(
+            f"/api/v1/catalog/otto/shipping-profiles/?account={self.account}",
+            "GET /catalog/otto/shipping-profiles/",
+        )
 
     @task(4)
     def publications(self):

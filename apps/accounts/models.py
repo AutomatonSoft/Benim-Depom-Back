@@ -1,6 +1,6 @@
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
-from django.db.models import Q
 
 
 class User(AbstractUser):
@@ -14,6 +14,17 @@ class User(AbstractUser):
         TURKISH = "tr", "Türkçe"
         GERMAN = "de", "Deutsch"
         ENGLISH = "en", "English"
+
+    username = models.CharField(
+        max_length=150,
+        unique=False,
+        validators=[UnicodeUsernameValidator()],
+        help_text="Display name. Not unique; authentication uses email.",
+    )
+    email = models.EmailField(unique=True)
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ["username"]
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.SELLER)
     phone = models.CharField(max_length=32, blank=True)
@@ -59,13 +70,6 @@ class User(AbstractUser):
 
     class Meta:
         ordering = ("-date_joined",)
-        constraints = [
-            models.UniqueConstraint(
-                fields=("email",),
-                condition=~Q(email=""),
-                name="accounts_user_unique_nonempty_email",
-            ),
-        ]
 
     def __str__(self) -> str:
         return self.username

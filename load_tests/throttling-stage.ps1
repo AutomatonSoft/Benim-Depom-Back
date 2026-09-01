@@ -32,7 +32,7 @@ function Show-Status {
     Write-Host "--- .env flag on stage:"
     Invoke-Stage "grep '^$Flag=' .env || echo '$Flag is not set (throttling ENABLED)'"
     Write-Host "--- flag inside the running web container:"
-    Invoke-Stage "$Compose exec -T web sh -c 'printenv $Flag || echo not set (throttling ENABLED)'"
+    Invoke-Stage "$Compose exec -T web printenv $Flag || echo NOT_SET"
 }
 
 switch ($Action) {
