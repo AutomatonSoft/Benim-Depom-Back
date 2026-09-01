@@ -68,6 +68,12 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
     response = api_client.post(
         f"/api/v1/products/{product.id}/images/{image.id}/process/"
     )
+    assert response.status_code == 400
+    product.status = Product.Status.APPROVED
+    product.save(update_fields=["status"])
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/{image.id}/process/"
+    )
     assert response.status_code == 202
     image.refresh_from_db()
     assert image.processing_status == ProductImage.ProcessingStatus.PENDING

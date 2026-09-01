@@ -118,6 +118,13 @@ def test_processing_request_and_approved_availability_services(
     delay = Mock()
     monkeypatch.setattr("apps.notifications.tasks.process_product_image.delay", delay)
 
+    with pytest.raises(ValidationError, match="after the product is approved"):
+        request_product_image_processing(product=product, image=image)
+    image.refresh_from_db()
+    assert image.processing_status == ProductImage.ProcessingStatus.IDLE
+
+    product.status = Product.Status.APPROVED
+    product.save(update_fields=["status"])
     request_product_image_processing(product=product, image=image)
     image.refresh_from_db()
     assert image.processing_status == ProductImage.ProcessingStatus.PENDING
