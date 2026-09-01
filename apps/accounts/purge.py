@@ -90,9 +90,7 @@ def _hard_delete_seller_rows(*, seller: User) -> int:
         MarketplaceListingConfiguration.objects.filter(
             product_id__in=product_ids
         ).delete()
-        MarketplaceContentGeneration.objects.filter(
-            product_id__in=product_ids
-        ).delete()
+        MarketplaceContentGeneration.objects.filter(product_id__in=product_ids).delete()
         _detach_eans(product_ids=product_ids)
         Product.objects.filter(id__in=product_ids).delete()
 
@@ -115,9 +113,7 @@ def purge_seller(*, seller: User, requested_by: User) -> dict:
 
     is_self_delete = seller.id == requested_by.id
     if not is_self_delete and not is_manager(requested_by):
-        raise ValidationError(
-            {"detail": "A seller can only delete their own account."}
-        )
+        raise ValidationError({"detail": "A seller can only delete their own account."})
 
     with transaction.atomic():
         seller = User.objects.select_for_update().get(pk=seller.pk)
@@ -184,9 +180,13 @@ def try_finalize_seller_purge(*, seller_id: int) -> str:
             return "missing"
         if _seller_has_busy_marketplace_work(seller):
             return "busy"
-        if _seller_products(seller).filter(
-            marketplace_publications__status=MarketplacePublication.Status.ACTIVE
-        ).exists():
+        if (
+            _seller_products(seller)
+            .filter(
+                marketplace_publications__status=MarketplacePublication.Status.ACTIVE
+            )
+            .exists()
+        ):
             return "busy"
         _hard_delete_seller_rows(seller=seller)
         return "deleted"
