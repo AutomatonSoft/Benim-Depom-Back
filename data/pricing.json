@@ -1,0 +1,19 @@
+{
+    "margin": 0.75,
+    "adv_fee": 0.19,
+    "vat": 0.19,
+    "city_tariffs_eur_per_cbm": {
+      "IST": 84,
+      "ANK": 180,
+      "IZM": 160,
+      "BUR": 75,
+      "KSY": 160,
+      "INE": 75
+    },
+    "de_size_tiers": [
+      { "code": "S", "min_cbm": 0, "max_cbm": 0.03, "price_eur": 20 },
+      { "code": "M", "min_cbm": 0.031, "max_cbm": 0.5, "price_eur": 89 },
+      { "code": "L", "min_cbm": 0.51, "max_cbm": 2.5, "price_eur": 170 },
+      { "code": "XL", "min_cbm": 2.51, "max_cbm": 9999, "price_eur": 250 }
+    ]
+  }

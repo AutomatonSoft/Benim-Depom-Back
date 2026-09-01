@@ -33,6 +33,14 @@ class Product(models.Model):
         EUR = "EUR", "Euro"
         USD = "USD", "US dollar"
 
+    class WarehouseCity(models.TextChoices):
+        IST = "IST", "Istanbul"
+        ANK = "ANK", "Ankara"
+        IZM = "IZM", "Izmir"
+        BUR = "BUR", "Bursa"
+        KSY = "KSY", "Kars"
+        INE = "INE", "Inegol"
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -51,6 +59,9 @@ class Product(models.Model):
         max_length=3,
         choices=Currency.choices,
         default=Currency.TRY,
+    )
+    warehouse_city = models.CharField(
+        max_length=3, choices=WarehouseCity.choices, default=WarehouseCity.INE
     )
     otto_category_id = models.PositiveIntegerField(
         null=True,
@@ -277,3 +288,17 @@ class ProductGeneratedImage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source_image_id}: {self.mode}"
+
+
+class ExchangeRate(models.Model):
+    as_of = models.DateField()
+    eur_to_usd = models.DecimalField(max_digits=12, decimal_places=6)
+    eur_to_try = models.DecimalField(max_digits=12, decimal_places=6)
+    source = models.CharField(max_length=32, default="frankfurter")
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-fetched_at",)
+
+    def __str__(self) -> str:
+        return f"{self.as_of} EUR→USD {self.eur_to_usd} EUR→TRY {self.eur_to_try}"

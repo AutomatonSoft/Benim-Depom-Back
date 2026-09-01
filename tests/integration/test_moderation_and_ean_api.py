@@ -24,6 +24,7 @@ def test_product_creation_requires_image_and_notifies_managers_without_reserving
         "product_type": product_type,
         "unit_price": "1000.00",
         "currency": "TRY",
+        "warehouse_city": "INE",
         "variants": json.dumps(
             [
                 {

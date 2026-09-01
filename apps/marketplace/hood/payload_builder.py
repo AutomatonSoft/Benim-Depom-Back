@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.products.pricing import fill_marketplace_price
 
 
 class HoodPayloadValidationError(ValueError):
@@ -96,7 +97,9 @@ def build_hood_payload(
     if not description:
         errors["description"] = "Enter the Hood HTML description."
 
-    price = _as_positive_decimal(configuration.get("price"))
+    price = _as_positive_decimal(
+        fill_marketplace_price(configuration, product, field="price").get("price")
+    )
     if price is None:
         errors["price"] = "Enter a positive Hood price."
 

@@ -12,6 +12,7 @@ from apps.marketplace.kaufland.payload_builder import (
     KAUFLAND_STOREFRONTS,
 )
 from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
+from apps.products.pricing import fill_marketplace_price
 
 from .capabilities import supports_operation
 from .models import (
@@ -523,6 +524,15 @@ class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["configuration"] = fill_marketplace_price(
+            data.get("configuration") or {},
+            instance.product,
+            field="standard_price",
+        )
+        return data
+
 
 @extend_schema_serializer(component_name="HoodListingConfiguration")
 class HoodListingConfigurationSerializer(serializers.Serializer):
@@ -599,6 +609,15 @@ class HoodListingConfigurationResponseSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["configuration"] = fill_marketplace_price(
+            data.get("configuration") or {},
+            instance.product,
+            field="price",
+        )
+        return data
 
 
 @extend_schema_serializer(component_name="KauflandListingConfiguration")
@@ -691,3 +710,12 @@ class KauflandListingConfigurationResponseSerializer(serializers.ModelSerializer
             "updated_at",
         )
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["configuration"] = fill_marketplace_price(
+            data.get("configuration") or {},
+            instance.product,
+            field="price",
+        )
+        return data

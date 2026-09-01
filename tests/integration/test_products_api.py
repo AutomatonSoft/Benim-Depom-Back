@@ -16,6 +16,7 @@ def product_payload(product_type, **overrides):
         "product_type": product_type,
         "unit_price": "1000.00",
         "currency": "TRY",
+        "warehouse_city": "INE",
         "otto_category_id": 26822,
         "otto_category_group_id": 3593,
         "variants": [
@@ -112,6 +113,7 @@ def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
             "product_type": product_type,
             "unit_price": "1000.00",
             "currency": "TRY",
+            "warehouse_city": "INE",
             "variants": "not-json",
             "images": [image_file("invalid.png")],
         },
@@ -128,6 +130,7 @@ def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
             "product_type": product_type,
             "unit_price": "1000.00",
             "currency": "TRY",
+            "warehouse_city": "INE",
             "variants": json.dumps(product_payload(product_type)["variants"]),
             "images": [image_file(f"image-{index}.png") for index in range(11)],
         },
