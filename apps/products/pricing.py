@@ -5,6 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from .models import ExchangeRate, Product
 from .pricing_catalog import get_pricing_catalog
 
+_UNSET = object()
 CM3_PER_M3 = Decimal("1000000")
 PERCENT_FACTOR = Decimal("2.13")  # 75% + 19% + 19%
 
@@ -57,8 +58,11 @@ def latest_rate() -> ExchangeRate | None:
     return ExchangeRate.objects.order_by("-fetched_at").first()
 
 
-def listing_price_eur(product: Product) -> Decimal | None:
-    rate = latest_rate()
+def listing_price_eur(
+    product: Product, rate: ExchangeRate | None | object = _UNSET
+) -> Decimal | None:
+    if rate is _UNSET:
+        rate = latest_rate()
     if rate is None:
         return None
     catalog = get_pricing_catalog()
@@ -69,9 +73,11 @@ def listing_price_eur(product: Product) -> Decimal | None:
     return round_to_49_or_99(with_percent)
 
 
-def safe_listing_price_eur(product: Product) -> Decimal | None:
+def safe_listing_price_eur(
+    product: Product, rate: ExchangeRate | None | object = _UNSET
+) -> Decimal | None:
     try:
-        return listing_price_eur(product)
+        return listing_price_eur(product, rate=rate)
     except (ValueError, KeyError):
         return None
 

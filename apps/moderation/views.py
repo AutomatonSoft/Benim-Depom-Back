@@ -19,6 +19,7 @@ from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
 from apps.products.filters import filter_products
 from apps.products.models import Product
+from apps.products.pricing import latest_rate
 from apps.products.serializers import ProductSerializer
 from apps.products.services import request_product_availability
 
@@ -59,6 +60,11 @@ class ProductModerationHistoryView(generics.ListAPIView):
 class ManagerProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsManager]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["exchange_rate"] = latest_rate()
+        return context
 
     def get_queryset(self):
         queryset = (

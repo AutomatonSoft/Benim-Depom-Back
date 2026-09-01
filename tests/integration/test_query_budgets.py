@@ -15,7 +15,8 @@ def test_seller_product_list_query_budget(api_client, seller, product_factory):
 
     assert response.status_code == 200
     assert response.data["count"] == 25
-    assert len(queries) <= 6
+    # One extra query loads the current EUR rate for listing_price_eur.
+    assert len(queries) <= 7
 
 
 @pytest.mark.integration
@@ -37,4 +38,5 @@ def test_manager_product_list_query_budget(
 
     assert response.status_code == 200
     assert response.data["count"] == 30
-    assert len(queries) <= 6
+    # One extra query loads the current EUR rate for listing_price_eur.
+    assert len(queries) <= 7
