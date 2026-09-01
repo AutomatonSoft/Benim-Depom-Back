@@ -13,9 +13,9 @@ def authenticate(client, user):
 
 
 @pytest.mark.integration
-@pytest.mark.django_db
-def test_product_creation_requires_image_and_does_not_reserve_eans(
-    api_client, seller, product_type, image_file
+@pytest.mark.django_db(transaction=True)
+def test_product_creation_requires_image_and_notifies_managers_without_reserving_eans(
+    api_client, seller, manager, product_type, image_file
 ):
     authenticate(api_client, seller)
 
@@ -47,6 +47,46 @@ def test_product_creation_requires_image_and_does_not_reserve_eans(
     assert response.data["status"] == Product.Status.SUBMITTED
     product = Product.objects.get(pk=response.data["id"])
     assert product.ean_jv == "" and product.ean_xl == ""
+    assert Notification.objects.filter(
+        user=manager,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_can_edit_approved_product_and_images(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+    product_image_factory,
+    image_file,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    image = product_image_factory(product=product)
+    authenticate(api_client, manager)
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {"title": "Manager updated chair", "unit_price": "150.00"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["title"] == "Manager updated chair"
+
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/",
+        {"image": image_file("manager-image.png"), "is_primary": False},
+        format="multipart",
+    )
+    assert response.status_code == 201
+
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/{image.id}/make-primary/"
+    )
+    assert response.status_code == 200
 
 
 @pytest.mark.integration

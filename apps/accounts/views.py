@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -8,7 +9,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from apps.common.permissions import IsManager
+from apps.common.permissions import IsManager, IsSeller
 from apps.common.throttles import (
     EmailVerificationRateThrottle,
     EmailVerificationResendRateThrottle,
@@ -20,6 +21,7 @@ from apps.common.throttles import (
 )
 
 from .models import User
+from .purge import purge_seller
 from .serializers import (
     EmailVerificationResendSerializer,
     EmailVerificationSerializer,
@@ -201,15 +203,55 @@ class ManagerSellerListView(generics.ListAPIView):
         return queryset
 
 
+class ManagerSellerDeleteView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=None,
+        responses={202: None, 204: None},
+        description=(
+            "Hard-deletes a seller. Active marketplace listings are removed "
+            "first (OTTO deactivate, Hood/Kaufland delete). The account is "
+            "disabled immediately and fully deleted after those jobs finish."
+        ),
+    )
+    def delete(self, request, user_id: int):
+        seller = get_object_or_404(User, pk=user_id, role=User.Role.SELLER)
+        result = purge_seller(seller=seller, requested_by=request.user)
+        if result["deleted"]:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(result, status=status.HTTP_202_ACCEPTED)
+
+
 class MeView(generics.RetrieveUpdateAPIView):
-    # The profile is edited partially. Do not expose PUT as a duplicate
-    # full-replacement API that clients do not need.
-    http_method_names = ["get", "patch", "head", "options"]
+    # PATCH is the sole update verb. DELETE lets a seller remove their own
+    # account; managers use the seller-delete endpoint instead.
+    http_method_names = ["get", "patch", "delete", "head", "options"]
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticated(), IsSeller()]
+        return super().get_permissions()
+
     def get_object(self):
         return self.request.user
+
+    @extend_schema(
+        request=None,
+        responses={202: None, 204: None},
+        description=(
+            "Lets a seller delete their own account. Active marketplace "
+            "listings are removed first; the account is disabled immediately "
+            "and fully deleted after those jobs finish."
+        ),
+    )
+    def delete(self, request, *args, **kwargs):
+        result = purge_seller(seller=request.user, requested_by=request.user)
+        if result["deleted"]:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(result, status=status.HTTP_202_ACCEPTED)
 
 
 class LogoutView(APIView):

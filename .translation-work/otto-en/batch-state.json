@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "batch_id": "batch_6a8ec16e79b881908cd3a025edd33f8c",
+  "language": "en",
+  "model": "gpt-5-mini",
+  "created_at": "2026-08-26T10:35:27.390Z",
+  "destination_entry_count": 534352,
+  "unique_translation_count": 29207,
+  "request_count": 835,
+  "source": {
+    "categories_sha256": "1eda69a346022cf340ed5c4371cf2c5f263c5aa9fe9ac9f2031c7802bab7bc71",
+    "attributes_by_group_sha256": "3a86816a4549acd799b3e27fdb0fa2f2a63d2d26b980f4ef3a859f6288e129e8"
+  }
+}

@@ -19,8 +19,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ("GET", "/api/v1/auth/me/"): "Получить свой профиль",
         ("PATCH", "/api/v1/auth/me/"): "Изменить свой профиль",
         ("PUT", "/api/v1/auth/me/"): "Заменить свой профиль",
+        ("DELETE", "/api/v1/auth/me/"): "Удалить свой аккаунт",
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",
         ("GET", "/api/v1/manager/users/sellers/"): "Получить список продавцов",
+        ("DELETE", "/api/v1/manager/users/sellers/{user_id}/"): "Удалить продавца",
         ("POST", "/api/v1/auth/password/change/"): "Изменить пароль",
         (
             "POST",
