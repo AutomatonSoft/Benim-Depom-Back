@@ -13,7 +13,7 @@ class MarketplaceAutoSchema(AutoSchema):
             "POST",
             "/api/v1/auth/email/resend-verification/",
         ): "Отправить email-код повторно",
-        ("POST", "/api/v1/auth/login/"): "Войти по логину и паролю",
+        ("POST", "/api/v1/auth/login/"): "Войти по email и паролю",
         ("POST", "/api/v1/auth/refresh/"): "Обновить JWT-токены",
         ("POST", "/api/v1/auth/logout/"): "Выйти и отозвать refresh-токен",
         ("GET", "/api/v1/auth/me/"): "Получить свой профиль",

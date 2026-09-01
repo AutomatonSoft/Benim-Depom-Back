@@ -51,8 +51,10 @@ def user_factory(db, password):
 
     def create(*, role=User.Role.SELLER, username=None, **kwargs):
         username = username or f"user_{next(sequence)}"
+        email = kwargs.pop("email", f"{username}@example.com")
         return User.objects.create_user(
             username=username,
+            email=email,
             password=kwargs.pop("password", password),
             role=role,
             **kwargs,

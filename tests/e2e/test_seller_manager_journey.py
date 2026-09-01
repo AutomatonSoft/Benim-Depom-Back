@@ -73,12 +73,15 @@ def test_seller_to_manager_approval_and_deactivation_journey(
     assert create.data["status"] == Product.Status.SUBMITTED
 
     manager = User.objects.create_user(
-        username="journey_manager", password=password, role=User.Role.MANAGER
+        username="journey_manager",
+        email="journey_manager@example.com",
+        password=password,
+        role=User.Role.MANAGER,
     )
     api_client.credentials()
     manager_login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": manager.username, "password": password},
+        {"email": manager.email, "password": password},
         format="json",
     )
     assert manager_login.status_code == 200
@@ -111,7 +114,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
 
     seller_login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": "journey_seller", "password": password},
+        {"email": "journey_seller@example.com", "password": password},
         format="json",
     )
     bearer(api_client, seller_login.data["access"])
@@ -137,10 +140,14 @@ def test_seller_to_manager_approval_and_deactivation_journey(
 @pytest.mark.e2e
 @pytest.mark.django_db(transaction=True)
 def test_seller_can_withdraw_before_manager_approval(api_client, image_file, password):
-    user = User.objects.create_user(username="withdraw_seller", password=password)
+    user = User.objects.create_user(
+        username="withdraw_seller",
+        email="withdraw_seller@example.com",
+        password=password,
+    )
     login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": user.username, "password": password},
+        {"email": user.email, "password": password},
         format="json",
     )
     bearer(api_client, login.data["access"])
