@@ -20,6 +20,7 @@ from apps.catalog.otto_shipping_profiles import (
     get_otto_shipping_profile,
 )
 from apps.marketplace.colors import german_color_name
+from apps.products.pricing import fill_marketplace_price
 
 OTTO_DELIVERY_TYPES = (
     "PARCEL",
@@ -237,7 +238,11 @@ def build_otto_payload(
             "Product name/product line may not exceed 100 characters."
         )
 
-    standard_price = _as_positive_decimal(configuration.get("standard_price"))
+    standard_price = _as_positive_decimal(
+        fill_marketplace_price(
+            configuration, product, field="standard_price"
+        ).get("standard_price")
+    )
     if standard_price is None:
         errors["standard_price"] = "Enter a positive OTTO selling price in EUR."
 

@@ -50,6 +50,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
             "product_type": "Chair",
             "unit_price": "1000.00",
             "currency": "TRY",
+            "warehouse_city": "INE",
             "otto_category_id": 26822,
             "otto_category_group_id": 3593,
             "variants": json.dumps(
@@ -158,6 +159,7 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
             "product_type": "Table",
             "unit_price": "1000.00",
             "currency": "TRY",
+            "warehouse_city": "INE",
             "otto_category_id": 26822,
             "otto_category_group_id": 3593,
             "variants": json.dumps(

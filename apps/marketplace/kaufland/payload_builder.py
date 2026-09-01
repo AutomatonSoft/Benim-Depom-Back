@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.products.pricing import fill_marketplace_price
 
 KAUFLAND_STOREFRONTS = (
     "de",
@@ -134,7 +135,9 @@ def build_kaufland_create_payload(
     if not description:
         errors["description"] = "Enter the Kaufland product description."
 
-    price = _as_positive_decimal(configuration.get("price"))
+    price = _as_positive_decimal(
+        fill_marketplace_price(configuration, product, field="price").get("price")
+    )
     if price is None:
         errors["price"] = "Enter a positive Kaufland price."
 
@@ -243,8 +246,9 @@ def build_kaufland_update_payload(
     if description:
         payload["description"] = description
 
-    if "price" in configuration:
-        price = _as_positive_decimal(configuration["price"])
+    filled = fill_marketplace_price(configuration, product, field="price")
+    if "price" in filled:
+        price = _as_positive_decimal(filled["price"])
 
         if price is None:
             errors["price"] = "Enter a positive Kaufland price."
