@@ -48,7 +48,7 @@ def test_registration_email_verification_login_and_manager_creation(
 
     response = api_client.post(
         "/api/v1/auth/login/",
-        {"username": "new_seller", "password": password},
+        {"email": "new_seller@example.com", "password": password},
         format="json",
     )
     assert response.status_code == 401
@@ -70,6 +70,7 @@ def test_registration_email_verification_login_and_manager_creation(
         "/api/v1/manager/users/",
         {
             "username": "second_manager",
+            "email": "second_manager@example.com",
             "password": password,
             "password_confirm": password,
         },
@@ -77,6 +78,36 @@ def test_registration_email_verification_login_and_manager_creation(
     )
     assert response.status_code == 201
     assert response.data["role"] == User.Role.MANAGER
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_duplicate_usernames_are_allowed_and_login_uses_email(api_client, password):
+    User.objects.create_user(
+        username="same_name",
+        email="first-same@example.com",
+        password=password,
+    )
+    second = User.objects.create_user(
+        username="same_name",
+        email="second-same@example.com",
+        password=password,
+    )
+
+    login = api_client.post(
+        "/api/v1/auth/login/",
+        {"email": second.email, "password": password},
+        format="json",
+    )
+    assert login.status_code == 200
+
+    me = api_client.get(
+        "/api/v1/auth/me/",
+        HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+    )
+    assert me.status_code == 200
+    assert me.data["email"] == second.email
+    assert me.data["username"] == "same_name"
 
 
 @pytest.mark.integration
@@ -98,7 +129,7 @@ def test_auth_rejects_password_mismatch_bad_login_and_seller_manager_creation(
 
     response = api_client.post(
         "/api/v1/auth/login/",
-        {"username": seller.username, "password": "wrong-password"},
+        {"email": seller.email, "password": "wrong-password"},
         format="json",
     )
     assert response.status_code == 401
@@ -148,7 +179,7 @@ def test_profile_refresh_and_logout_blacklist_refresh_token(
 ):
     login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": seller.username, "password": password},
+        {"email": seller.email, "password": password},
         format="json",
     )
     assert login.status_code == 200
@@ -194,7 +225,7 @@ def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
 ):
     login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": seller.username, "password": password},
+        {"email": seller.email, "password": password},
         format="json",
     )
     assert login.status_code == 200
@@ -235,7 +266,7 @@ def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
     assert (
         api_client.post(
             "/api/v1/auth/login/",
-            {"username": seller.username, "password": password},
+            {"email": seller.email, "password": password},
             format="json",
         ).status_code
         == 401
@@ -244,7 +275,7 @@ def test_authenticated_user_can_change_password_and_revokes_refresh_tokens(
         api_client.post(
             "/api/v1/auth/login/",
             {
-                "username": seller.username,
+                "email": seller.email,
                 "password": "DifferentPassword123!",
             },
             format="json",
@@ -272,7 +303,7 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
 
     login = api_client.post(
         "/api/v1/auth/login/",
-        {"username": seller.username, "password": password},
+        {"email": seller.email, "password": password},
         format="json",
     )
     refresh = login.data["refresh"]
@@ -344,7 +375,7 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
     assert (
         api_client.post(
             "/api/v1/auth/login/",
-            {"username": seller.username, "password": password},
+            {"email": seller.email, "password": password},
             format="json",
         ).status_code
         == 401
@@ -352,7 +383,7 @@ def test_password_reset_changes_password_and_revokes_refresh_tokens(
     assert (
         api_client.post(
             "/api/v1/auth/login/",
-            {"username": seller.username, "password": "DifferentPassword123!"},
+            {"email": seller.email, "password": "DifferentPassword123!"},
             format="json",
         ).status_code
         == 200

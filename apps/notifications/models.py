@@ -52,6 +52,10 @@ class Notification(models.Model):
             "product_deactivation_requested",
             "Product deactivation requested",
         )
+        PRODUCT_SUBMITTED_FOR_REVIEW = (
+            "product_submitted_for_review",
+            "Product submitted for review",
+        )
 
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,

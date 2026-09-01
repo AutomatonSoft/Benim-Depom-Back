@@ -62,3 +62,13 @@ def send_password_reset_code(*, email: str, code: str) -> None:
     )
     message.attach_alternative(html_body, "text/html")
     message.send(fail_silently=False)
+
+
+@shared_task(bind=True, max_retries=40, default_retry_delay=20)
+def finalize_seller_purge(self, seller_id: int) -> str:
+    from apps.accounts.purge import try_finalize_seller_purge
+
+    result = try_finalize_seller_purge(seller_id=seller_id)
+    if result == "busy":
+        raise self.retry()
+    return result

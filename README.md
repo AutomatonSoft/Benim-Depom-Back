@@ -7,7 +7,7 @@ Backend сервиса, где продавцы создают товары из
 ## Возможности
 
 - Регистрация seller по username, email и паролю; подтверждение email шестизначным SMTP-кодом.
-- JWT: login, refresh с rotation, logout с blacklist refresh-token, профиль.
+- JWT: login по email и паролю, refresh с rotation, logout с blacklist refresh-token, профиль.
 - Роли `seller`, `manager`, `admin` и разграничение доступа.
 - Товары с ценой за единицу (`TRY`, `EUR`, `USD`), вариантами, размерами, количеством, HEX-цветом и текстовыми материалами.
 - Выбор OTTO-категории и необязательных атрибутов из локального JSON-каталога.
@@ -114,7 +114,7 @@ OTTO / Hood / Kaufland / OpenAI / image AI / Firebase
 2. Показать экран ввода кода.
 3. `POST /auth/email/verify/` возвращает `access` и `refresh`.
 4. Если код не пришёл: `POST /auth/email/resend-verification/`.
-5. Для следующих входов: `POST /auth/login/`.
+5. Для следующих входов: `POST /auth/login/` с email и паролем (`username` больше не уникален и не используется для входа).
 
 ```json
 {
@@ -235,7 +235,7 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | `POST` | `register/` | public | Регистрация seller, отправка email-code. |
 | `POST` | `email/verify/` | public | Verify email-code, выдача JWT. |
 | `POST` | `email/resend-verification/` | public | Повторная отправка кода. |
-| `POST` | `login/` | public | Login username/password. |
+| `POST` | `login/` | public | Login email/password. |
 | `POST` | `refresh/` | public | Обновление JWT-пары. |
 | `POST` | `logout/` | authenticated | Blacklist refresh-token. |
 | `GET` | `me/` | authenticated | Получить профиль. |
