@@ -61,9 +61,7 @@ class Product(models.Model):
         default=Currency.TRY,
     )
     warehouse_city = models.CharField(
-        max_length=3,
-        choices=WarehouseCity.choices,
-        default=WarehouseCity.INE
+        max_length=3, choices=WarehouseCity.choices, default=WarehouseCity.INE
     )
     otto_category_id = models.PositiveIntegerField(
         null=True,

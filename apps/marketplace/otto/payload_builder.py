@@ -239,9 +239,9 @@ def build_otto_payload(
         )
 
     standard_price = _as_positive_decimal(
-        fill_marketplace_price(
-            configuration, product, field="standard_price"
-        ).get("standard_price")
+        fill_marketplace_price(configuration, product, field="standard_price").get(
+            "standard_price"
+        )
     )
     if standard_price is None:
         errors["standard_price"] = "Enter a positive OTTO selling price in EUR."

@@ -242,9 +242,7 @@ class ProductSerializer(serializers.ModelSerializer):
         return sum(variant.quantity for variant in product.variants.all())
 
     @extend_schema_field(
-        serializers.DecimalField(
-            max_digits=12, decimal_places=2, allow_null=True
-        )
+        serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
     )
     def get_listing_price_eur(self, product):
         from .pricing import safe_listing_price_eur
