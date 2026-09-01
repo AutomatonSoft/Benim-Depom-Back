@@ -13,4 +13,3 @@ PRICING_FILE = settings.BASE_DIR / "data" / "pricing.json"
 def get_pricing_catalog() -> dict[str, Any]:
     payload = json.loads(PRICING_FILE.read_text(encoding="utf-8"))
     return payload
-    

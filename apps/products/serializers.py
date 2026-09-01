@@ -248,9 +248,7 @@ class ProductSerializer(serializers.ModelSerializer):
         from .pricing import safe_listing_price_eur
 
         if "exchange_rate" in self.context:
-            return safe_listing_price_eur(
-                product, rate=self.context["exchange_rate"]
-            )
+            return safe_listing_price_eur(product, rate=self.context["exchange_rate"])
         return safe_listing_price_eur(product)
 
     @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
