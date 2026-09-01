@@ -201,6 +201,7 @@ class ProductVariant(models.Model):
 
 class ProductImage(models.Model):
     class ProcessingStatus(models.TextChoices):
+        IDLE = "idle", "Idle"
         PENDING = "pending", "Pending"
         PROCESSING = "processing", "Processing"
         SUCCEEDED = "succeeded", "Succeeded"
@@ -223,7 +224,7 @@ class ProductImage(models.Model):
     processing_status = models.CharField(
         max_length=20,
         choices=ProcessingStatus.choices,
-        default=ProcessingStatus.PENDING,
+        default=ProcessingStatus.IDLE,
     )
     processing_error = models.TextField(blank=True)
     processing_result = models.JSONField(

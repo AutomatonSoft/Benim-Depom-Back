@@ -84,14 +84,11 @@ def assign_ean_codes_to_product(*, product) -> list[EanCode]:
         )
 
         if ean_code is None:
-            raise ValidationError(
-                {
-                    "ean": (
-                        f"No free EAN codes remain for account '{account}'. "
-                        "Ask a manager to import more codes."
-                    )
-                }
+            message = (
+                f"No free EAN codes remain for account '{account}'. "
+                "Ask a manager to import more codes."
             )
+            raise ValidationError({"detail": message, "ean": message})
 
         ean_code.product = product
         ean_code.state = EanCode.State.RESERVED

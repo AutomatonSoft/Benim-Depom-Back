@@ -387,13 +387,9 @@ def request_product_image_processing(
 ) -> ProductImage:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if locked_product.status not in {
-        Product.Status.SUBMITTED,
-        Product.Status.UNDER_REVIEW,
-        Product.Status.APPROVED,
-    }:
+    if locked_product.status != Product.Status.APPROVED:
         raise ValidationError(
-            {"detail": "Images can be generated only after product submission."}
+            {"detail": "Images can be generated only after the product is approved."}
         )
 
     locked_image = ProductImage.objects.select_for_update().get(

@@ -105,6 +105,7 @@ def test_manager_approval_requires_two_pool_codes_then_assigns_one_per_account(
         format="json",
     )
     assert response.status_code == 400
+    assert "No free EAN" in str(response.data.get("detail") or response.data)
     product.refresh_from_db()
     assert product.status == Product.Status.SUBMITTED
 

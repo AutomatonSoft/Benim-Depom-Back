@@ -150,6 +150,8 @@ def test_image_processing_queues_external_job_and_handles_service_failure(
 ):
     product = product_factory(owner=seller, status=Product.Status.SUBMITTED)
     image = product_image_factory(product=product)
+    image.processing_status = ProductImage.ProcessingStatus.PENDING
+    image.save(update_fields=["processing_status"])
     monkeypatch.setattr(
         "apps.common.white_image_service.generate_white_background",
         Mock(return_value={"payload": {"status": "queued", "product_id": 42}}),
@@ -172,6 +174,8 @@ def test_image_processing_queues_external_job_and_handles_service_failure(
     failed = product_image_factory(
         product=product_factory(owner=seller, status=Product.Status.SUBMITTED)
     )
+    failed.processing_status = ProductImage.ProcessingStatus.PENDING
+    failed.save(update_fields=["processing_status"])
     monkeypatch.setattr(
         "apps.common.white_image_service.generate_white_background",
         Mock(
