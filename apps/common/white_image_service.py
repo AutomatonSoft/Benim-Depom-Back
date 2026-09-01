@@ -32,7 +32,10 @@ def _summarize_value(value: Any) -> Any:
 
 def generate_white_background(*, image_file, title: str, product_type: str) -> dict:
     if not settings.BULK_WHITE_IMAGE_SERVICE_URL:
-        raise ImproperlyConfigured("BULK_WHITE_IMAGE_SERVICE_URL is not configured")
+        raise ImproperlyConfigured(
+            "Image generation is not configured on this server. "
+            "Set BULK_WHITE_IMAGE_SERVICE_URL in the backend environment."
+        )
 
     if not settings.BULK_WHITE_IMAGE_SERVICE_TOKEN:
         raise ImproperlyConfigured("BULK_WHITE_IMAGE_SERVICE_TOKEN is not configured")
