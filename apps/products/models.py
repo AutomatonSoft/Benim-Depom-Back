@@ -33,6 +33,14 @@ class Product(models.Model):
         EUR = "EUR", "Euro"
         USD = "USD", "US dollar"
 
+    class WarehouseCity(models.TextChoices):
+        IST = "IST", "Istanbul"
+        ANK = "ANK", "Ankara"
+        IZM = "IZM", "Izmir"
+        BUR = "BUR", "Bursa"
+        KSY = "KSY", "Kars"
+        INE = "INE", "Inegol"
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -52,6 +60,17 @@ class Product(models.Model):
         choices=Currency.choices,
         default=Currency.TRY,
     )
+    warehouse_city = models.CharField(
+        max_length=3, choices=WarehouseCity.choices, default=WarehouseCity.INE
+    )
+    listing_price_eur_override = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    pricing_overrides = models.JSONField(default=dict, blank=True)
     otto_category_id = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -190,6 +209,7 @@ class ProductVariant(models.Model):
 
 class ProductImage(models.Model):
     class ProcessingStatus(models.TextChoices):
+        IDLE = "idle", "Idle"
         PENDING = "pending", "Pending"
         PROCESSING = "processing", "Processing"
         SUCCEEDED = "succeeded", "Succeeded"
@@ -212,7 +232,7 @@ class ProductImage(models.Model):
     processing_status = models.CharField(
         max_length=20,
         choices=ProcessingStatus.choices,
-        default=ProcessingStatus.PENDING,
+        default=ProcessingStatus.IDLE,
     )
     processing_error = models.TextField(blank=True)
     processing_result = models.JSONField(
@@ -277,3 +297,17 @@ class ProductGeneratedImage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source_image_id}: {self.mode}"
+
+
+class ExchangeRate(models.Model):
+    as_of = models.DateField()
+    eur_to_usd = models.DecimalField(max_digits=12, decimal_places=6)
+    eur_to_try = models.DecimalField(max_digits=12, decimal_places=6)
+    source = models.CharField(max_length=32, default="frankfurter")
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-fetched_at",)
+
+    def __str__(self) -> str:
+        return f"{self.as_of} EUR→USD {self.eur_to_usd} EUR→TRY {self.eur_to_try}"

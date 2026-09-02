@@ -61,7 +61,6 @@ class NotificationSerializer(serializers.ModelSerializer):
             "id",
             "notification_type",
             "product_id",
-            "data",
             "is_read",
             "created_at",
             "read_at",

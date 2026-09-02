@@ -589,6 +589,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.orchestrator.tasks.recover_stale_orchestrator_jobs",
         "schedule": crontab(minute="*/10"),
     },
+    "fetch-exchange-rates-daily": {
+        "task": "apps.products.tasks.fetch_exchange_rates",
+        "schedule": crontab(hour=16, minute=30),
+    },
     "idempotency-cleanup-hourly": {
         "task": "apps.idempotency.tasks.purge_expired_idempotency_records",
         "schedule": crontab(minute=25),

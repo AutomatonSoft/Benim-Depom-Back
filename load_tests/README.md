@@ -34,6 +34,7 @@ error rate above 1%:
 
 ```powershell
 .\load_tests\run-staged.ps1
+.\load_tests\run-staged.ps1 -Users 100,200
 ```
 
 During the run keep an eye on the server: `ssh alikhan@31.70.112.98` and

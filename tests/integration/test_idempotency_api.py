@@ -17,6 +17,7 @@ def product_payload():
         "product_type": "Dining chair",
         "unit_price": "299.00",
         "currency": "EUR",
+        "warehouse_city": "INE",
         "otto_category_id": 26822,
         "otto_category_group_id": 3593,
         "variants": [
