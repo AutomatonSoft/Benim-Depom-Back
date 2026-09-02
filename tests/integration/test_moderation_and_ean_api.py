@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -88,6 +89,64 @@ def test_manager_can_edit_approved_product_and_images(
         f"/api/v1/products/{product.id}/images/{image.id}/make-primary/"
     )
     assert response.status_code == 200
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_can_override_listing_formula_for_one_product(
+    api_client, seller, manager, product_factory
+):
+    from apps.products.models import ExchangeRate
+
+    ExchangeRate.objects.create(
+        as_of="2026-09-01",
+        eur_to_usd="1.16",
+        eur_to_try="50",
+        source="test",
+    )
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    other = product_factory(
+        owner=seller, title="Untouched chair", status=Product.Status.APPROVED
+    )
+    authenticate(api_client, manager)
+    before = api_client.get(f"/api/v1/products/{product.id}/").data["listing_price_eur"]
+    other_before = api_client.get(f"/api/v1/products/{other.id}/").data[
+        "listing_price_eur"
+    ]
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {"pricing_overrides": {"margin": "0.5", "city_tariffs_eur_per_cbm": {"INE": "10"}}},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["pricing_formula"]["uses_product_formula"] is True
+    assert response.data["listing_price_eur"] != before
+    product.refresh_from_db()
+    other.refresh_from_db()
+    assert product.pricing_overrides["margin"] == "0.5"
+    assert other.pricing_overrides == {}
+    assert (
+        api_client.get(f"/api/v1/products/{other.id}/").data["listing_price_eur"]
+        == other_before
+    )
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {"listing_price_eur_override": "1149.00"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert Decimal(str(response.data["listing_price_eur"])) == Decimal("1149.00")
+
+    authenticate(api_client, seller)
+    rejected = product_factory(owner=seller, status=Product.Status.REJECTED)
+    response = api_client.patch(
+        f"/api/v1/products/{rejected.id}/",
+        {"listing_price_eur_override": "99.00"},
+        format="json",
+    )
+    assert response.status_code == 400
 
 
 @pytest.mark.integration

@@ -1,6 +1,6 @@
 import json
 import warnings
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from drf_spectacular.utils import (
@@ -155,6 +155,15 @@ class ProductSerializer(serializers.ModelSerializer):
         required=True,
     )
     listing_price_eur = serializers.SerializerMethodField()
+    listing_price_eur_override = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        allow_null=True,
+    )
+    pricing_overrides = serializers.JSONField(required=False)
+    pricing_formula = serializers.SerializerMethodField()
     otto_category_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -196,6 +205,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "currency",
             "warehouse_city",
             "listing_price_eur",
+            "listing_price_eur_override",
+            "pricing_overrides",
+            "pricing_formula",
             "total_amount",
             "otto_category_id",
             "otto_category_group_id",
@@ -235,6 +247,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "deactivation_requested_at",
             "deactivated_at",
             "listing_price_eur",
+            "pricing_formula",
         )
 
     @extend_schema_field(serializers.IntegerField)
@@ -251,6 +264,16 @@ class ProductSerializer(serializers.ModelSerializer):
             return safe_listing_price_eur(product, rate=self.context["exchange_rate"])
         return safe_listing_price_eur(product)
 
+    @extend_schema_field(serializers.DictField)
+    def get_pricing_formula(self, product):
+        from .pricing import effective_pricing_formula
+
+        if "exchange_rate" in self.context:
+            return effective_pricing_formula(
+                product, rate=self.context["exchange_rate"]
+            )
+        return effective_pricing_formula(product)
+
     @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
     def get_total_amount(self, product):
         total = product.unit_price * sum(
@@ -265,11 +288,116 @@ class ProductSerializer(serializers.ModelSerializer):
         if request and not is_manager(request.user):
             data.pop("ean_jv", None)
             data.pop("ean_xl", None)
+            data.pop("pricing_overrides", None)
+            data.pop("pricing_formula", None)
+            data.pop("listing_price_eur_override", None)
 
         return data
 
+    def validate_pricing_overrides(self, value):
+        if value in (None, {}):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Formula overrides must be an object.")
+        allowed = {
+            "margin",
+            "adv_fee",
+            "vat",
+            "city_tariffs_eur_per_cbm",
+            "de_size_tiers",
+            "eur_to_try",
+            "eur_to_usd",
+        }
+        unknown = set(value) - allowed
+        if unknown:
+            raise serializers.ValidationError(
+                f"Unknown formula fields: {', '.join(sorted(unknown))}."
+            )
+        for key in ("margin", "adv_fee", "vat", "eur_to_try", "eur_to_usd"):
+            if key not in value:
+                continue
+            try:
+                number = Decimal(str(value[key]))
+            except InvalidOperation as error:
+                raise serializers.ValidationError(
+                    {key: "Must be a number."}
+                ) from error
+            if number <= 0 and key in {"eur_to_try", "eur_to_usd"}:
+                raise serializers.ValidationError({key: "Must be greater than zero."})
+            if number < 0:
+                raise serializers.ValidationError({key: "Must not be negative."})
+            value[key] = str(number)
+        if "city_tariffs_eur_per_cbm" in value:
+            tariffs = value["city_tariffs_eur_per_cbm"]
+            if not isinstance(tariffs, dict):
+                raise serializers.ValidationError(
+                    {"city_tariffs_eur_per_cbm": "Must be an object of city codes."}
+                )
+            cities = {choice.value for choice in Product.WarehouseCity}
+            for city, tariff in tariffs.items():
+                if city not in cities:
+                    raise serializers.ValidationError(
+                        {"city_tariffs_eur_per_cbm": f"Unknown city '{city}'."}
+                    )
+                try:
+                    amount = Decimal(str(tariff))
+                except InvalidOperation as error:
+                    raise serializers.ValidationError(
+                        {"city_tariffs_eur_per_cbm": "Tariffs must be numbers."}
+                    ) from error
+                if amount < 0:
+                    raise serializers.ValidationError(
+                        {"city_tariffs_eur_per_cbm": "Tariffs must not be negative."}
+                    )
+                tariffs[city] = str(amount)
+        if "de_size_tiers" in value:
+            tiers = value["de_size_tiers"]
+            if not isinstance(tiers, list) or not tiers:
+                raise serializers.ValidationError(
+                    {"de_size_tiers": "Provide at least one size tier."}
+                )
+            cleaned = []
+            for tier in tiers:
+                if not isinstance(tier, dict) or not {
+                    "code",
+                    "min_cbm",
+                    "max_cbm",
+                    "price_eur",
+                }.issubset(tier):
+                    raise serializers.ValidationError(
+                        {
+                            "de_size_tiers": (
+                                "Each tier needs code, min_cbm, max_cbm and price_eur."
+                            )
+                        }
+                    )
+                cleaned.append(
+                    {
+                        "code": str(tier["code"]),
+                        "min_cbm": str(tier["min_cbm"]),
+                        "max_cbm": str(tier["max_cbm"]),
+                        "price_eur": str(tier["price_eur"]),
+                    }
+                )
+            value["de_size_tiers"] = cleaned
+        return value
+
     def validate(self, attrs):
         """Validate draft data without requiring a complete OTTO form."""
+        request = self.context.get("request")
+        manager_only = {
+            field
+            for field in ("pricing_overrides", "listing_price_eur_override")
+            if field in attrs
+        }
+        if manager_only and (not request or not is_manager(request.user)):
+            raise serializers.ValidationError(
+                {
+                    field: "Only managers can change the listing formula or euro price."
+                    for field in manager_only
+                }
+            )
+
         protected_ean_fields = {
             field for field in ("ean_jv", "ean_xl") if field in self.initial_data
         }
@@ -537,6 +665,11 @@ class ProductSerializer(serializers.ModelSerializer):
             "resubmit_for_moderation",
             False,
         )
+        if (
+            "pricing_overrides" in validated_data
+            and "listing_price_eur_override" not in validated_data
+        ):
+            validated_data["listing_price_eur_override"] = None
 
         product = update_product(
             product=instance,

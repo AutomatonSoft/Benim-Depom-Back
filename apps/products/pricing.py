@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
+from typing import NamedTuple
 
 from .models import ExchangeRate, Product
-from .pricing_catalog import get_pricing_catalog
+from .pricing_catalog import catalog_for_product, get_pricing_catalog
 
 _UNSET = object()
 CM3_PER_M3 = Decimal("1000000")
-PERCENT_FACTOR = Decimal("2.13")  # 75% + 19% + 19%
+
+
+class FxRate(NamedTuple):
+    eur_to_usd: Decimal
+    eur_to_try: Decimal
 
 
 def packed_cbm(product: Product) -> Decimal:
@@ -20,7 +25,16 @@ def packed_cbm(product: Product) -> Decimal:
     return max(volumes)
 
 
-def purchase_eur(product: Product, rate: ExchangeRate) -> Decimal:
+def percent_factor(catalog: dict) -> Decimal:
+    return (
+        Decimal("1")
+        + Decimal(str(catalog["margin"]))
+        + Decimal(str(catalog["adv_fee"]))
+        + Decimal(str(catalog["vat"]))
+    )
+
+
+def purchase_eur(product: Product, rate: FxRate | ExchangeRate) -> Decimal:
     amount = product.unit_price
     if product.currency == Product.Currency.EUR:
         return amount
@@ -31,8 +45,8 @@ def purchase_eur(product: Product, rate: ExchangeRate) -> Decimal:
     raise ValueError(f"Unsupported currency: {product.currency}")
 
 
-def de_delivery_eur(cbm: Decimal) -> Decimal:
-    catalog = get_pricing_catalog()
+def de_delivery_eur(cbm: Decimal, catalog: dict | None = None) -> Decimal:
+    catalog = catalog or get_pricing_catalog()
     for tier in catalog["de_size_tiers"]:
         if Decimal(str(tier["min_cbm"])) <= cbm <= Decimal(str(tier["max_cbm"])):
             return Decimal(str(tier["price_eur"]))
@@ -58,28 +72,75 @@ def latest_rate() -> ExchangeRate | None:
     return ExchangeRate.objects.order_by("-fetched_at").first()
 
 
-def listing_price_eur(
-    product: Product, rate: ExchangeRate | None | object = _UNSET
-) -> Decimal | None:
-    if rate is _UNSET:
-        rate = latest_rate()
-    if rate is None:
+def resolved_rate(
+    product: Product, rate: ExchangeRate | FxRate | None | object = _UNSET
+) -> FxRate | None:
+    overrides = product.pricing_overrides or {}
+    live = latest_rate() if rate is _UNSET else rate
+    eur_to_try = overrides.get("eur_to_try")
+    eur_to_usd = overrides.get("eur_to_usd")
+    if eur_to_try is None and live is not None:
+        eur_to_try = live.eur_to_try
+    if eur_to_usd is None and live is not None:
+        eur_to_usd = live.eur_to_usd
+    if product.currency == Product.Currency.EUR:
+        return FxRate(
+            eur_to_usd=Decimal(str(eur_to_usd or 1)),
+            eur_to_try=Decimal(str(eur_to_try or 1)),
+        )
+    if product.currency == Product.Currency.TRY and eur_to_try is None:
         return None
-    catalog = get_pricing_catalog()
+    if product.currency == Product.Currency.USD and eur_to_usd is None:
+        return None
+    if eur_to_try is None or eur_to_usd is None:
+        return None
+    return FxRate(Decimal(str(eur_to_usd)), Decimal(str(eur_to_try)))
+
+
+def listing_price_eur(
+    product: Product, rate: ExchangeRate | FxRate | None | object = _UNSET
+) -> Decimal | None:
+    if product.listing_price_eur_override is not None:
+        return product.listing_price_eur_override
+    fx = resolved_rate(product, rate)
+    if fx is None:
+        return None
+    catalog = catalog_for_product(product)
     cbm = packed_cbm(product)
     tariff = Decimal(str(catalog["city_tariffs_eur_per_cbm"][product.warehouse_city]))
-    cost = purchase_eur(product, rate) + (tariff * cbm) + de_delivery_eur(cbm)
-    with_percent = (cost * PERCENT_FACTOR).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    cost = purchase_eur(product, fx) + (tariff * cbm) + de_delivery_eur(cbm, catalog)
+    with_percent = (cost * percent_factor(catalog)).quantize(
+        Decimal("0.01"), ROUND_HALF_UP
+    )
     return round_to_49_or_99(with_percent)
 
 
 def safe_listing_price_eur(
-    product: Product, rate: ExchangeRate | None | object = _UNSET
+    product: Product, rate: ExchangeRate | FxRate | None | object = _UNSET
 ) -> Decimal | None:
     try:
         return listing_price_eur(product, rate=rate)
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError, ArithmeticError):
         return None
+
+
+def effective_pricing_formula(
+    product: Product, rate: ExchangeRate | FxRate | None | object = _UNSET
+) -> dict:
+    catalog = catalog_for_product(product)
+    fx = resolved_rate(product, rate)
+    return {
+        "margin": catalog["margin"],
+        "adv_fee": catalog["adv_fee"],
+        "vat": catalog["vat"],
+        "percent_factor": str(percent_factor(catalog)),
+        "city_tariffs_eur_per_cbm": catalog["city_tariffs_eur_per_cbm"],
+        "de_size_tiers": catalog["de_size_tiers"],
+        "eur_to_try": str(fx.eur_to_try) if fx else None,
+        "eur_to_usd": str(fx.eur_to_usd) if fx else None,
+        "uses_product_formula": bool(product.pricing_overrides),
+        "uses_manual_listing": product.listing_price_eur_override is not None,
+    }
 
 
 def fill_marketplace_price(
