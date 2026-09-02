@@ -6,7 +6,6 @@ from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.common.permissions import IsManager, IsSeller
@@ -39,15 +38,15 @@ from .serializers import (
     RegistrationRejectSerializer,
 )
 from .services import (
+    approve_seller_registration,
     complete_password_reset,
     issue_email_verification_code,
+    reject_seller_registration,
     request_password_reset,
     resend_email_verification_code,
     revoke_refresh_tokens,
     verify_email_code,
     verify_password_reset_code,
-    approve_seller_registration,
-    reject_seller_registration,
 )
 from .tasks import send_email_verification_code, send_password_reset_code
 
