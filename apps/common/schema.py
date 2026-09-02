@@ -35,7 +35,6 @@ class MarketplaceAutoSchema(AutoSchema):
             "POST",
             "/api/v1/manager/users/sellers/{user_id}/reject/",
         ): "Отклонить регистрацию продавца",
-        
         ("POST", "/api/v1/auth/password/change/"): "Изменить пароль",
         (
             "POST",

@@ -272,7 +272,9 @@ def approve_seller_registration(*, seller: User) -> User:
         or not seller.is_email_verified
         or seller.registration_status != User.RegistrationStatus.PENDING
     ):
-        raise ValidationError({"detail": "This registration request cannot be approved."})
+        raise ValidationError(
+            {"detail": "This registration request cannot be approved."}
+        )
 
     seller.registration_status = User.RegistrationStatus.APPROVED
     seller.registration_rejection_reason = ""
@@ -293,10 +295,12 @@ def reject_seller_registration(*, seller: User, comment: str) -> User:
         or not seller.is_email_verified
         or seller.registration_status != User.RegistrationStatus.PENDING
     ):
-        raise ValidationError({"detail": "This registration request cannot be rejected."})
+        raise ValidationError(
+            {"detail": "This registration request cannot be rejected."}
+        )
     if not comment:
         raise ValidationError({"detail": "Comment is required."})
-        
+
     seller.registration_status = User.RegistrationStatus.REJECTED
     seller.registration_rejection_reason = comment
     seller.is_active = False

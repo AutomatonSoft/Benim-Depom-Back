@@ -246,7 +246,9 @@ class ManagerSellerRegistrationApproveView(ManagerMutationThrottleMixin, APIView
 class ManagerSellerRegistrationRejectView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
-    @extend_schema(request=RegistrationRejectSerializer, responses={200: ProfileSerializer})
+    @extend_schema(
+        request=RegistrationRejectSerializer, responses={200: ProfileSerializer}
+    )
     def post(self, request, user_id: int):
         serializer = RegistrationRejectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

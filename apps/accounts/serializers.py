@@ -27,7 +27,12 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         password = attrs.get("password")
         user = User.objects.filter(email__iexact=email).first() if email else None
 
-        if user and password and user.check_password(password) and user.role == User.Role.SELLER:
+        if (
+            user
+            and password
+            and user.check_password(password)
+            and user.role == User.Role.SELLER
+        ):
             if not user.is_email_verified:
                 raise AuthenticationFailed("Confirm your email before signing in.")
             if user.registration_status == User.RegistrationStatus.PENDING:
