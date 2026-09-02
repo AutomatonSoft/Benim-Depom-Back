@@ -41,7 +41,35 @@ def test_seller_to_manager_approval_and_deactivation_journey(
         format="json",
     )
     assert verification.status_code == 200
-    bearer(api_client, verification.data["access"])
+    assert "access" not in verification.data
+
+    manager = User.objects.create_user(
+        username="journey_manager",
+        email="journey_manager@example.com",
+        password=password,
+        role=User.Role.MANAGER,
+    )
+    manager_login = api_client.post(
+        "/api/v1/auth/login/",
+        {"email": manager.email, "password": password},
+        format="json",
+    )
+    assert manager_login.status_code == 200
+    bearer(api_client, manager_login.data["access"])
+    assert (
+        api_client.post(
+            f"/api/v1/manager/users/sellers/{seller.id}/approve/"
+        ).status_code
+        == 200
+    )
+
+    seller_login = api_client.post(
+        "/api/v1/auth/login/",
+        {"email": seller.email, "password": password},
+        format="json",
+    )
+    assert seller_login.status_code == 200
+    bearer(api_client, seller_login.data["access"])
 
     create = api_client.post(
         "/api/v1/products/",
@@ -73,19 +101,6 @@ def test_seller_to_manager_approval_and_deactivation_journey(
     product_id = create.data["id"]
     assert create.data["status"] == Product.Status.SUBMITTED
 
-    manager = User.objects.create_user(
-        username="journey_manager",
-        email="journey_manager@example.com",
-        password=password,
-        role=User.Role.MANAGER,
-    )
-    api_client.credentials()
-    manager_login = api_client.post(
-        "/api/v1/auth/login/",
-        {"email": manager.email, "password": password},
-        format="json",
-    )
-    assert manager_login.status_code == 200
     bearer(api_client, manager_login.data["access"])
     assert (
         api_client.post(
