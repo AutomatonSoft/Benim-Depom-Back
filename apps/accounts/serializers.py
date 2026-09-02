@@ -32,6 +32,7 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
             and password
             and user.check_password(password)
             and user.role == User.Role.SELLER
+            and user.registration_status != User.RegistrationStatus.APPROVED
         ):
             if not user.is_email_verified:
                 raise AuthenticationFailed("Confirm your email before signing in.")
@@ -39,11 +40,9 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
                 raise AuthenticationFailed(
                     "Your registration is waiting for manager approval."
                 )
-            if user.registration_status == User.RegistrationStatus.REJECTED:
-                raise AuthenticationFailed(
-                    user.registration_rejection_reason
-                    or "Your registration was declined."
-                )
+            raise AuthenticationFailed(
+                user.registration_rejection_reason or "Your registration was declined."
+            )
 
         return super().validate(attrs)
 
