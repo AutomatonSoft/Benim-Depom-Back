@@ -26,6 +26,14 @@ from .models import (
 from .services import create_product, create_product_with_images, update_product
 
 
+@extend_schema_serializer(component_name="ProductsOwner")
+class ProductOwnerSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    first_name = serializers.CharField(read_only=True)
+    email = serializers.CharField(read_only=True)
+
+
 @extend_schema_serializer(component_name="ProductsVariant")
 class ProductVariantSerializer(serializers.ModelSerializer):
     color_hex = serializers.RegexField(
@@ -139,6 +147,7 @@ class ProductImageSerializer(serializers.ModelSerializer):
 @extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
     product_type = serializers.CharField(max_length=255, trim_whitespace=True)
+    seller = ProductOwnerSerializer(source="owner", read_only=True)
     unit_price = serializers.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -199,6 +208,7 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "owner",
+            "seller",
             "title",
             "product_type",
             "unit_price",
@@ -232,6 +242,7 @@ class ProductSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "owner",
+            "seller",
             "status",
             "ean_jv",
             "ean_xl",
