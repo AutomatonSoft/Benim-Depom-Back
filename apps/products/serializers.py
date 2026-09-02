@@ -261,8 +261,12 @@ class ProductSerializer(serializers.ModelSerializer):
         from .pricing import safe_listing_price_eur
 
         if "exchange_rate" in self.context:
-            return safe_listing_price_eur(product, rate=self.context["exchange_rate"])
-        return safe_listing_price_eur(product)
+            price = safe_listing_price_eur(product, rate=self.context["exchange_rate"])
+        else:
+            price = safe_listing_price_eur(product)
+        if price is None:
+            return None
+        return f"{price:.2f}"
 
     @extend_schema_field(serializers.DictField)
     def get_pricing_formula(self, product):
