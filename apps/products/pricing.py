@@ -17,7 +17,12 @@ class FxRate(NamedTuple):
 
 def packed_cbm(product: Product) -> Decimal:
     volumes = [
-        (variant.width_cm * variant.height_cm * variant.length_cm) / CM3_PER_M3
+        (
+            Decimal(str(variant.width_cm))
+            * Decimal(str(variant.height_cm))
+            * Decimal(str(variant.length_cm))
+        )
+        / CM3_PER_M3
         for variant in product.variants.all()
     ]
     if not volumes:
@@ -35,13 +40,17 @@ def percent_factor(catalog: dict) -> Decimal:
 
 
 def purchase_eur(product: Product, rate: FxRate | ExchangeRate) -> Decimal:
-    amount = product.unit_price
+    amount = Decimal(str(product.unit_price))
     if product.currency == Product.Currency.EUR:
         return amount
     if product.currency == Product.Currency.TRY:
-        return (amount / rate.eur_to_try).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return (amount / Decimal(str(rate.eur_to_try))).quantize(
+            Decimal("0.01"), ROUND_HALF_UP
+        )
     if product.currency == Product.Currency.USD:
-        return (amount / rate.eur_to_usd).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return (amount / Decimal(str(rate.eur_to_usd))).quantize(
+            Decimal("0.01"), ROUND_HALF_UP
+        )
     raise ValueError(f"Unsupported currency: {product.currency}")
 
 

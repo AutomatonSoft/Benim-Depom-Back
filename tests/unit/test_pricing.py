@@ -28,8 +28,12 @@ def test_manual_listing_override_does_not_change_other_products(
         eur_to_try="50",
         source="test",
     )
-    first = product_factory(owner=seller, unit_price="100.00")
-    second = product_factory(owner=seller, title="Other chair", unit_price="100.00")
+    first = product_factory(owner=seller, unit_price=Decimal("100.00"))
+    second = product_factory(
+        owner=seller, title="Other chair", unit_price=Decimal("100.00")
+    )
+    first.refresh_from_db()
+    second.refresh_from_db()
     computed = listing_price_eur(first)
     first.listing_price_eur_override = Decimal("1149.00")
     first.save(update_fields=["listing_price_eur_override"])
@@ -48,8 +52,12 @@ def test_product_formula_override_recalculates_only_that_product(
         eur_to_try="50",
         source="test",
     )
-    first = product_factory(owner=seller, unit_price="100.00")
-    second = product_factory(owner=seller, title="Other chair", unit_price="100.00")
+    first = product_factory(owner=seller, unit_price=Decimal("100.00"))
+    second = product_factory(
+        owner=seller, title="Other chair", unit_price=Decimal("100.00")
+    )
+    first.refresh_from_db()
+    second.refresh_from_db()
     default_price = listing_price_eur(first)
     first.pricing_overrides = {"margin": "0"}
     first.save(update_fields=["pricing_overrides"])
