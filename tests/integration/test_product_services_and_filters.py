@@ -167,6 +167,14 @@ def test_product_filters_apply_all_business_fields_and_reject_bad_values(
         filter_products(queryset=Product.objects.all(), query_params=params)
     ) == [matching]
 
+    ean_match = product_factory(owner=seller, title="Oak stool", ean_jv="4006381333931")
+    assert list(
+        filter_products(
+            queryset=Product.objects.all(),
+            query_params=QueryDict("search=4006381333931"),
+        )
+    ) == [ean_match]
+
     for key, value in (
         ("status", "unknown"),
         ("color_hex", "blue"),
