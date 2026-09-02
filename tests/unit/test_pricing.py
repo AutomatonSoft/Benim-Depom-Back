@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from apps.products.models import ExchangeRate, Product
+from apps.products.models import ExchangeRate
 from apps.products.pricing import listing_price_eur, percent_factor, round_to_49_or_99
 from apps.products.pricing_catalog import get_pricing_catalog
 
