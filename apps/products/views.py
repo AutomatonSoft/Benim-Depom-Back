@@ -135,13 +135,13 @@ class ProductListCreateView(
                 name="search",
                 type=OpenApiTypes.STR,
                 required=False,
-                description="Case-insensitive search in the product title.",
+                description="Case-insensitive search in the product title or EAN.",
             ),
             OpenApiParameter(
                 name="status",
                 type=OpenApiTypes.STR,
                 required=False,
-                description="Product status, for example draft or approved.",
+                description="Product status, for example submitted or approved.",
             ),
             OpenApiParameter(
                 name="product_type",

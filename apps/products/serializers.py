@@ -202,6 +202,7 @@ class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
+    last_moderation_decision = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -226,6 +227,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_attributes",
             "resubmit_for_moderation",
             "status",
+            "last_moderation_decision",
             "ean_jv",
             "ean_xl",
             "is_available",
@@ -244,6 +246,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "owner",
             "seller",
             "status",
+            "last_moderation_decision",
             "ean_jv",
             "ean_xl",
             "images",
@@ -296,6 +299,15 @@ class ProductSerializer(serializers.ModelSerializer):
         )
         return f"{total:.2f}"
 
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=["approved", "rejected"],
+            allow_null=True,
+        )
+    )
+    def get_last_moderation_decision(self, product) -> str | None:
+        return getattr(product, "last_moderation_decision", None)
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
@@ -306,6 +318,7 @@ class ProductSerializer(serializers.ModelSerializer):
             data.pop("pricing_overrides", None)
             data.pop("pricing_formula", None)
             data.pop("listing_price_eur_override", None)
+            data.pop("last_moderation_decision", None)
 
         return data
 

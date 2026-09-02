@@ -22,7 +22,6 @@ class Product(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
-        UNDER_REVIEW = "under_review", "Under review"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         ARCHIVED = "archived", "Archived"

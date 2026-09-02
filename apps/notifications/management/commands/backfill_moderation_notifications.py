@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         products = Product.objects.filter(
-            status__in=(Product.Status.SUBMITTED, Product.Status.UNDER_REVIEW),
+            status=Product.Status.SUBMITTED,
         ).select_related("owner")
         managers = list(
             User.objects.filter(

@@ -48,8 +48,7 @@ Seller создаёт товар одним multipart-запросом: variants
 | Статус товара | Значение |
 | --- | --- |
 | `draft` | Технический/устаревший черновик; новые товары в этот статус не попадают. |
-| `submitted` | Автоматически отправлен manager-у при создании. |
-| `under_review` | Резерв под явный этап проверки. |
+| `submitted` | Автоматически отправлен manager-у при создании; ждёт модерации. |
 | `approved` | Одобрен, EAN назначены, можно публиковать. |
 | `rejected` | Отклонён; seller исправляет и отправляет повторно. |
 | `deactivated` | Отключён в бизнес-процессе после снятия публикаций. |
@@ -275,7 +274,7 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | `PATCH` | `{id}/` | owner rejected или manager/admin | Частично изменить товар/variants; seller может повторно отправить rejected товар флагом `resubmit_for_moderation`. |
 | `DELETE` | `{id}/` | owner/manager/admin | Мягко архивировать допустимый товар. |
 | `POST` | `{id}/availability/` | owner | Ответ на availability request. |
-| `POST` | `{id}/withdraw/` | owner | Отозвать submitted/under_review. |
+| `POST` | `{id}/withdraw/` | owner | Отозвать submitted товар. |
 | `POST` | `{id}/deactivate/` | owner | Заявка manager-ам на деактивацию. |
 | `POST` | `{id}/images/` | owner | Source image upload: multipart `image`, optional `is_primary`. |
 | `POST` | `{id}/images/reorder/` | owner | Передать полный порядок image IDs. |

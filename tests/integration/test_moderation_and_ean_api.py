@@ -285,6 +285,12 @@ def test_manager_reject_and_manual_availability_request(
     assert response.status_code == 200
     submitted.refresh_from_db()
     assert submitted.status == Product.Status.REJECTED
+    listing = api_client.get("/api/v1/manager/products/")
+    assert listing.status_code == 200
+    rejected_row = next(
+        item for item in listing.data["results"] if item["id"] == submitted.id
+    )
+    assert rejected_row["last_moderation_decision"] == "rejected"
 
     response = api_client.post(
         f"/api/v1/manager/products/{approved.id}/availability-request/"
