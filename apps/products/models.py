@@ -63,6 +63,14 @@ class Product(models.Model):
     warehouse_city = models.CharField(
         max_length=3, choices=WarehouseCity.choices, default=WarehouseCity.INE
     )
+    listing_price_eur_override = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    pricing_overrides = models.JSONField(default=dict, blank=True)
     otto_category_id = models.PositiveIntegerField(
         null=True,
         blank=True,

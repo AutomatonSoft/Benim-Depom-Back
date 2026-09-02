@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -58,6 +59,10 @@ def _request_hash(data: Any) -> str:
         default=str,
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _json_ready(value: Any) -> Any:
+    return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
 def claim_idempotency_key(*, request, endpoint: str) -> IdempotencyClaim:
@@ -151,7 +156,7 @@ def complete_idempotency_claim(
     ).update(
         status=IdempotencyRecord.Status.COMPLETED,
         response_status=response_status,
-        response_body=response_body,
+        response_body=_json_ready(response_body),
     )
 
 
