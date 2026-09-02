@@ -53,9 +53,7 @@ def test_notification_service_persists_payload_and_enqueues_push(monkeypatch, se
         notification_type=Notification.Type.MESSAGE_RECEIVED,
         title="Message",
         body="Body",
-        data={"source": "test"},
     )
-    assert notification.data == {"source": "test"}
     delay.assert_called_once_with(notification.id)
 
 

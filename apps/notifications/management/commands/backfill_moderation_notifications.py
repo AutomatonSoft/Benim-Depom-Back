@@ -50,7 +50,6 @@ class Command(BaseCommand):
                             f"{product.owner.username} submitted "
                             f"'{product.title}' for moderation."
                         ),
-                        data={"product_id": product.id},
                     )
 
         verb = "Created" if options["apply"] else "Would create"

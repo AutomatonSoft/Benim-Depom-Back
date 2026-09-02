@@ -2,7 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
-from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -17,33 +17,12 @@ def _validate_password_value(*, password, user, field_name: str) -> None:
         raise serializers.ValidationError({field_name: list(exc.messages)}) from exc
 
 
+@extend_schema_serializer(component_name="AuthLogin")
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         email = attrs.get(self.username_field)
         if isinstance(email, str):
             attrs[self.username_field] = email.strip().lower()
-            email = attrs[self.username_field]
-
-        password = attrs.get("password")
-        user = User.objects.filter(email__iexact=email).first() if email else None
-
-        if (
-            user
-            and password
-            and user.check_password(password)
-            and user.role == User.Role.SELLER
-            and user.registration_status != User.RegistrationStatus.APPROVED
-        ):
-            if not user.is_email_verified:
-                raise AuthenticationFailed("Confirm your email before signing in.")
-            if user.registration_status == User.RegistrationStatus.PENDING:
-                raise AuthenticationFailed(
-                    "Your registration is waiting for manager approval."
-                )
-            raise AuthenticationFailed(
-                user.registration_rejection_reason or "Your registration was declined."
-            )
-
         return super().validate(attrs)
 
 
@@ -184,8 +163,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             "role",
             "date_joined",
             "is_email_verified",
-            "registration_status",
-            "registration_rejection_reason",
         )
         read_only_fields = (
             "id",
@@ -193,8 +170,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             "role",
             "date_joined",
             "is_email_verified",
-            "registration_status",
-            "registration_rejection_reason",
         )
 
 
@@ -334,13 +309,3 @@ class EmailVerificationResendSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         return value.strip().lower()
-
-
-@extend_schema_serializer(component_name="RegistrationReject")
-class RegistrationRejectSerializer(serializers.Serializer):
-    comment = serializers.CharField(
-        required=True,
-        allow_blank=False,
-        max_length=2000,
-        trim_whitespace=True,
-    )

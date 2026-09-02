@@ -15,7 +15,6 @@ def create_notification(
     sender: User | None = None,
     title: str = "",
     body: str = "",
-    data: dict | None = None,
 ) -> Notification:
 
     notification = Notification.objects.create(
@@ -25,7 +24,6 @@ def create_notification(
         notification_type=notification_type,
         title=title,
         body=body,
-        data=data or {},
     )
 
     transaction.on_commit(lambda: send_notification_push.delay(notification.id))
