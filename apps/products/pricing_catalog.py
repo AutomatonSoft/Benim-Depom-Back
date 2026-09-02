@@ -29,4 +29,3 @@ def catalog_for_product(product) -> dict[str, Any]:
     if overrides.get("de_size_tiers"):
         catalog["de_size_tiers"] = deepcopy(overrides["de_size_tiers"])
     return catalog
-

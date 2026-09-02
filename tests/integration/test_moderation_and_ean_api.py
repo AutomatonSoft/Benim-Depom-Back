@@ -116,7 +116,12 @@ def test_manager_can_override_listing_formula_for_one_product(
 
     response = api_client.patch(
         f"/api/v1/products/{product.id}/",
-        {"pricing_overrides": {"margin": "0.5", "city_tariffs_eur_per_cbm": {"INE": "10"}}},
+        {
+            "pricing_overrides": {
+                "margin": "0.5",
+                "city_tariffs_eur_per_cbm": {"INE": "10"},
+            }
+        },
         format="json",
     )
     assert response.status_code == 200

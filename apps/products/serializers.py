@@ -319,9 +319,7 @@ class ProductSerializer(serializers.ModelSerializer):
             try:
                 number = Decimal(str(value[key]))
             except InvalidOperation as error:
-                raise serializers.ValidationError(
-                    {key: "Must be a number."}
-                ) from error
+                raise serializers.ValidationError({key: "Must be a number."}) from error
             if number <= 0 and key in {"eur_to_try", "eur_to_usd"}:
                 raise serializers.ValidationError({key: "Must be greater than zero."})
             if number < 0:
