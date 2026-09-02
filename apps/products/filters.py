@@ -21,7 +21,6 @@ def _get_integer(query_params, name: str) -> int | None:
     if value in (None, ""):
         return None
 
-
     try:
         return int(value)
     except ValueError as error:
