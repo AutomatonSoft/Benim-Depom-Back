@@ -27,7 +27,6 @@ def register_user(*, data: dict[str, Any]) -> User:
         password=password,
         is_active=False,
         is_email_verified=False,
-        registration_status=User.RegistrationStatus.PENDING,
         **user_data,
     )
 
@@ -84,12 +83,14 @@ def verify_email_code(*, email: str, code: str) -> User:
             is_invalid_code = True
         else:
             user.is_email_verified = True
+            user.is_active = True
             user.email_verification_code_hash = ""
             user.email_verification_expires_at = None
             user.email_verification_attempts = 0
             user.save(
                 update_fields=(
                     "is_email_verified",
+                    "is_active",
                     "email_verification_code_hash",
                     "email_verification_expires_at",
                     "email_verification_attempts",
@@ -264,51 +265,3 @@ def complete_password_reset(*, reset_token: str, new_password: str) -> None:
             )
         )
         revoke_refresh_tokens(user=user)
-
-
-def approve_seller_registration(*, seller: User) -> User:
-    if (
-        seller.role != User.Role.SELLER
-        or not seller.is_email_verified
-        or seller.registration_status != User.RegistrationStatus.PENDING
-    ):
-        raise ValidationError(
-            {"detail": "This registration request cannot be approved."}
-        )
-
-    seller.registration_status = User.RegistrationStatus.APPROVED
-    seller.registration_rejection_reason = ""
-    seller.is_active = True
-    seller.save(
-        update_fields=(
-            "registration_status",
-            "registration_rejection_reason",
-            "is_active",
-        )
-    )
-    return seller
-
-
-def reject_seller_registration(*, seller: User, comment: str) -> User:
-    if (
-        seller.role != User.Role.SELLER
-        or not seller.is_email_verified
-        or seller.registration_status != User.RegistrationStatus.PENDING
-    ):
-        raise ValidationError(
-            {"detail": "This registration request cannot be rejected."}
-        )
-    if not comment:
-        raise ValidationError({"detail": "Comment is required."})
-
-    seller.registration_status = User.RegistrationStatus.REJECTED
-    seller.registration_rejection_reason = comment
-    seller.is_active = False
-    seller.save(
-        update_fields=(
-            "registration_status",
-            "registration_rejection_reason",
-            "is_active",
-        )
-    )
-    return seller

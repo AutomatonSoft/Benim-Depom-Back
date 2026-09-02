@@ -6,6 +6,7 @@ from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.common.permissions import IsManager, IsSeller
@@ -35,13 +36,10 @@ from .serializers import (
     PasswordResetVerifySerializer,
     ProfileSerializer,
     RegisterSerializer,
-    RegistrationRejectSerializer,
 )
 from .services import (
-    approve_seller_registration,
     complete_password_reset,
     issue_email_verification_code,
-    reject_seller_registration,
     request_password_reset,
     resend_email_verification_code,
     revoke_refresh_tokens,
@@ -101,17 +99,16 @@ class EmailVerificationView(APIView):
             code=serializer.validated_data["code"],
         )
 
+        refresh = RefreshToken.for_user(user)
+
         return Response(
             {
                 "user": ProfileSerializer(
                     user,
                     context={"request": request},
                 ).data,
-                "registration_pending_approval": True,
-                "detail": (
-                    "Your email is confirmed. Your registration request "
-                    "was sent for manager approval."
-                ),
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             },
             status=status.HTTP_200_OK,
         )
@@ -184,11 +181,7 @@ class ManagerSellerListView(generics.ListAPIView):
     permission_classes = [IsManager]
 
     def get_queryset(self):
-        queryset = (
-            User.objects.filter(role=User.Role.SELLER)
-            .exclude(registration_status=User.RegistrationStatus.PENDING)
-            .order_by("-date_joined")
-        )
+        queryset = User.objects.filter(role=User.Role.SELLER).order_by("-date_joined")
         search = self.request.query_params.get("search", "").strip()
 
         if search:
@@ -210,63 +203,6 @@ class ManagerSellerListView(generics.ListAPIView):
             queryset = queryset.filter(is_active=is_active == "true")
 
         return queryset
-
-
-class ManagerRegistrationRequestListView(generics.ListAPIView):
-    serializer_class = ProfileSerializer
-    permission_classes = [IsManager]
-
-    def get_queryset(self):
-        return User.objects.filter(
-            role=User.Role.SELLER,
-            is_email_verified=True,
-            registration_status=User.RegistrationStatus.PENDING,
-        ).order_by("-date_joined")
-
-
-class ManagerSellerRegistrationApproveView(ManagerMutationThrottleMixin, APIView):
-    permission_classes = [IsManager]
-
-    @extend_schema(request=None, responses={200: ProfileSerializer})
-    def post(self, request, user_id: int):
-        seller = get_object_or_404(
-            User,
-            pk=user_id,
-            role=User.Role.SELLER,
-            is_email_verified=True,
-            registration_status=User.RegistrationStatus.PENDING,
-        )
-        seller = approve_seller_registration(seller=seller)
-        return Response(
-            ProfileSerializer(seller, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
-
-
-class ManagerSellerRegistrationRejectView(ManagerMutationThrottleMixin, APIView):
-    permission_classes = [IsManager]
-
-    @extend_schema(
-        request=RegistrationRejectSerializer, responses={200: ProfileSerializer}
-    )
-    def post(self, request, user_id: int):
-        serializer = RegistrationRejectSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        seller = get_object_or_404(
-            User,
-            pk=user_id,
-            role=User.Role.SELLER,
-            is_email_verified=True,
-            registration_status=User.RegistrationStatus.PENDING,
-        )
-        seller = reject_seller_registration(
-            seller=seller,
-            comment=serializer.validated_data.get("comment", ""),
-        )
-        return Response(
-            ProfileSerializer(seller, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
 
 
 class ManagerSellerDeleteView(ManagerMutationThrottleMixin, APIView):

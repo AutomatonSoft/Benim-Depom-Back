@@ -123,10 +123,6 @@ class ManagerSendProductNotificationView(ManagerMutationThrottleMixin, APIView):
                 "Product update",
             ),
             body=serializer.validated_data["body"],
-            data={
-                "product_id": product.id,
-                "product_title": product.title,
-            },
         )
 
         return Response(

@@ -347,10 +347,6 @@ def send_product_availability_reminders() -> dict:
                 notification_type=(Notification.Type.PRODUCT_AVAILABILITY_REMINDER),
                 title="Product availability",
                 body=("Do you still have this product available?"),
-                data={
-                    "product_id": product.id,
-                    "title": product.title,
-                },
             )
             sent_count += 1
 
