@@ -23,6 +23,19 @@ class MarketplaceAutoSchema(AutoSchema):
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",
         ("GET", "/api/v1/manager/users/sellers/"): "Получить список продавцов",
         ("DELETE", "/api/v1/manager/users/sellers/{user_id}/"): "Удалить продавца",
+        (
+            "GET",
+            "/api/v1/manager/users/sellers/registration-requests/",
+        ): "Получить заявки на регистрацию продавцов",
+        (
+            "POST",
+            "/api/v1/manager/users/sellers/{user_id}/approve/",
+        ): "Одобрить регистрацию продавца",
+        (
+            "POST",
+            "/api/v1/manager/users/sellers/{user_id}/reject/",
+        ): "Отклонить регистрацию продавца",
+        
         ("POST", "/api/v1/auth/password/change/"): "Изменить пароль",
         (
             "POST",

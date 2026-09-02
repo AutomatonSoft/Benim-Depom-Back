@@ -15,6 +15,11 @@ class User(AbstractUser):
         GERMAN = "de", "Deutsch"
         ENGLISH = "en", "English"
 
+    class RegistrationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
     username = models.CharField(
         max_length=150,
         unique=False,
@@ -29,7 +34,14 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.SELLER)
     phone = models.CharField(max_length=32, blank=True)
     is_email_verified = models.BooleanField(default=False)
-
+    
+    registration_status = models.CharField(
+        max_length=16,
+        choices=RegistrationStatus.choices,
+        default=RegistrationStatus.APPROVED,
+    )
+    registration_rejection_reason = models.TextField(blank=True)
+    
     email_verification_code_hash = models.CharField(
         max_length=128,
         blank=True,
