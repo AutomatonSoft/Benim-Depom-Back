@@ -375,7 +375,6 @@ def request_product_availability(*, product: Product, manager) -> Product:
             notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
             title="Product availability",
             body="Please confirm whether this product is still available.",
-            data={"product_id": locked_product.id},
         )
     )
     return locked_product

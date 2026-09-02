@@ -14,7 +14,6 @@ class UserAdmin(BaseUserAdmin):
         "phone",
         "is_email_verified",
         "is_active",
-        "registration_status",
     )
     list_filter = (
         "role",
@@ -22,7 +21,6 @@ class UserAdmin(BaseUserAdmin):
         "is_email_verified",
         "is_active",
         "is_staff",
-        "registration_status",
     )
     search_fields = ("username", "email", "phone")
     ordering = ("-date_joined",)
@@ -36,7 +34,6 @@ class UserAdmin(BaseUserAdmin):
                     "phone",
                     "is_email_verified",
                     "preferred_language",
-                    "registration_status",
                 ),
             },
         ),

@@ -126,7 +126,6 @@ def submit_product_for_moderation(*, product: Product) -> Product:
                 notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
                 title="New product awaiting review",
                 body=f"{product.owner.username} submitted '{product.title}' for moderation.",
-                data={"product_id": product.id},
             )
         )
 
@@ -178,7 +177,6 @@ def approve_product(
             user=product.owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_APPROVED,
-            data={"product_id": product.id},
         )
     )
 
@@ -215,10 +213,8 @@ def reject_product(
             user=product.owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_REJECTED,
-            data={
-                "product_id": product.id,
-                "reason": comment,
-            },
+            title="Product rejected",
+            body=comment,
         )
     )
 

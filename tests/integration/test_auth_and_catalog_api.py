@@ -60,40 +60,10 @@ def test_registration_email_verification_login_and_manager_creation(
         format="json",
     )
     assert response.status_code == 200
-    assert "access" not in response.data
-    assert response.data["registration_pending_approval"] is True
-    seller.refresh_from_db()
-    assert seller.is_active is False
-    assert seller.is_email_verified is True
-    assert seller.registration_status == User.RegistrationStatus.PENDING
-
-    login = api_client.post(
-        "/api/v1/auth/login/",
-        {"email": "new_seller@example.com", "password": password},
-        format="json",
-    )
-    assert login.status_code == 401
-
-    authenticate(api_client, manager)
-    requests = api_client.get("/api/v1/manager/users/sellers/registration-requests/")
-    assert requests.status_code == 200
-    assert requests.data["count"] == 1
-    assert requests.data["results"][0]["id"] == seller.id
-
-    approved = api_client.post(f"/api/v1/manager/users/sellers/{seller.id}/approve/")
-    assert approved.status_code == 200
+    assert {"access", "refresh"} <= set(response.data)
     seller.refresh_from_db()
     assert seller.is_active is True
-    assert seller.registration_status == User.RegistrationStatus.APPROVED
-
-    api_client.force_authenticate(user=None)
-    login = api_client.post(
-        "/api/v1/auth/login/",
-        {"email": "new_seller@example.com", "password": password},
-        format="json",
-    )
-    assert login.status_code == 200
-    assert {"access", "refresh"} <= set(login.data)
+    assert seller.is_email_verified is True
 
     authenticate(api_client, manager)
     response = api_client.post(

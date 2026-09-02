@@ -512,7 +512,6 @@ class ProductDeactivateView(APIView):
                 notification_type=Notification.Type.PRODUCT_DEACTIVATION_REQUESTED,
                 title="Deactivation requested",
                 body=f"Seller requested deactivation for '{product.title}'.",
-                data={"product_id": product.id},
             )
 
         return Response(
