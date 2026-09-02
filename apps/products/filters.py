@@ -1,4 +1,7 @@
+from django.db.models import OuterRef, Q, Subquery
 from rest_framework.exceptions import ValidationError
+
+from apps.moderation.models import ModerationDecision
 
 from .models import Product
 
@@ -25,10 +28,22 @@ def _get_integer(query_params, name: str) -> int | None:
 
 
 def filter_products(*, queryset, query_params):
+    latest_decision = ModerationDecision.objects.filter(
+        product_id=OuterRef("pk")
+    ).order_by("-created_at")
+    queryset = queryset.annotate(
+        last_moderation_decision=Subquery(latest_decision.values("decision")[:1])
+    )
+
     search = query_params.get("search", "").strip()
 
     if search:
-        queryset = queryset.filter(title__icontains=search)
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(ean_jv__icontains=search)
+            | Q(ean_xl__icontains=search)
+            | Q(ean_codes__code__icontains=search)
+        )
 
     status_value = query_params.get("status")
 

@@ -141,10 +141,7 @@ def approve_product(
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if product.status not in {
-        Product.Status.SUBMITTED,
-        Product.Status.UNDER_REVIEW,
-    }:
+    if product.status != Product.Status.SUBMITTED:
         raise ValidationError({"detail": "Only submitted products can be approved."})
 
     # EANs are consumed only for a product the manager actually approves.
@@ -192,10 +189,7 @@ def reject_product(
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if product.status not in {
-        Product.Status.SUBMITTED,
-        Product.Status.UNDER_REVIEW,
-    }:
+    if product.status != Product.Status.SUBMITTED:
         raise ValidationError({"detail": "Only submitted products can be rejected."})
 
     product.status = Product.Status.REJECTED
