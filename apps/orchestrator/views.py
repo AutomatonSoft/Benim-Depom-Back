@@ -890,7 +890,6 @@ class ProductMarketplaceContentGenerationCreateView(
     throttle_classes = [AiGenerationRateThrottle]
     allowed_statuses = {
         Product.Status.SUBMITTED,
-        Product.Status.UNDER_REVIEW,
         Product.Status.APPROVED,
         Product.Status.DEACTIVATED,
     }
@@ -915,7 +914,7 @@ class ProductMarketplaceContentGenerationCreateView(
                 {
                     "detail": (
                         "AI content can be generated only for submitted, "
-                        "under-review, or approved products."
+                        "approved, or deactivated products."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,

@@ -329,13 +329,8 @@ def withdraw_product_submission(*, product: Product) -> Product:
     """
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if locked_product.status not in {
-        Product.Status.SUBMITTED,
-        Product.Status.UNDER_REVIEW,
-    }:
-        raise ValidationError(
-            {"detail": ("Only a submitted or under-review product can be withdrawn.")}
-        )
+    if locked_product.status != Product.Status.SUBMITTED:
+        raise ValidationError({"detail": "Only a submitted product can be withdrawn."})
 
     from apps.ean.models import EanCode
 
