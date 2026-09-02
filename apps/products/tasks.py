@@ -6,22 +6,26 @@ from celery import shared_task
 
 from .models import ExchangeRate
 
-FRANKFURTER_URL = "https://api.frankfurter.dev/v2/latest"
+FRANKFURTER_URL = "https://api.frankfurter.dev/v2/rates"
 
 
 def store_latest_exchange_rates() -> ExchangeRate:
     response = requests.get(
         FRANKFURTER_URL,
-        params={"from": "EUR", "to": "USD,TRY"},
+        params={"base": "EUR", "quotes": "USD,TRY"},
         timeout=15,
     )
     response.raise_for_status()
-    payload = response.json()
-    rates = payload["rates"]
+    rows = response.json()
+    if not isinstance(rows, list):
+        raise ValueError("Unexpected Frankfurter rates payload.")
+    by_quote = {row["quote"]: row for row in rows}
+    usd = by_quote["USD"]
+    try_row = by_quote["TRY"]
     return ExchangeRate.objects.create(
-        as_of=date.fromisoformat(payload["date"]),
-        eur_to_usd=Decimal(str(rates["USD"])),
-        eur_to_try=Decimal(str(rates["TRY"])),
+        as_of=date.fromisoformat(str(usd["date"])),
+        eur_to_usd=Decimal(str(usd["rate"])),
+        eur_to_try=Decimal(str(try_row["rate"])),
         source="frankfurter",
     )
 
