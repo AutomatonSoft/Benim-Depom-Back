@@ -69,3 +69,55 @@ def test_moderation_services_validate_states_and_store_decisions(
     approved = approve_product(product=ready, manager=manager, comment="ok")
     assert approved.status == Product.Status.APPROVED
     assert approved.moderation_decisions.count() == 1
+
+
+@pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
+def test_manager_can_move_approved_product_without_live_listings(
+    seller, manager, product_factory
+):
+    from apps.moderation.models import ModerationDecision
+    from apps.moderation.services import change_approved_product_status
+    from apps.orchestrator.models import MarketplacePublication
+
+    product = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4012345678901",
+        ean_xl="4012345678902",
+    )
+    with pytest.raises(ValidationError, match="seller must edit"):
+        change_approved_product_status(
+            product=product_factory(owner=seller, status=Product.Status.REJECTED),
+            manager=manager,
+            status=Product.Status.SUBMITTED,
+        )
+
+    returned = change_approved_product_status(
+        product=product,
+        manager=manager,
+        status=Product.Status.SUBMITTED,
+    )
+    assert returned.status == Product.Status.SUBMITTED
+    assert returned.ean_jv == "4012345678901"
+    assert returned.moderation_decisions.filter(
+        decision=ModerationDecision.Decision.RETURNED_TO_REVIEW
+    ).exists()
+
+    EanCode.objects.create(code="4012345678901", account="jv", imported_by=manager)
+    EanCode.objects.create(code="4012345678902", account="xl", imported_by=manager)
+    reapproved = approve_product(product=returned, manager=manager, comment="again")
+    MarketplacePublication.objects.create(
+        product=reapproved,
+        marketplace=MarketplacePublication.Marketplace.OTTO,
+        account=MarketplacePublication.Account.JV,
+        ean=reapproved.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+    )
+    with pytest.raises(ValidationError, match="Deactivate marketplace listings"):
+        change_approved_product_status(
+            product=reapproved,
+            manager=manager,
+            status=Product.Status.REJECTED,
+            comment="too late",
+        )

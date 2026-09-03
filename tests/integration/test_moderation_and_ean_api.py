@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from apps.ean.models import EanCode
+from apps.moderation.models import ModerationDecision
 from apps.notifications.models import Notification
 from apps.products.models import Product
 
@@ -391,3 +392,86 @@ def test_manager_dashboard_returns_live_counts(
 
     authenticate(api_client, seller)
     assert api_client.get("/api/v1/manager/dashboard/").status_code == 403
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_moderation_history_returns_five_items_per_page(
+    api_client, seller, manager, product_factory
+):
+    product = product_factory(owner=seller, status=Product.Status.SUBMITTED)
+    for index in range(6):
+        ModerationDecision.objects.create(
+            product=product,
+            manager=manager,
+            decision=ModerationDecision.Decision.REJECTED,
+            comment=f"Review {index}",
+        )
+
+    authenticate(api_client, manager)
+    first_page = api_client.get(
+        f"/api/v1/products/{product.id}/moderation-history/?page=1"
+    )
+    second_page = api_client.get(
+        f"/api/v1/products/{product.id}/moderation-history/?page=2"
+    )
+
+    assert first_page.status_code == 200
+    assert first_page.data["count"] == 6
+    assert len(first_page.data["results"]) == 5
+    assert second_page.status_code == 200
+    assert len(second_page.data["results"]) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_status_change_respects_listings_and_rejected(
+    api_client, seller, manager, product_factory
+):
+    from apps.orchestrator.models import MarketplacePublication
+
+    rejected = product_factory(owner=seller, status=Product.Status.REJECTED)
+    approved = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4012345678901",
+        ean_xl="4012345678902",
+    )
+    authenticate(api_client, manager)
+
+    blocked = api_client.post(
+        f"/api/v1/manager/products/{rejected.id}/status/",
+        {"status": "submitted"},
+        format="json",
+    )
+    assert blocked.status_code == 400
+
+    returned = api_client.post(
+        f"/api/v1/manager/products/{approved.id}/status/",
+        {"status": "submitted"},
+        format="json",
+    )
+    assert returned.status_code == 200
+    assert returned.data["status"] == "submitted"
+    assert returned.data["ean_jv"] == "4012345678901"
+
+    live = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4012345678911",
+        ean_xl="4012345678912",
+    )
+    MarketplacePublication.objects.create(
+        product=live,
+        marketplace=MarketplacePublication.Marketplace.OTTO,
+        account=MarketplacePublication.Account.JV,
+        ean=live.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+    )
+    live_blocked = api_client.post(
+        f"/api/v1/manager/products/{live.id}/status/",
+        {"status": "rejected", "comment": "stop"},
+        format="json",
+    )
+    assert live_blocked.status_code == 400
+    assert "Deactivate marketplace listings" in str(live_blocked.data["detail"])

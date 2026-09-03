@@ -86,6 +86,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ("POST", "/api/v1/manager/products/{product_pk}/reject/"): "Отклонить товар",
         (
             "POST",
+            "/api/v1/manager/products/{product_pk}/status/",
+        ): "Изменить статус одобренного товара",
+        (
+            "POST",
             "/api/v1/manager/products/{product_pk}/notifications/",
         ): "Отправить сообщение продавцу",
         (
