@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://benim.automatonsoft.de
+      url: https://benimdepom.info
 
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
