@@ -1,11 +1,14 @@
 from django.db import transaction
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import User
 from apps.common.permissions import IsManager, is_manager
 from apps.common.throttles import ManagerMutationThrottleMixin
 from apps.notifications.models import Notification
@@ -15,6 +18,7 @@ from apps.notifications.serializers import (
 )
 from apps.notifications.services import create_notification
 from apps.orchestrator.listing_state_services import create_listing_state_jobs
+from apps.orchestrator.models import MarketplacePublication
 from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
 from apps.products.filters import filter_products
@@ -26,6 +30,7 @@ from apps.products.services import request_product_availability
 from .models import ModerationDecision
 from .serializers import (
     ApproveProductSerializer,
+    ManagerDashboardSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
 )
@@ -33,6 +38,90 @@ from .services import (
     approve_product,
     reject_product,
 )
+
+QUEUE_LIMIT = 6
+
+
+def _absolute_media_url(request, file_field) -> str:
+    if not file_field:
+        return ""
+    url = file_field.url
+    if request:
+        return request.build_absolute_uri(url)
+    return url
+
+
+class ManagerDashboardView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        responses={200: ManagerDashboardSerializer},
+        description=(
+            "Live overview counts for the manager home page: "
+            "moderation queue, listings published today, and active sellers."
+        ),
+    )
+    def get(self, request):
+        now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = today_start.replace(day=1)
+
+        awaiting = Product.objects.filter(status=Product.Status.SUBMITTED).aggregate(
+            total=Count("id"),
+            today=Count("id", filter=Q(created_at__gte=today_start)),
+        )
+        published = MarketplacePublication.objects.filter(
+            published_at__gte=today_start,
+        ).aggregate(
+            total=Count("id"),
+            marketplaces=Count("marketplace", distinct=True),
+        )
+        sellers = User.objects.filter(
+            role=User.Role.SELLER,
+            is_active=True,
+        ).aggregate(
+            total=Count("id"),
+            this_month=Count("id", filter=Q(date_joined__gte=month_start)),
+        )
+
+        queue_products = list(
+            Product.objects.filter(status=Product.Status.SUBMITTED)
+            .select_related("owner")
+            .prefetch_related("images")
+            .order_by("-created_at")[:QUEUE_LIMIT]
+        )
+        queue = []
+        for product in queue_products:
+            images = list(product.images.all())
+            primary = next(
+                (image for image in images if image.is_primary),
+                images[0] if images else None,
+            )
+            owner = product.owner
+            queue.append(
+                {
+                    "id": product.id,
+                    "title": product.title,
+                    "product_type": product.product_type,
+                    "created_at": product.created_at,
+                    "image": _absolute_media_url(
+                        request, primary.image if primary else None
+                    ),
+                    "seller_name": owner.first_name.strip() or owner.username,
+                }
+            )
+
+        payload = {
+            "awaiting_review": awaiting["total"],
+            "awaiting_review_today": awaiting["today"],
+            "published_today": published["total"],
+            "published_today_marketplaces": published["marketplaces"],
+            "active_sellers": sellers["total"],
+            "sellers_joined_this_month": sellers["this_month"],
+            "queue": queue,
+        }
+        serializer = ManagerDashboardSerializer(payload)
+        return Response(serializer.data)
 
 
 class ProductModerationHistoryView(generics.ListAPIView):
