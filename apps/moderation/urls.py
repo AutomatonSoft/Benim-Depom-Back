@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     ManagerApproveProductView,
+    ManagerDashboardView,
     ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
@@ -17,6 +18,11 @@ urlpatterns = [
         "products/<int:product_pk>/moderation-history/",
         ProductModerationHistoryView.as_view(),
         name="product-moderation-history",
+    ),
+    path(
+        "manager/dashboard/",
+        ManagerDashboardView.as_view(),
+        name="manager-dashboard",
     ),
     path(
         "manager/products/",
