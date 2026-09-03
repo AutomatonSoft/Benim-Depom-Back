@@ -82,3 +82,26 @@ class RejectProductSerializer(serializers.Serializer):
             raise serializers.ValidationError("A rejection reason is required.")
 
         return comment
+
+
+@extend_schema_serializer(component_name="ManagerProductStatusChange")
+class ChangeApprovedProductStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=(
+            ("submitted", "Submitted"),
+            ("rejected", "Rejected"),
+        )
+    )
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        if attrs["status"] == "rejected" and not attrs.get("comment"):
+            raise serializers.ValidationError(
+                {"comment": "A rejection reason is required."}
+            )
+        return attrs

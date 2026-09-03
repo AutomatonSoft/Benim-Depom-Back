@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,16 +32,19 @@ from apps.products.services import request_product_availability
 from .models import ModerationDecision
 from .serializers import (
     ApproveProductSerializer,
+    ChangeApprovedProductStatusSerializer,
     ManagerDashboardSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
 )
 from .services import (
     approve_product,
+    change_approved_product_status,
     reject_product,
 )
 
 QUEUE_LIMIT = 6
+HISTORY_PAGE_SIZE = 5
 ACTIVE_LISTING_CHANNELS = (
     (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.JV),
     (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
@@ -161,9 +165,14 @@ class ManagerDashboardView(APIView):
         return Response(serializer.data)
 
 
+class ModerationHistoryPagination(PageNumberPagination):
+    page_size = HISTORY_PAGE_SIZE
+
+
 class ProductModerationHistoryView(generics.ListAPIView):
     serializer_class = ModerationDecisionSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = ModerationHistoryPagination
 
     def get_queryset(self):
         product_queryset = Product.objects.all()
@@ -301,6 +310,30 @@ class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
             comment=serializer.validated_data["comment"],
         )
 
+        return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class ManagerChangeProductStatusView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=ChangeApprovedProductStatusSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Move an approved product back to review or reject it. "
+            "Blocked while marketplace listings are still live or in progress."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = ChangeApprovedProductStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = change_approved_product_status(
+            product=product,
+            manager=request.user,
+            status=serializer.validated_data["status"],
+            comment=serializer.validated_data.get("comment", ""),
+        )
         return Response(ProductSerializer(product, context={"request": request}).data)
 
 
