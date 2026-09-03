@@ -213,3 +213,92 @@ def reject_product(
     )
 
     return product
+
+
+BLOCKING_PUBLICATION_STATUSES = (
+    "pending",
+    "publishing",
+    "active",
+    "deactivating",
+    "deleting",
+)
+
+
+def product_has_blocking_listings(product: Product) -> bool:
+    return product.marketplace_publications.filter(
+        status__in=BLOCKING_PUBLICATION_STATUSES
+    ).exists()
+
+
+@transaction.atomic
+def change_approved_product_status(
+    *,
+    product: Product,
+    manager,
+    status: str,
+    comment: str = "",
+) -> Product:
+    product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if product.status == Product.Status.REJECTED:
+        raise ValidationError(
+            {
+                "detail": (
+                    "A rejected product cannot be moved by a manager. "
+                    "The seller must edit it and submit it again."
+                )
+            }
+        )
+
+    if product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only an approved product can be moved this way."}
+        )
+
+    if status not in {Product.Status.SUBMITTED, Product.Status.REJECTED}:
+        raise ValidationError({"status": "Choose submitted or rejected."})
+
+    if product_has_blocking_listings(product):
+        raise ValidationError(
+            {
+                "detail": (
+                    "Deactivate marketplace listings before changing this "
+                    "product status."
+                )
+            }
+        )
+
+    if status == Product.Status.REJECTED:
+        comment = comment.strip()
+        if not comment:
+            raise ValidationError({"comment": "A rejection reason is required."})
+        product.status = Product.Status.REJECTED
+        product.is_available = False
+        product.save(update_fields=("status", "is_available", "updated_at"))
+        ModerationDecision.objects.create(
+            product=product,
+            manager=manager,
+            decision=ModerationDecision.Decision.REJECTED,
+            comment=comment,
+        )
+        transaction.on_commit(
+            lambda: create_notification(
+                user=product.owner,
+                product=product,
+                notification_type=Notification.Type.PRODUCT_REJECTED,
+                title="Product rejected",
+                body=comment,
+            )
+        )
+        return product
+
+    product.status = Product.Status.SUBMITTED
+    product.is_available = False
+    product.save(update_fields=("status", "is_available", "updated_at"))
+    ModerationDecision.objects.create(
+        product=product,
+        manager=manager,
+        decision=ModerationDecision.Decision.RETURNED_TO_REVIEW,
+        comment=comment.strip(),
+    )
+    return product

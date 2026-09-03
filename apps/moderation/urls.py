@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     ManagerApproveProductView,
+    ManagerChangeProductStatusView,
+    ManagerDashboardView,
     ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
@@ -19,6 +21,11 @@ urlpatterns = [
         name="product-moderation-history",
     ),
     path(
+        "manager/dashboard/",
+        ManagerDashboardView.as_view(),
+        name="manager-dashboard",
+    ),
+    path(
         "manager/products/",
         ManagerProductListView.as_view(),
         name="manager-product-list",
@@ -32,6 +39,11 @@ urlpatterns = [
         "manager/products/<int:product_pk>/reject/",
         ManagerRejectProductView.as_view(),
         name="manager-product-reject",
+    ),
+    path(
+        "manager/products/<int:product_pk>/status/",
+        ManagerChangeProductStatusView.as_view(),
+        name="manager-product-status",
     ),
     path(
         "manager/products/<int:product_pk>/notifications/",

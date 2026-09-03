@@ -1,13 +1,18 @@
 from django.db import transaction
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import User
 from apps.common.permissions import IsManager, is_manager
 from apps.common.throttles import ManagerMutationThrottleMixin
+from apps.ean.models import EanCode
 from apps.notifications.models import Notification
 from apps.notifications.serializers import (
     ManagerProductNotificationSerializer,
@@ -15,6 +20,7 @@ from apps.notifications.serializers import (
 )
 from apps.notifications.services import create_notification
 from apps.orchestrator.listing_state_services import create_listing_state_jobs
+from apps.orchestrator.models import MarketplacePublication
 from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
 from apps.products.filters import filter_products
@@ -26,18 +32,147 @@ from apps.products.services import request_product_availability
 from .models import ModerationDecision
 from .serializers import (
     ApproveProductSerializer,
+    ChangeApprovedProductStatusSerializer,
+    ManagerDashboardSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
 )
 from .services import (
     approve_product,
+    change_approved_product_status,
     reject_product,
 )
+
+QUEUE_LIMIT = 6
+HISTORY_PAGE_SIZE = 5
+ACTIVE_LISTING_CHANNELS = (
+    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.XL),
+)
+
+
+def _absolute_media_url(request, file_field) -> str:
+    name = getattr(file_field, "name", None)
+    if not file_field or not name:
+        return ""
+    try:
+        url = file_field.url
+    except ValueError:
+        return ""
+    if request:
+        return request.build_absolute_uri(url)
+    return url
+
+
+class ManagerDashboardView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        responses={200: ManagerDashboardSerializer},
+        description=(
+            "Live overview counts for the manager home page: "
+            "moderation queue, active marketplace listings, free EANs, "
+            "and sellers."
+        ),
+    )
+    def get(self, request):
+        now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = today_start.replace(day=1)
+
+        awaiting = Product.objects.filter(status=Product.Status.SUBMITTED).aggregate(
+            total=Count("id"),
+            today=Count("id", filter=Q(created_at__gte=today_start)),
+        )
+        published = MarketplacePublication.objects.filter(
+            published_at__gte=today_start,
+        ).aggregate(
+            total=Count("id"),
+            marketplaces=Count("marketplace", distinct=True),
+        )
+        sellers = User.objects.filter(
+            role=User.Role.SELLER,
+            is_active=True,
+        ).aggregate(
+            total=Count("id"),
+            this_month=Count("id", filter=Q(date_joined__gte=month_start)),
+        )
+        listing_rows = {
+            (row["marketplace"], row["account"]): row["total"]
+            for row in MarketplacePublication.objects.filter(
+                status=MarketplacePublication.Status.ACTIVE,
+            )
+            .values("marketplace", "account")
+            .annotate(total=Count("id"))
+        }
+        active_listings = [
+            {
+                "marketplace": marketplace,
+                "account": account,
+                "count": listing_rows.get((marketplace, account), 0),
+            }
+            for marketplace, account in ACTIVE_LISTING_CHANNELS
+        ]
+        free_eans = EanCode.objects.filter(state=EanCode.State.AVAILABLE).aggregate(
+            jv=Count("id", filter=Q(account=EanCode.Account.JV)),
+            xl=Count("id", filter=Q(account=EanCode.Account.XL)),
+            total=Count("id"),
+        )
+
+        queue_products = list(
+            Product.objects.filter(status=Product.Status.SUBMITTED)
+            .select_related("owner")
+            .prefetch_related("images")
+            .order_by("-created_at")[:QUEUE_LIMIT]
+        )
+        queue = []
+        for product in queue_products:
+            images = list(product.images.all())
+            primary = next(
+                (image for image in images if image.is_primary),
+                images[0] if images else None,
+            )
+            owner = product.owner
+            queue.append(
+                {
+                    "id": product.id,
+                    "title": product.title,
+                    "product_type": product.product_type,
+                    "created_at": product.created_at,
+                    "image": _absolute_media_url(
+                        request, primary.image if primary else None
+                    ),
+                    "seller_name": (owner.first_name or "").strip() or owner.username,
+                }
+            )
+
+        payload = {
+            "awaiting_review": awaiting["total"],
+            "awaiting_review_today": awaiting["today"],
+            "published_today": published["total"],
+            "published_today_marketplaces": published["marketplaces"],
+            "active_sellers": sellers["total"],
+            "sellers_joined_this_month": sellers["this_month"],
+            "active_listings": active_listings,
+            "free_eans": free_eans,
+            "queue": queue,
+        }
+        serializer = ManagerDashboardSerializer(payload)
+        return Response(serializer.data)
+
+
+class ModerationHistoryPagination(PageNumberPagination):
+    page_size = HISTORY_PAGE_SIZE
 
 
 class ProductModerationHistoryView(generics.ListAPIView):
     serializer_class = ModerationDecisionSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = ModerationHistoryPagination
 
     def get_queryset(self):
         product_queryset = Product.objects.all()
@@ -175,6 +310,30 @@ class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
             comment=serializer.validated_data["comment"],
         )
 
+        return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class ManagerChangeProductStatusView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=ChangeApprovedProductStatusSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Move an approved product back to review or reject it. "
+            "Blocked while marketplace listings are still live or in progress."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = ChangeApprovedProductStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = change_approved_product_status(
+            product=product,
+            manager=request.user,
+            status=serializer.validated_data["status"],
+            comment=serializer.validated_data.get("comment", ""),
+        )
         return Response(ProductSerializer(product, context={"request": request}).data)
 
 

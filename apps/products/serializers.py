@@ -232,6 +232,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "ean_xl",
             "is_available",
             "approved_at",
+            "availability_reminder_sent_at",
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
@@ -257,6 +258,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_available",
             "approved_at",
+            "availability_reminder_sent_at",
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
@@ -301,7 +303,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(
         serializers.ChoiceField(
-            choices=["approved", "rejected"],
+            choices=["approved", "rejected", "returned_to_review"],
             allow_null=True,
         )
     )

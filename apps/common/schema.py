@@ -77,12 +77,17 @@ class MarketplaceAutoSchema(AutoSchema):
             "GET",
             "/api/v1/products/{product_pk}/moderation-history/",
         ): "Получить историю модерации",
+        ("GET", "/api/v1/manager/dashboard/"): "Получить сводку панели менеджера",
         ("GET", "/api/v1/manager/products/"): "Получить товары для менеджера",
         (
             "POST",
             "/api/v1/manager/products/{product_pk}/approve/",
         ): "Одобрить товар и назначить EAN",
         ("POST", "/api/v1/manager/products/{product_pk}/reject/"): "Отклонить товар",
+        (
+            "POST",
+            "/api/v1/manager/products/{product_pk}/status/",
+        ): "Изменить статус одобренного товара",
         (
             "POST",
             "/api/v1/manager/products/{product_pk}/notifications/",
@@ -236,6 +241,8 @@ class MarketplaceAutoSchema(AutoSchema):
             return ["OTTO - Catalog"]
         if path.startswith("/api/v1/manager/eans/"):
             return ["EAN pool"]
+        if path.startswith("/api/v1/manager/dashboard/"):
+            return ["Manager moderation"]
         if path.startswith("/api/v1/manager/products/"):
             return ["Manager moderation"]
         if path.startswith("/api/v1/notifications/"):
