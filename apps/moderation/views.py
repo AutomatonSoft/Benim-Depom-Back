@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from apps.accounts.models import User
 from apps.common.permissions import IsManager, is_manager
 from apps.common.throttles import ManagerMutationThrottleMixin
+from apps.ean.models import EanCode
 from apps.notifications.models import Notification
 from apps.notifications.serializers import (
     ManagerProductNotificationSerializer,
@@ -40,12 +41,24 @@ from .services import (
 )
 
 QUEUE_LIMIT = 6
+ACTIVE_LISTING_CHANNELS = (
+    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.XL),
+)
 
 
 def _absolute_media_url(request, file_field) -> str:
-    if not file_field:
+    name = getattr(file_field, "name", None)
+    if not file_field or not name:
         return ""
-    url = file_field.url
+    try:
+        url = file_field.url
+    except ValueError:
+        return ""
     if request:
         return request.build_absolute_uri(url)
     return url
@@ -58,7 +71,8 @@ class ManagerDashboardView(APIView):
         responses={200: ManagerDashboardSerializer},
         description=(
             "Live overview counts for the manager home page: "
-            "moderation queue, listings published today, and active sellers."
+            "moderation queue, active marketplace listings, free EANs, "
+            "and sellers."
         ),
     )
     def get(self, request):
@@ -82,6 +96,27 @@ class ManagerDashboardView(APIView):
         ).aggregate(
             total=Count("id"),
             this_month=Count("id", filter=Q(date_joined__gte=month_start)),
+        )
+        listing_rows = {
+            (row["marketplace"], row["account"]): row["total"]
+            for row in MarketplacePublication.objects.filter(
+                status=MarketplacePublication.Status.ACTIVE,
+            )
+            .values("marketplace", "account")
+            .annotate(total=Count("id"))
+        }
+        active_listings = [
+            {
+                "marketplace": marketplace,
+                "account": account,
+                "count": listing_rows.get((marketplace, account), 0),
+            }
+            for marketplace, account in ACTIVE_LISTING_CHANNELS
+        ]
+        free_eans = EanCode.objects.filter(state=EanCode.State.AVAILABLE).aggregate(
+            jv=Count("id", filter=Q(account=EanCode.Account.JV)),
+            xl=Count("id", filter=Q(account=EanCode.Account.XL)),
+            total=Count("id"),
         )
 
         queue_products = list(
@@ -107,7 +142,7 @@ class ManagerDashboardView(APIView):
                     "image": _absolute_media_url(
                         request, primary.image if primary else None
                     ),
-                    "seller_name": owner.first_name.strip() or owner.username,
+                    "seller_name": (owner.first_name or "").strip() or owner.username,
                 }
             )
 
@@ -118,6 +153,8 @@ class ManagerDashboardView(APIView):
             "published_today_marketplaces": published["marketplaces"],
             "active_sellers": sellers["total"],
             "sellers_joined_this_month": sellers["this_month"],
+            "active_listings": active_listings,
+            "free_eans": free_eans,
             "queue": queue,
         }
         serializer = ManagerDashboardSerializer(payload)

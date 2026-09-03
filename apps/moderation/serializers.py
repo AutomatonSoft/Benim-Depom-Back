@@ -43,6 +43,20 @@ class ManagerDashboardQueueItemSerializer(serializers.Serializer):
     seller_name = serializers.CharField()
 
 
+@extend_schema_serializer(component_name="ManagerDashboardChannelCount")
+class ManagerDashboardChannelCountSerializer(serializers.Serializer):
+    marketplace = serializers.CharField()
+    account = serializers.CharField()
+    count = serializers.IntegerField()
+
+
+@extend_schema_serializer(component_name="ManagerDashboardFreeEans")
+class ManagerDashboardFreeEansSerializer(serializers.Serializer):
+    jv = serializers.IntegerField()
+    xl = serializers.IntegerField()
+    total = serializers.IntegerField()
+
+
 @extend_schema_serializer(component_name="ManagerDashboard")
 class ManagerDashboardSerializer(serializers.Serializer):
     awaiting_review = serializers.IntegerField()
@@ -51,6 +65,8 @@ class ManagerDashboardSerializer(serializers.Serializer):
     published_today_marketplaces = serializers.IntegerField()
     active_sellers = serializers.IntegerField()
     sellers_joined_this_month = serializers.IntegerField()
+    active_listings = ManagerDashboardChannelCountSerializer(many=True)
+    free_eans = ManagerDashboardFreeEansSerializer()
     queue = ManagerDashboardQueueItemSerializer(many=True)
 
 
