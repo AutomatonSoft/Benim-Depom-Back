@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: https://stage.benim.automatonsoft.de
+      url: https://stage.benimdepom.info
 
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
