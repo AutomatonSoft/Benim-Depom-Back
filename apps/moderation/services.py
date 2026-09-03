@@ -224,7 +224,6 @@ BLOCKING_PUBLICATION_STATUSES = (
 )
 
 
-
 def product_has_blocking_listings(product: Product) -> bool:
     return product.marketplace_publications.filter(
         status__in=BLOCKING_PUBLICATION_STATUSES
