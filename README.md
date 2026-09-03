@@ -289,6 +289,7 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
 | `GET` | `/api/v1/products/{id}/moderation-history/` | owner/manager/admin | История решений. |
+| `GET` | `/api/v1/manager/dashboard/` | manager/admin | Сводка главной: очередь, активные листинги по каналам, свободные EAN, продавцы. |
 | `GET` | `/api/v1/manager/products/` | manager/admin | Менеджерский список товаров. |
 | `POST` | `/api/v1/manager/products/{id}/approve/` | manager/admin | Approve и назначить EAN JV/XL. |
 | `POST` | `/api/v1/manager/products/{id}/reject/` | manager/admin | Reject с комментарием. |

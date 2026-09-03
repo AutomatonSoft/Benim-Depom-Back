@@ -296,6 +296,7 @@ def test_manager_reject_and_manual_availability_request(
         f"/api/v1/manager/products/{approved.id}/availability-request/"
     )
     assert response.status_code == 200
+    assert response.data["availability_reminder_sent_at"] is not None
     approved.refresh_from_db()
     assert approved.availability_reminder_sent_at is not None
     assert Notification.objects.filter(
@@ -307,3 +308,86 @@ def test_manager_reject_and_manual_availability_request(
     response = api_client.get("/api/v1/manager/products/?status=approved")
     assert response.status_code == 200
     assert [item["id"] for item in response.data["results"]] == [approved.id]
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_dashboard_returns_live_counts(
+    api_client, seller, manager, user_factory, product_factory
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.ean.models import EanCode
+    from apps.orchestrator.models import MarketplacePublication
+
+    waiting = product_factory(owner=seller, status=Product.Status.SUBMITTED)
+    approved = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4012345678901",
+        ean_xl="4012345678902",
+    )
+    MarketplacePublication.objects.create(
+        product=approved,
+        marketplace=MarketplacePublication.Marketplace.OTTO,
+        account=MarketplacePublication.Account.JV,
+        ean=approved.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+        published_at=timezone.now(),
+    )
+    MarketplacePublication.objects.create(
+        product=approved,
+        marketplace=MarketplacePublication.Marketplace.OTTO,
+        account=MarketplacePublication.Account.XL,
+        ean=approved.ean_xl,
+        status=MarketplacePublication.Status.ACTIVE,
+        published_at=timezone.now(),
+    )
+    MarketplacePublication.objects.create(
+        product=approved,
+        marketplace=MarketplacePublication.Marketplace.HOOD,
+        account=MarketplacePublication.Account.JV,
+        ean=approved.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+        published_at=timezone.now(),
+    )
+    user_factory(
+        username="old_seller",
+        date_joined=timezone.now() - timedelta(days=40),
+    )
+    user_factory(username="inactive_seller", is_active=False)
+    EanCode.objects.create(
+        code="2000000000001",
+        account=EanCode.Account.JV,
+        state=EanCode.State.AVAILABLE,
+    )
+    EanCode.objects.create(
+        code="2000000000002",
+        account=EanCode.Account.XL,
+        state=EanCode.State.AVAILABLE,
+    )
+
+    authenticate(api_client, manager)
+    response = api_client.get("/api/v1/manager/dashboard/")
+    assert response.status_code == 200
+    assert response.data["awaiting_review"] == 1
+    assert response.data["awaiting_review_today"] == 1
+    assert response.data["published_today"] == 3
+    assert response.data["published_today_marketplaces"] == 2
+    assert response.data["active_sellers"] == 2
+    assert response.data["sellers_joined_this_month"] == 1
+    assert response.data["active_listings"] == [
+        {"marketplace": "otto", "account": "jv", "count": 1},
+        {"marketplace": "otto", "account": "xl", "count": 1},
+        {"marketplace": "hood", "account": "jv", "count": 1},
+        {"marketplace": "hood", "account": "xl", "count": 0},
+        {"marketplace": "kaufland", "account": "jv", "count": 0},
+        {"marketplace": "kaufland", "account": "xl", "count": 0},
+    ]
+    assert response.data["free_eans"] == {"jv": 1, "xl": 1, "total": 2}
+    assert [item["id"] for item in response.data["queue"]] == [waiting.id]
+
+    authenticate(api_client, seller)
+    assert api_client.get("/api/v1/manager/dashboard/").status_code == 403
