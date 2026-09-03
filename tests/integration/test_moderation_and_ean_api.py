@@ -296,6 +296,7 @@ def test_manager_reject_and_manual_availability_request(
         f"/api/v1/manager/products/{approved.id}/availability-request/"
     )
     assert response.status_code == 200
+    assert response.data["availability_reminder_sent_at"] is not None
     approved.refresh_from_db()
     assert approved.availability_reminder_sent_at is not None
     assert Notification.objects.filter(
