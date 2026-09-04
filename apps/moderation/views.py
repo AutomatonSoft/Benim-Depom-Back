@@ -97,6 +97,7 @@ class ManagerDashboardView(APIView):
         sellers = User.objects.filter(
             role=User.Role.SELLER,
             is_active=True,
+            is_email_verified=True,
         ).aggregate(
             total=Count("id"),
             this_month=Count("id", filter=Q(date_joined__gte=month_start)),
@@ -169,6 +170,12 @@ class ModerationHistoryPagination(PageNumberPagination):
     page_size = HISTORY_PAGE_SIZE
 
 
+class ManagerProductPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class ProductModerationHistoryView(generics.ListAPIView):
     serializer_class = ModerationDecisionSerializer
     permission_classes = [IsAuthenticated]
@@ -195,6 +202,7 @@ class ProductModerationHistoryView(generics.ListAPIView):
 class ManagerProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsManager]
+    pagination_class = ManagerProductPagination
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
