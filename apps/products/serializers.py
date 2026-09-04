@@ -507,9 +507,23 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_attributes",
             getattr(self.instance, "otto_attributes", {}),
         )
-        attributes_were_sent = "otto_attributes" in self.initial_data
+        attributes_were_sent = "otto_attributes" in getattr(self, "initial_data", {})
+        has_attribute_values = bool(attributes)
 
-        if category_id is None and group_id is None and not attributes_were_sent:
+        if category_id is None and group_id is None:
+            if attributes_were_sent and has_attribute_values:
+                raise serializers.ValidationError(
+                    {
+                        "otto_category_id": (
+                            "otto_category_id and otto_category_group_id "
+                            "must be supplied together."
+                        )
+                    }
+                )
+            attrs.pop("otto_category_id", None)
+            attrs.pop("otto_category_group_id", None)
+            if attributes_were_sent and not has_attribute_values:
+                attrs.pop("otto_attributes", None)
             return
 
         if category_id is None or group_id is None:

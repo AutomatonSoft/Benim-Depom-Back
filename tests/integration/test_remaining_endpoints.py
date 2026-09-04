@@ -65,6 +65,13 @@ def test_moderation_history_permissions_manager_listing_and_image_process_endpoi
     )
     response = api_client.get("/api/v1/manager/products/?owner_id=not-number")
     assert response.status_code == 400
+
+    page = api_client.get(
+        f"/api/v1/manager/products/?owner_id={seller.id}&page_size=10"
+    )
+    assert page.status_code == 200
+    assert page.data["count"] >= 1
+    assert len(page.data["results"]) <= 10
     response = api_client.post(
         f"/api/v1/products/{product.id}/images/{image.id}/process/"
     )

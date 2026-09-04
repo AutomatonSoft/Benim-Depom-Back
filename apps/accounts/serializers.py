@@ -144,6 +144,7 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
         return User.objects.create_user(
             password=password,
             role=User.Role.MANAGER,
+            is_email_verified=True,
             **validated_data,
         )
 
@@ -164,7 +165,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             "preferred_language",
             "role",
             "date_joined",
-            "is_email_verified",
             "product_count",
         )
         read_only_fields = (
@@ -172,7 +172,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             "username",
             "role",
             "date_joined",
-            "is_email_verified",
             "product_count",
         )
 
