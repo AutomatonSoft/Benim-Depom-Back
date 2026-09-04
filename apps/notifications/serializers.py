@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema_serializer
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from .models import DeviceToken, Notification
@@ -48,11 +48,14 @@ class NotificationSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(
         source="product.id",
         read_only=True,
+        allow_null=True,
     )
+    product_title = serializers.SerializerMethodField()
 
     sender_id = serializers.IntegerField(
         source="sender.id",
         read_only=True,
+        allow_null=True,
     )
 
     class Meta:
@@ -61,14 +64,22 @@ class NotificationSerializer(serializers.ModelSerializer):
             "id",
             "notification_type",
             "product_id",
+            "product_title",
             "is_read",
             "created_at",
             "read_at",
+            "responded_at",
             "sender_id",
             "title",
             "body",
         )
         read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_product_title(self, notification) -> str | None:
+        if notification.product_id is None:
+            return None
+        return notification.product.title
 
 
 @extend_schema_serializer(component_name="WebManagerProductNotification")
