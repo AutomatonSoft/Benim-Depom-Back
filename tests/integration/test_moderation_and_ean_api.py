@@ -305,6 +305,12 @@ def test_manager_reject_and_manual_availability_request(
         product=approved,
         notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
     ).exists()
+    reminder = Notification.objects.get(
+        user=seller,
+        product=approved,
+        notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
+    )
+    assert approved.title in reminder.body
 
     response = api_client.get("/api/v1/manager/products/?status=approved")
     assert response.status_code == 200

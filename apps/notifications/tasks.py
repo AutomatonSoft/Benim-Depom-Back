@@ -104,6 +104,9 @@ def send_notification_push(self, notification_id: int) -> dict:
         "notification_id": str(notification.id),
         "notification_type": notification.notification_type,
         "product_id": str(notification.product_id or ""),
+        "product_title": (
+            notification.product.title if notification.product_id else ""
+        ),
     }
 
     sent_count = 0
@@ -283,7 +286,7 @@ def send_product_availability_reminders() -> dict:
 
     from apps.products.models import Product
 
-    from .services import create_notification
+    from .services import create_notification, product_availability_reminder_copy
 
     now = timezone.now()
     cutoff = now - timedelta(days=settings.PRODUCT_AVAILABILITY_REMINDER_DAYS)
@@ -341,12 +344,13 @@ def send_product_availability_reminders() -> dict:
                 )
             )
 
+            title, body = product_availability_reminder_copy(product)
             create_notification(
                 user=product.owner,
                 product=product,
                 notification_type=(Notification.Type.PRODUCT_AVAILABILITY_REMINDER),
-                title="Product availability",
-                body=("Do you still have this product available?"),
+                title=title,
+                body=body,
             )
             sent_count += 1
 

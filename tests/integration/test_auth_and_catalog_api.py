@@ -170,6 +170,30 @@ def test_manager_lists_only_sellers_with_search_and_activity_filter(
     assert response.data["count"] == 1
     assert response.data["results"][0]["id"] == seller.id
     assert response.data["results"][0]["role"] == User.Role.SELLER
+    assert "product_count" in response.data["results"][0]
+
+
+@pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
+def test_manager_can_delete_seller_and_seller_cannot(
+    api_client, seller, manager, product_factory
+):
+    product_factory(owner=seller)
+    authenticate(api_client, seller)
+    assert (
+        api_client.delete(f"/api/v1/manager/users/sellers/{seller.id}/").status_code
+        == 403
+    )
+
+    authenticate(api_client, manager)
+    listed = api_client.get("/api/v1/manager/users/sellers/")
+    assert listed.status_code == 200
+    row = next(item for item in listed.data["results"] if item["id"] == seller.id)
+    assert row["product_count"] == 1
+
+    response = api_client.delete(f"/api/v1/manager/users/sellers/{seller.id}/")
+    assert response.status_code == 204
+    assert not User.objects.filter(pk=seller.id).exists()
 
 
 @pytest.mark.integration

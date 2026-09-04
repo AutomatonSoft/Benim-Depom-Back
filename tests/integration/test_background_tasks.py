@@ -135,9 +135,10 @@ def test_availability_reminders_include_only_stale_approved_products(
     old.refresh_from_db()
     assert result["sent"] == 1
     assert old.availability_reminder_sent_at is not None
-    assert Notification.objects.filter(
+    reminder = Notification.objects.get(
         product=old, notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER
-    ).exists()
+    )
+    assert "Old" in reminder.body
     assert not Notification.objects.filter(product=recent).exists()
 
 

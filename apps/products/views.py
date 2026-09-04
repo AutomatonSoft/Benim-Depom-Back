@@ -445,6 +445,7 @@ class ProductAvailabilityView(APIView):
         product = confirm_product_availability(
             product=product,
             is_available=serializer.validated_data["is_available"],
+            seller=request.user,
         )
         return Response(ProductSerializer(product, context={"request": request}).data)
 

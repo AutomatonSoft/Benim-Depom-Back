@@ -163,7 +163,7 @@ REST_FRAMEWORK = {
         "registration": "15/min",
         "login": "30/min",
         "ai_generation": "10/min",
-        "image_upload": "30/min",
+        "image_upload": "50/min",
         "manager_mutation": "184/min",
         "email_verification": "30/min",
         "email_verification_resend": "25/min",
