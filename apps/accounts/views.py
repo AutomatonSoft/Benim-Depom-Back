@@ -182,7 +182,10 @@ class ManagerSellerListView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = (
-            User.objects.filter(role=User.Role.SELLER)
+            User.objects.filter(
+                role=User.Role.SELLER,
+                is_email_verified=True,
+            )
             .annotate(product_count=Count("products", distinct=True))
             .order_by("-date_joined")
         )

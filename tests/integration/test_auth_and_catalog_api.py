@@ -171,6 +171,29 @@ def test_manager_lists_only_sellers_with_search_and_activity_filter(
     assert response.data["results"][0]["id"] == seller.id
     assert response.data["results"][0]["role"] == User.Role.SELLER
     assert "product_count" in response.data["results"][0]
+    assert "is_email_verified" not in response.data["results"][0]
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_seller_list_hides_unverified_registrations(
+    api_client,
+    manager,
+    seller,
+    user_factory,
+):
+    unverified = user_factory(
+        username="unverified_seller",
+        is_email_verified=False,
+        is_active=False,
+    )
+
+    authenticate(api_client, manager)
+    response = api_client.get("/api/v1/manager/users/sellers/")
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.data["results"]}
+    assert seller.id in ids
+    assert unverified.id not in ids
 
 
 @pytest.mark.integration
@@ -422,7 +445,8 @@ def test_email_verification_rejects_wrong_code_and_hides_unknown_resend(
 ):
     seller.email = "verification@example.com"
     seller.is_active = False
-    seller.save(update_fields=("email", "is_active"))
+    seller.is_email_verified = False
+    seller.save(update_fields=("email", "is_active", "is_email_verified"))
     code = issue_email_verification_code(user=seller)
     wrong_code = "000000" if code != "000000" else "999999"
 
@@ -479,7 +503,8 @@ def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_code
     assert "email" in duplicate_email.data
 
     seller.is_active = False
-    seller.save(update_fields=("is_active",))
+    seller.is_email_verified = False
+    seller.save(update_fields=("is_active", "is_email_verified"))
     valid_code = issue_email_verification_code(user=seller)
     seller.email_verification_expires_at = timezone.now() - timedelta(seconds=1)
     seller.save(update_fields=("email_verification_expires_at",))
@@ -519,7 +544,8 @@ def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_code
 def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, seller):
     seller.email = "resend@example.com"
     seller.is_active = False
-    seller.save(update_fields=("email", "is_active"))
+    seller.is_email_verified = False
+    seller.save(update_fields=("email", "is_active", "is_email_verified"))
     issue_email_verification_code(user=seller)
 
     cooldown = api_client.post(
@@ -540,6 +566,7 @@ def test_email_resend_cooldown_and_profile_cannot_verify_email(api_client, selle
     assert response.status_code == 200
     seller.refresh_from_db()
     assert seller.is_email_verified is False
+    assert "is_email_verified" not in response.data
 
 
 @pytest.mark.integration
