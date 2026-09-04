@@ -90,6 +90,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Изменить статус одобренного товара",
         (
             "POST",
+            "/api/v1/manager/products/{product_pk}/seller-changes/approve/",
+        ): "Одобрить изменения продавца и обновить листинги",
+        (
+            "POST",
             "/api/v1/manager/products/{product_pk}/notifications/",
         ): "Отправить сообщение продавцу",
         (

@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     ManagerApproveProductView,
+    ManagerApproveSellerChangesView,
     ManagerChangeProductStatusView,
     ManagerDashboardView,
     ManagerDeactivateProductView,
@@ -44,6 +45,11 @@ urlpatterns = [
         "manager/products/<int:product_pk>/status/",
         ManagerChangeProductStatusView.as_view(),
         name="manager-product-status",
+    ),
+    path(
+        "manager/products/<int:product_pk>/seller-changes/approve/",
+        ManagerApproveSellerChangesView.as_view(),
+        name="manager-product-seller-changes-approve",
     ),
     path(
         "manager/products/<int:product_pk>/notifications/",

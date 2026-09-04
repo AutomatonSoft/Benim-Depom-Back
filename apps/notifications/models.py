@@ -56,6 +56,14 @@ class Notification(models.Model):
             "product_submitted_for_review",
             "Product submitted for review",
         )
+        PRODUCT_WITHDRAWN_FROM_REVIEW = (
+            "product_withdrawn_from_review",
+            "Product withdrawn from review",
+        )
+        PRODUCT_CHANGE_REQUESTED = (
+            "product_change_requested",
+            "Product change requested",
+        )
 
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,

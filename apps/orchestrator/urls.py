@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     MarketplaceContentGenerationDetailView,
     MarketplaceJobDetailView,
+    MarketplaceJobListView,
     MarketplacePublicationListView,
     ProductHoodListingConfigurationView,
     ProductHoodPayloadPreviewView,
@@ -26,6 +27,7 @@ urlpatterns = [
         ProductMarketplaceListingStateView.as_view(),
         name="product-marketplace-listing-state",
     ),
+    path("jobs/", MarketplaceJobListView.as_view(), name="job-list"),
     path("jobs/<uuid:job_id>/", MarketplaceJobDetailView.as_view(), name="job-detail"),
     path(
         "products/<int:product_pk>/publications/",
