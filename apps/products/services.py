@@ -261,6 +261,7 @@ def confirm_product_availability(
     *,
     product: Product,
     is_available: bool,
+    seller=None,
 ) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
@@ -279,6 +280,18 @@ def confirm_product_availability(
             "availability_reminder_sent_at",
             "updated_at",
         )
+    )
+
+    from apps.notifications.services import (
+        mark_product_availability_reminders_responded,
+        notify_managers_of_availability_confirmation,
+    )
+
+    mark_product_availability_reminders_responded(product=locked_product)
+    notify_managers_of_availability_confirmation(
+        product=locked_product,
+        seller=seller or locked_product.owner,
+        is_available=is_available,
     )
 
     return locked_product
@@ -360,16 +373,20 @@ def request_product_availability(*, product: Product, manager) -> Product:
     locked_product.save(update_fields=("availability_reminder_sent_at", "updated_at"))
 
     from apps.notifications.models import Notification
-    from apps.notifications.services import create_notification
+    from apps.notifications.services import (
+        create_notification,
+        product_availability_reminder_copy,
+    )
 
+    title, body = product_availability_reminder_copy(locked_product)
     transaction.on_commit(
         lambda: create_notification(
             user=locked_product.owner,
             sender=manager,
             product=locked_product,
             notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
-            title="Product availability",
-            body="Please confirm whether this product is still available.",
+            title=title,
+            body=body,
         )
     )
     return locked_product

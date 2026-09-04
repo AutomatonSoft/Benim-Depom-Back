@@ -1,6 +1,6 @@
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_spectacular.utils import extend_schema_serializer
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -150,6 +150,8 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="AuthProfile")
 class ProfileSerializer(serializers.ModelSerializer):
+    product_count = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -163,6 +165,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "role",
             "date_joined",
             "is_email_verified",
+            "product_count",
         )
         read_only_fields = (
             "id",
@@ -170,7 +173,15 @@ class ProfileSerializer(serializers.ModelSerializer):
             "role",
             "date_joined",
             "is_email_verified",
+            "product_count",
         )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_product_count(self, user) -> int:
+        annotated = getattr(user, "product_count", None)
+        if annotated is not None:
+            return int(annotated)
+        return user.products.count()
 
 
 @extend_schema_serializer(component_name="AuthLogout")

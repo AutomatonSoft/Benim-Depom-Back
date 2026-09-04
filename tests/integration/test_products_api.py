@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from apps.notifications.models import Notification
 from apps.products.models import Product, ProductImage
 
 
@@ -300,7 +301,7 @@ def test_seller_can_resubmit_a_rejected_product_with_patch(
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_seller_confirms_availability_only_for_approved_product(
-    api_client, seller, product_factory
+    api_client, seller, manager, product_factory
 ):
     product = product_factory(owner=seller)
     authenticate(api_client, seller)
@@ -315,6 +316,20 @@ def test_seller_confirms_availability_only_for_approved_product(
 
     product.status = Product.Status.APPROVED
     product.save(update_fields=["status"])
+    reminder = Notification.objects.create(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
+        title="Product availability",
+        body="Do you still have this product available?",
+    )
+    other = Notification.objects.create(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.MANAGER_MESSAGE,
+        title="Hello",
+        body="Please check stock when you can.",
+    )
     response = api_client.post(
         f"/api/v1/products/{product.id}/availability/",
         {"is_available": False},
@@ -323,3 +338,28 @@ def test_seller_confirms_availability_only_for_approved_product(
     assert response.status_code == 200
     product.refresh_from_db()
     assert product.is_available is False
+    reminder.refresh_from_db()
+    other.refresh_from_db()
+    assert reminder.responded_at is not None
+    assert other.responded_at is None
+
+    listed = api_client.get("/api/v1/notifications/")
+    assert listed.status_code == 200
+    row = next(item for item in listed.data["results"] if item["id"] == reminder.id)
+    assert row["responded_at"] is not None
+    assert not any(
+        item["notification_type"] == Notification.Type.PRODUCT_CONFIRMATION
+        for item in listed.data["results"]
+    )
+
+    authenticate(api_client, manager)
+    manager_inbox = api_client.get("/api/v1/notifications/")
+    assert manager_inbox.status_code == 200
+    confirmation = next(
+        item
+        for item in manager_inbox.data["results"]
+        if item["notification_type"] == Notification.Type.PRODUCT_CONFIRMATION
+    )
+    assert confirmation["product_id"] == product.id
+    assert confirmation["product_title"] == product.title
+    assert "not available" in confirmation["body"]

@@ -98,7 +98,10 @@ def test_notifications_are_private_and_can_be_marked_read(
     authenticate(api_client, seller)
     response = api_client.get("/api/v1/notifications/")
     assert response.status_code == 200
-    assert response.data["results"][0]["id"] == notification.id
+    payload = response.data["results"][0]
+    assert payload["id"] == notification.id
+    assert payload["product_title"] is None
+    assert payload["responded_at"] is None
     assert (
         api_client.post(f"/api/v1/notifications/{notification.id}/read/").status_code
         == 200
@@ -139,4 +142,9 @@ def test_manager_can_message_product_owner_but_seller_cannot(
         format="json",
     )
     assert response.status_code == 201
-    assert Notification.objects.filter(user=seller, product=product).exists()
+    created = Notification.objects.get(user=seller, product=product)
+    assert created.title == "Availability"
+    authenticate(api_client, seller)
+    listed = api_client.get("/api/v1/notifications/")
+    assert listed.status_code == 200
+    assert listed.data["results"][0]["product_title"] == product.title

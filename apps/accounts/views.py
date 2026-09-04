@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
@@ -181,7 +181,11 @@ class ManagerSellerListView(generics.ListAPIView):
     permission_classes = [IsManager]
 
     def get_queryset(self):
-        queryset = User.objects.filter(role=User.Role.SELLER).order_by("-date_joined")
+        queryset = (
+            User.objects.filter(role=User.Role.SELLER)
+            .annotate(product_count=Count("products", distinct=True))
+            .order_by("-date_joined")
+        )
         search = self.request.query_params.get("search", "").strip()
 
         if search:
