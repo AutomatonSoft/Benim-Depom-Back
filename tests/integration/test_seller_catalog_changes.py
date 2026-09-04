@@ -116,7 +116,9 @@ def test_marketplace_job_list_filters_in_progress(api_client, manager, product_f
 def test_submitted_product_cannot_be_patched_until_withdrawn(
     api_client, seller, product_factory
 ):
-    product = product_factory(owner=seller, status=Product.Status.SUBMITTED, title="Old")
+    product = product_factory(
+        owner=seller, status=Product.Status.SUBMITTED, title="Old"
+    )
     authenticate(api_client, seller)
     assert (
         api_client.patch(
@@ -126,7 +128,9 @@ def test_submitted_product_cannot_be_patched_until_withdrawn(
         ).status_code
         == 403
     )
-    assert api_client.post(f"/api/v1/products/{product.id}/withdraw/").status_code == 204
+    assert (
+        api_client.post(f"/api/v1/products/{product.id}/withdraw/").status_code == 204
+    )
     response = api_client.patch(
         f"/api/v1/products/{product.id}/",
         {"title": "New"},
