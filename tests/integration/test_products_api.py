@@ -100,6 +100,29 @@ def test_seller_creates_product_with_initial_images_in_one_multipart_request(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_product_update_ignores_empty_otto_category_payload(
+    api_client, seller, product_factory
+):
+    product = product_factory(owner=seller)
+    authenticate(api_client, seller)
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "warehouse_city": "IZM",
+            "otto_category_id": None,
+            "otto_category_group_id": None,
+            "otto_attributes": {},
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["warehouse_city"] == "IZM"
+    assert response.data["otto_category_id"] == product.otto_category_id
+    assert response.data["otto_category_group_id"] == product.otto_category_group_id
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
     api_client,
     seller,

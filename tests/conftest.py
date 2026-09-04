@@ -57,6 +57,7 @@ def user_factory(db, password):
             email=email,
             password=kwargs.pop("password", password),
             role=role,
+            is_email_verified=kwargs.pop("is_email_verified", True),
             **kwargs,
         )
 
