@@ -49,6 +49,7 @@ from .models import (
     MarketplacePublication,
 )
 from .serializers import (
+    JOB_IN_PROGRESS_STATUSES,
     HoodListingConfigurationResponseSerializer,
     HoodListingConfigurationSerializer,
     KauflandListingConfigurationResponseSerializer,
@@ -57,6 +58,7 @@ from .serializers import (
     MarketplaceContentGenerationEditRequestSerializer,
     MarketplaceContentGenerationRequestSerializer,
     MarketplaceContentGenerationSerializer,
+    MarketplaceJobFilterSerializer,
     MarketplaceJobRequestSerializer,
     MarketplaceJobSerializer,
     MarketplaceListingStateRequestSerializer,
@@ -410,6 +412,46 @@ class MarketplaceJobDetailView(APIView):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         return Response(MarketplaceJobSerializer(job).data)
+
+
+class MarketplaceJobListView(generics.ListAPIView):
+    permission_classes = (IsAuthenticated, IsManager)
+    serializer_class = MarketplaceJobSerializer
+
+    @extend_schema(
+        parameters=[MarketplaceJobFilterSerializer],
+        responses={200: MarketplaceJobSerializer(many=True)},
+        description=(
+            "Manager list of marketplace jobs. "
+            "Use in_progress=true for queued, running and pending confirmation."
+        ),
+    )
+    def get(self, request, *args, **kwargs):
+        self.filters = MarketplaceJobFilterSerializer(data=request.query_params)
+        self.filters.is_valid(raise_exception=True)
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        filters = self.filters.validated_data
+        queryset = MarketplaceJob.objects.select_related("product").order_by(
+            "-created_at"
+        )
+
+        if filters.get("in_progress") is True:
+            queryset = queryset.filter(status__in=JOB_IN_PROGRESS_STATUSES)
+        elif filters.get("in_progress") is False:
+            queryset = queryset.exclude(status__in=JOB_IN_PROGRESS_STATUSES)
+
+        for field in ("status", "operation", "product_id"):
+            value = filters.get(field)
+            if value is not None:
+                queryset = queryset.filter(**{field: value})
+
+        marketplace = filters.get("marketplace")
+        if marketplace:
+            queryset = queryset.filter(requested_channels__contains=[marketplace])
+
+        return queryset
 
 
 class ProductMarketplacePublicationListView(APIView):

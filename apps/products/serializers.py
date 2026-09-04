@@ -236,6 +236,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
+            "catalog_revision",
+            "pending_changes",
+            "pending_changes_submitted_at",
             "variants",
             "images",
             "total_quantity",
@@ -262,6 +265,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "availability_confirmed_at",
             "deactivation_requested_at",
             "deactivated_at",
+            "catalog_revision",
+            "pending_changes",
+            "pending_changes_submitted_at",
             "listing_price_eur",
             "pricing_formula",
         )
@@ -707,6 +713,20 @@ class ProductSerializer(serializers.ModelSerializer):
             "resubmit_for_moderation",
             False,
         )
+        request = self.context.get("request")
+        if (
+            instance.status == Product.Status.APPROVED
+            and request
+            and not is_manager(request.user)
+        ):
+            from .services import save_seller_pending_changes
+
+            return save_seller_pending_changes(
+                product=instance,
+                data=validated_data,
+                variants_data=variants_data,
+            )
+
         if (
             "pricing_overrides" in validated_data
             and "listing_price_eur_override" not in validated_data

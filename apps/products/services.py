@@ -1,11 +1,17 @@
+import json
 from typing import Any
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import F, Max
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from .models import Product, ProductImage, ProductVariant
+
+
+def _json_ready(value: Any) -> Any:
+    return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
 @transaction.atomic
@@ -90,6 +96,114 @@ def update_product(
         )
 
     return product
+
+
+_PENDING_PRODUCT_FIELDS = {
+    "title",
+    "product_type",
+    "unit_price",
+    "currency",
+    "warehouse_city",
+    "otto_category_id",
+    "otto_category_group_id",
+    "otto_category_name",
+    "otto_category_group_name",
+    "otto_attributes",
+}
+
+
+@transaction.atomic
+def save_seller_pending_changes(
+    *,
+    product: Product,
+    data: dict[str, Any],
+    variants_data: list[dict[str, Any]] | None,
+) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    if locked_product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Pending catalog changes are only stored for approved products."}
+        )
+
+    pending = dict(locked_product.pending_changes or {})
+    updates = {
+        field: _json_ready(value)
+        for field, value in data.items()
+        if field in _PENDING_PRODUCT_FIELDS
+    }
+    if not updates and variants_data is None:
+        return locked_product
+
+    was_empty = not pending
+    pending.update(updates)
+    if variants_data is not None:
+        pending["variants"] = _json_ready(variants_data)
+
+    locked_product.pending_changes = pending
+    locked_product.pending_changes_submitted_at = timezone.now()
+    locked_product.catalog_revision += 1
+    locked_product.save(
+        update_fields=(
+            "pending_changes",
+            "pending_changes_submitted_at",
+            "catalog_revision",
+            "updated_at",
+        )
+    )
+
+    if was_empty:
+        from apps.notifications.models import Notification
+        from apps.notifications.services import create_notification, manager_inbox_users
+
+        name = (locked_product.title or "").strip() or f"#{locked_product.pk}"
+        seller = locked_product.owner
+        seller_name = (seller.username or seller.email or "Seller").strip()
+        for manager in manager_inbox_users(exclude_user=seller):
+            create_notification(
+                user=manager,
+                sender=seller,
+                product=locked_product,
+                notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+                title="Seller wants to change a product",
+                body=(
+                    f"{seller_name} requested changes to '{name}'. "
+                    "Open the product to compare current and new values."
+                ),
+            )
+
+    return locked_product
+
+
+@transaction.atomic
+def apply_pending_seller_changes(*, product: Product) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    pending = dict(locked_product.pending_changes or {})
+    if not pending:
+        raise ValidationError({"detail": "This product has no pending seller changes."})
+
+    variants_data = pending.pop("variants", None)
+    product_data = {
+        field: value
+        for field, value in pending.items()
+        if field in _PENDING_PRODUCT_FIELDS
+    }
+    locked_product = update_product(
+        product=locked_product,
+        data=product_data,
+        variants_data=variants_data,
+    )
+    locked_product.pending_changes = {}
+    locked_product.pending_changes_submitted_at = None
+    locked_product.catalog_revision += 1
+    locked_product.save(
+        update_fields=(
+            "pending_changes",
+            "pending_changes_submitted_at",
+            "catalog_revision",
+            "updated_at",
+        )
+    )
+    return locked_product
 
 
 EDITABLE_PRODUCT_STATUSES = {Product.Status.DRAFT, Product.Status.REJECTED}
@@ -334,8 +448,9 @@ def deactivate_product(*, product: Product) -> Product:
 
 @transaction.atomic
 def withdraw_product_submission(*, product: Product) -> Product:
-    """Hide a not-yet-approved product without notifying managers.
+    """Take a submitted product off moderation so the seller can edit it.
 
+    The product becomes rejected, which already allows PATCH and resubmit.
     EANs are normally assigned only during approval. Releasing any attached
     codes also makes withdrawal safe for products submitted by an older app
     version that reserved them earlier.
@@ -346,6 +461,8 @@ def withdraw_product_submission(*, product: Product) -> Product:
         raise ValidationError({"detail": "Only a submitted product can be withdrawn."})
 
     from apps.ean.models import EanCode
+    from apps.notifications.models import Notification
+    from apps.notifications.services import create_notification, manager_inbox_users
 
     EanCode.objects.filter(
         product=locked_product,
@@ -355,8 +472,25 @@ def withdraw_product_submission(*, product: Product) -> Product:
         state=EanCode.State.AVAILABLE,
         assigned_at=None,
     )
-    locked_product.status = Product.Status.ARCHIVED
-    locked_product.save(update_fields=("status", "updated_at"))
+    locked_product.status = Product.Status.REJECTED
+    locked_product.catalog_revision += 1
+    locked_product.save(update_fields=("status", "catalog_revision", "updated_at"))
+
+    name = (locked_product.title or "").strip() or f"#{locked_product.pk}"
+    seller = locked_product.owner
+    seller_name = (seller.username or seller.email or "Seller").strip()
+    for manager in manager_inbox_users(exclude_user=seller):
+        create_notification(
+            user=manager,
+            sender=seller,
+            product=locked_product,
+            notification_type=Notification.Type.PRODUCT_WITHDRAWN_FROM_REVIEW,
+            title="Seller withdrew a product from review",
+            body=(
+                f"{seller_name} withdrew '{name}' from moderation. "
+                "Reload the product before continuing."
+            ),
+        )
     return locked_product
 
 

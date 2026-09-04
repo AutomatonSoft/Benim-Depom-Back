@@ -16,7 +16,14 @@ class CanAccessProduct(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
+        if request.method == "DELETE":
+            return product.status in {
+                Product.Status.DRAFT,
+                Product.Status.REJECTED,
+            }
+
         return product.status in {
             Product.Status.DRAFT,
             Product.Status.REJECTED,
+            Product.Status.APPROVED,
         }
