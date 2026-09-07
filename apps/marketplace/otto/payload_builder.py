@@ -20,6 +20,10 @@ from apps.catalog.otto_shipping_profiles import (
     get_otto_shipping_profile,
 )
 from apps.marketplace.colors import german_color_name
+from apps.products.listing_images import (
+    MISSING_LISTING_IMAGES,
+    public_generated_listing_urls,
+)
 from apps.products.pricing import fill_marketplace_price
 
 OTTO_DELIVERY_TYPES = (
@@ -280,14 +284,13 @@ def build_otto_payload(
                     "The selected profile has an invalid transport time."
                 )
 
-    media_urls = configuration.get("media_urls", [])
-    if not isinstance(media_urls, list) or not media_urls:
-        errors["media_urls"] = "Select at least one publicly accessible image."
-        cleaned_media_urls: list[str] = []
-    else:
-        cleaned_media_urls = [str(url).strip() for url in media_urls]
-        if any(not _is_public_http_url(url) for url in cleaned_media_urls):
-            errors["media_urls"] = "Every selected image must be a public HTTP(S) URL."
+    media_urls = public_generated_listing_urls(product)
+    if not media_urls:
+        errors["media_urls"] = MISSING_LISTING_IMAGES
+    elif any(not _is_public_http_url(url) for url in media_urls):
+        errors["media_urls"] = (
+            "Every generated listing image must be a public HTTP(S) URL."
+        )
 
     bullet_points = configuration.get("bullet_points", [])
     if not isinstance(bullet_points, list):
@@ -367,9 +370,7 @@ def build_otto_payload(
         "ean": ean,
         "shippingProfileId": shipping_profile_id,
         "productDescription": product_description,
-        "mediaAssets": [
-            {"type": "IMAGE", "location": url} for url in cleaned_media_urls
-        ],
+        "mediaAssets": [{"type": "IMAGE", "location": url} for url in media_urls],
         "delivery": {
             "type": shipping_profile["deliveryType"],
             "deliveryTime": shipping_profile["transportTime"],

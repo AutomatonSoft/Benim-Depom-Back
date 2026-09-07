@@ -5,6 +5,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.products.listing_images import (
+    MISSING_LISTING_IMAGES,
+    public_generated_listing_urls,
+)
 from apps.products.pricing import fill_marketplace_price
 
 KAUFLAND_STOREFRONTS = (
@@ -88,22 +92,16 @@ def _get_single_variant(product, errors: dict[str, str]):
     return product.variants.get()
 
 
-def _get_image_urls(
-    configuration: dict[str, Any],
-    errors: dict[str, str],
-) -> list[str]:
-    image_urls = configuration.get("image_urls", [])
-
-    if not isinstance(image_urls, list) or not image_urls:
-        errors["image_urls"] = "Select at least one public image."
+def _get_listing_image_urls(product, errors: dict[str, str]) -> list[str]:
+    image_urls = public_generated_listing_urls(product)
+    if not image_urls:
+        errors["image_urls"] = MISSING_LISTING_IMAGES
         return []
-
-    cleaned_urls = [str(url).strip() for url in image_urls if str(url).strip()]
-
-    if not cleaned_urls or any(not _is_public_http_url(url) for url in cleaned_urls):
-        errors["image_urls"] = "Every image URL must be a public HTTP(S) URL."
-
-    return cleaned_urls
+    if any(not _is_public_http_url(url) for url in image_urls):
+        errors["image_urls"] = (
+            "Every generated listing image must be a public HTTP(S) URL."
+        )
+    return image_urls
 
 
 def build_kaufland_create_payload(
@@ -157,7 +155,7 @@ def build_kaufland_create_payload(
     else:
         cleaned_storefronts = [str(value).strip() for value in storefronts]
 
-    image_urls = _get_image_urls(configuration, errors)
+    image_urls = _get_listing_image_urls(product, errors)
 
     if variant is not None:
         materials = [
@@ -255,11 +253,9 @@ def build_kaufland_update_payload(
         else:
             payload["price"] = float(price)
 
-    if "image_urls" in configuration:
-        image_urls = _get_image_urls(configuration, errors)
-
-        if image_urls:
-            payload["picture_urls"] = image_urls
+    image_urls = _get_listing_image_urls(product, errors)
+    if image_urls:
+        payload["picture_urls"] = image_urls
 
     unit_id = str(configuration.get("unit_id", "")).strip()
     if unit_id:
