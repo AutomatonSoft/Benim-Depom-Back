@@ -53,6 +53,10 @@ class MarketplaceAutoSchema(AutoSchema):
             "/api/v1/products/{product_pk}/images/{image_pk}/",
         ): "Удалить фотографию",
         (
+            "DELETE",
+            "/api/v1/products/{product_pk}/images/{image_pk}/generated/{generated_pk}/",
+        ): "Удалить сгенерированное AI-фото",
+        (
             "POST",
             "/api/v1/products/{product_pk}/images/{image_pk}/make-primary/",
         ): "Сделать фото главным",

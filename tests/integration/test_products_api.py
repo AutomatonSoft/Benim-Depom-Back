@@ -3,7 +3,7 @@ import json
 import pytest
 
 from apps.notifications.models import Notification
-from apps.products.models import Product, ProductImage
+from apps.products.models import Product, ProductGeneratedImage, ProductImage
 
 
 def authenticate(client, user):
@@ -266,7 +266,7 @@ def test_product_image_operations_and_edit_lock(
     )
     assert response.status_code == 400
 
-    product.status = Product.Status.SUBMITTED
+    product.status = Product.Status.APPROVED
     product.save(update_fields=["status"])
     assert (
         api_client.post(
@@ -276,6 +276,51 @@ def test_product_image_operations_and_edit_lock(
         ).status_code
         == 404
     )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_deletes_generated_image_and_cannot_process_non_cover(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+    product_image_factory,
+    image_file,
+    monkeypatch,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    cover = product_image_factory(product=product, is_primary=True)
+    extra = product_image_factory(product=product, is_primary=False)
+    generated = ProductGeneratedImage.objects.create(
+        source_image=cover,
+        mode=ProductGeneratedImage.Mode.WHITE,
+    )
+    generated.image.save("white.jpg", image_file("white.jpg"), save=True)
+
+    authenticate(api_client, seller)
+    assert (
+        api_client.delete(
+            f"/api/v1/products/{product.id}/images/{cover.id}/generated/{generated.id}/"
+        ).status_code
+        == 403
+    )
+
+    authenticate(api_client, manager)
+    monkeypatch.setattr(
+        "apps.notifications.tasks.process_product_image.delay", lambda image_id: None
+    )
+    assert (
+        api_client.post(
+            f"/api/v1/products/{product.id}/images/{extra.id}/process/"
+        ).status_code
+        == 400
+    )
+    response = api_client.delete(
+        f"/api/v1/products/{product.id}/images/{cover.id}/generated/{generated.id}/"
+    )
+    assert response.status_code == 204
+    assert not ProductGeneratedImage.objects.filter(pk=generated.id).exists()
 
 
 @pytest.mark.integration
