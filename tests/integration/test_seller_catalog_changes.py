@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
+from apps.moderation.models import ModerationDecision
 from apps.notifications.models import Notification
 from apps.orchestrator.models import MarketplaceJob
 from apps.products.models import Product
@@ -34,12 +35,20 @@ def test_withdraw_then_stale_manager_approve_returns_conflict(
     )
     assert response.status_code == 409
     product.refresh_from_db()
-    assert product.status == Product.Status.REJECTED
+    assert product.status == Product.Status.WITHDRAWN
     assert Notification.objects.filter(
         notification_type=Notification.Type.PRODUCT_WITHDRAWN_FROM_REVIEW,
         product=product,
         user=manager,
     ).exists()
+    assert ModerationDecision.objects.filter(
+        product=product,
+        decision=ModerationDecision.Decision.WITHDRAWN,
+    ).exists()
+    history = api_client.get(f"/api/v1/products/{product.id}/moderation-history/")
+    assert history.status_code == 200
+    decisions = [item["decision"] for item in history.data["results"]]
+    assert ModerationDecision.Decision.WITHDRAWN in decisions
 
 
 @pytest.mark.integration
@@ -83,6 +92,45 @@ def test_seller_approved_patch_is_pending_until_manager_approves(
     assert product.title == "New title"
     assert product.pending_changes == {}
     assert approved.data["marketplace_job"] is None
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_approve_seller_changes_succeeds_when_broker_is_down(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+    django_capture_on_commit_callbacks,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED, title="Old")
+    authenticate(api_client, seller)
+    assert (
+        api_client.patch(
+            f"/api/v1/products/{product.id}/",
+            {"title": "New title"},
+            format="json",
+        ).status_code
+        == 200
+    )
+    product.refresh_from_db()
+    authenticate(api_client, manager)
+    with (
+        patch(
+            "apps.moderation.views.execute_marketplace_job.delay",
+            side_effect=ConnectionError("broker"),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        approved = api_client.post(
+            f"/api/v1/manager/products/{product.id}/seller-changes/approve/",
+            {"expected_catalog_revision": product.catalog_revision},
+            format="json",
+        )
+    assert approved.status_code == 200
+    product.refresh_from_db()
+    assert product.title == "New title"
+    assert product.pending_changes == {}
 
 
 @pytest.mark.integration
@@ -138,5 +186,5 @@ def test_submitted_product_cannot_be_patched_until_withdrawn(
     )
     assert response.status_code == 200
     product.refresh_from_db()
-    assert product.status == Product.Status.REJECTED
+    assert product.status == Product.Status.WITHDRAWN
     assert product.title == "New"
