@@ -186,4 +186,4 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
     )
     withdrawn = api_client.get(f"/api/v1/products/{product_id}/")
     assert withdrawn.status_code == 200
-    assert withdrawn.data["status"] == Product.Status.REJECTED
+    assert withdrawn.data["status"] == Product.Status.WITHDRAWN

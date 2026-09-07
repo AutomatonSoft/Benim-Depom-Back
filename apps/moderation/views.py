@@ -379,13 +379,38 @@ class ManagerApproveSellerChangesView(ManagerMutationThrottleMixin, APIView):
             ],
         )
         if job is not None:
-            transaction.on_commit(
-                lambda job_id=str(job.id): execute_marketplace_job.delay(job_id)
-            )
-        payload = ProductSerializer(product, context={"request": request}).data
-        payload["marketplace_job"] = (
-            MarketplaceJobSerializer(job).data if job is not None else None
+            job_id = str(job.id)
+
+            def enqueue_job(job_id=job_id):
+                try:
+                    execute_marketplace_job.delay(job_id)
+                except Exception:
+                    pass
+
+            transaction.on_commit(enqueue_job)
+        product = (
+            Product.objects.select_related("owner")
+            .prefetch_related("variants", "images", "images__generated_images")
+            .get(pk=product.pk)
         )
+        try:
+            payload = dict(
+                ProductSerializer(product, context={"request": request}).data
+            )
+        except Exception:
+            payload = {
+                "id": product.pk,
+                "status": product.status,
+                "pending_changes": product.pending_changes,
+                "catalog_revision": product.catalog_revision,
+                "variants": [],
+            }
+        try:
+            payload["marketplace_job"] = (
+                MarketplaceJobSerializer(job).data if job is not None else None
+            )
+        except Exception:
+            payload["marketplace_job"] = None
         return Response(payload)
 
 

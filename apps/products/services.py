@@ -206,7 +206,11 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
     return locked_product
 
 
-EDITABLE_PRODUCT_STATUSES = {Product.Status.DRAFT, Product.Status.REJECTED}
+EDITABLE_PRODUCT_STATUSES = {
+    Product.Status.DRAFT,
+    Product.Status.REJECTED,
+    Product.Status.WITHDRAWN,
+}
 
 
 def ensure_product_is_editable(
@@ -216,7 +220,7 @@ def ensure_product_is_editable(
 ) -> None:
     if not allow_after_approval and product.status not in EDITABLE_PRODUCT_STATUSES:
         raise ValidationError(
-            {"detail": ("Only draft or rejected products can be changed")}
+            {"detail": ("Only draft, rejected or withdrawn products can be changed")}
         )
 
 
@@ -450,7 +454,7 @@ def deactivate_product(*, product: Product) -> Product:
 def withdraw_product_submission(*, product: Product) -> Product:
     """Take a submitted product off moderation so the seller can edit it.
 
-    The product becomes rejected, which already allows PATCH and resubmit.
+    The product becomes withdrawn, which allows PATCH and resubmit.
     EANs are normally assigned only during approval. Releasing any attached
     codes also makes withdrawal safe for products submitted by an older app
     version that reserved them earlier.
@@ -461,6 +465,7 @@ def withdraw_product_submission(*, product: Product) -> Product:
         raise ValidationError({"detail": "Only a submitted product can be withdrawn."})
 
     from apps.ean.models import EanCode
+    from apps.moderation.models import ModerationDecision
     from apps.notifications.models import Notification
     from apps.notifications.services import create_notification, manager_inbox_users
 
@@ -472,9 +477,15 @@ def withdraw_product_submission(*, product: Product) -> Product:
         state=EanCode.State.AVAILABLE,
         assigned_at=None,
     )
-    locked_product.status = Product.Status.REJECTED
+    locked_product.status = Product.Status.WITHDRAWN
     locked_product.catalog_revision += 1
     locked_product.save(update_fields=("status", "catalog_revision", "updated_at"))
+    ModerationDecision.objects.create(
+        product=locked_product,
+        manager=locked_product.owner,
+        decision=ModerationDecision.Decision.WITHDRAWN,
+        comment="Seller withdrew the product from review.",
+    )
 
     name = (locked_product.title or "").strip() or f"#{locked_product.pk}"
     seller = locked_product.owner

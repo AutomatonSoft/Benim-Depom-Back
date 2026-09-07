@@ -9,6 +9,7 @@ class ModerationDecision(models.Model):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         RETURNED_TO_REVIEW = "returned_to_review", "Returned to review"
+        WITHDRAWN = "withdrawn", "Withdrawn"
 
     product = models.ForeignKey(
         Product,

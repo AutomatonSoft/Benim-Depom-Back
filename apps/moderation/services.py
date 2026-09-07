@@ -128,6 +128,7 @@ def submit_product_for_moderation(*, product: Product) -> Product:
     if product.status not in {
         Product.Status.DRAFT,
         Product.Status.REJECTED,
+        Product.Status.WITHDRAWN,
     }:
         raise ValidationError(
             {"detail": "This product cannot be submitted for moderation."}
@@ -288,11 +289,11 @@ def change_approved_product_status(
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if product.status == Product.Status.REJECTED:
+    if product.status in {Product.Status.REJECTED, Product.Status.WITHDRAWN}:
         raise ValidationError(
             {
                 "detail": (
-                    "A rejected product cannot be moved by a manager. "
+                    "A rejected or withdrawn product cannot be moved by a manager. "
                     "The seller must edit it and submit it again."
                 )
             }
