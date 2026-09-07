@@ -24,6 +24,7 @@ class Product(models.Model):
         SUBMITTED = "submitted", "Submitted"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
+        WITHDRAWN = "withdrawn", "Withdrawn"
         ARCHIVED = "archived", "Archived"
         DEACTIVATED = "deactivated", "Deactivated"
 

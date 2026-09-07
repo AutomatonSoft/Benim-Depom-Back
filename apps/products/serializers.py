@@ -309,7 +309,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(
         serializers.ChoiceField(
-            choices=["approved", "rejected", "returned_to_review"],
+            choices=["approved", "rejected", "returned_to_review", "withdrawn"],
             allow_null=True,
         )
     )
@@ -488,11 +488,14 @@ class ProductSerializer(serializers.ModelSerializer):
                     }
                 )
 
-            if self.instance.status != Product.Status.REJECTED:
+            if self.instance.status not in {
+                Product.Status.REJECTED,
+                Product.Status.WITHDRAWN,
+            }:
                 raise serializers.ValidationError(
                     {
                         "resubmit_for_moderation": (
-                            "Only a rejected product can be resubmitted."
+                            "Only a rejected or withdrawn product can be resubmitted."
                         )
                     }
                 )

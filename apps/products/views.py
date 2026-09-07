@@ -72,7 +72,11 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
         queryset.filter(
             pk=product_id,
             owner=user,
-            status__in=(Product.Status.DRAFT, Product.Status.REJECTED),
+            status__in=(
+                Product.Status.DRAFT,
+                Product.Status.REJECTED,
+                Product.Status.WITHDRAWN,
+            ),
         )
     )
 
@@ -295,6 +299,7 @@ class ProductDetailView(
         if not is_manager(self.request.user) and instance.status not in {
             Product.Status.DRAFT,
             Product.Status.REJECTED,
+            Product.Status.WITHDRAWN,
         }:
             from rest_framework.exceptions import ValidationError
 
