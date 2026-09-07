@@ -31,6 +31,10 @@ class ApproveProductSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=2000,
     )
+    expected_catalog_revision = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
 
 
 @extend_schema_serializer(component_name="ManagerDashboardQueueItem")
@@ -76,6 +80,10 @@ class RejectProductSerializer(serializers.Serializer):
         max_length=2000,
         trim_whitespace=True,
     )
+    expected_catalog_revision = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
 
     def validate_comment(self, comment):
         if not comment:
@@ -98,6 +106,10 @@ class ChangeApprovedProductStatusSerializer(serializers.Serializer):
         max_length=2000,
         trim_whitespace=True,
     )
+    expected_catalog_revision = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
 
     def validate(self, attrs):
         if attrs["status"] == "rejected" and not attrs.get("comment"):
@@ -105,3 +117,8 @@ class ChangeApprovedProductStatusSerializer(serializers.Serializer):
                 {"comment": "A rejection reason is required."}
             )
         return attrs
+
+
+@extend_schema_serializer(component_name="SellerChangesApprove")
+class ApproveSellerChangesSerializer(serializers.Serializer):
+    expected_catalog_revision = serializers.IntegerField(min_value=1)

@@ -32,6 +32,7 @@ from apps.products.services import request_product_availability
 from .models import ModerationDecision
 from .serializers import (
     ApproveProductSerializer,
+    ApproveSellerChangesSerializer,
     ChangeApprovedProductStatusSerializer,
     ManagerDashboardSerializer,
     ModerationDecisionSerializer,
@@ -39,6 +40,7 @@ from .serializers import (
 )
 from .services import (
     approve_product,
+    approve_seller_changes,
     change_approved_product_status,
     reject_product,
 )
@@ -294,6 +296,9 @@ class ManagerApproveProductView(ManagerMutationThrottleMixin, APIView):
             product=product,
             manager=request.user,
             comment=serializer.validated_data.get("comment", ""),
+            expected_catalog_revision=serializer.validated_data.get(
+                "expected_catalog_revision"
+            ),
         )
 
         return Response(ProductSerializer(product, context={"request": request}).data)
@@ -316,6 +321,9 @@ class ManagerRejectProductView(ManagerMutationThrottleMixin, APIView):
             product=product,
             manager=request.user,
             comment=serializer.validated_data["comment"],
+            expected_catalog_revision=serializer.validated_data.get(
+                "expected_catalog_revision"
+            ),
         )
 
         return Response(ProductSerializer(product, context={"request": request}).data)
@@ -341,8 +349,44 @@ class ManagerChangeProductStatusView(ManagerMutationThrottleMixin, APIView):
             manager=request.user,
             status=serializer.validated_data["status"],
             comment=serializer.validated_data.get("comment", ""),
+            expected_catalog_revision=serializer.validated_data.get(
+                "expected_catalog_revision"
+            ),
         )
         return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class ManagerApproveSellerChangesView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=ApproveSellerChangesSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Apply pending seller catalog changes and queue marketplace "
+            "updates for active listings."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = ApproveSellerChangesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product, job = approve_seller_changes(
+            product=product,
+            manager=request.user,
+            expected_catalog_revision=serializer.validated_data[
+                "expected_catalog_revision"
+            ],
+        )
+        if job is not None:
+            transaction.on_commit(
+                lambda job_id=str(job.id): execute_marketplace_job.delay(job_id)
+            )
+        payload = ProductSerializer(product, context={"request": request}).data
+        payload["marketplace_job"] = (
+            MarketplaceJobSerializer(job).data if job is not None else None
+        )
+        return Response(payload)
 
 
 class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIView):
