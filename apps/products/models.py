@@ -24,6 +24,7 @@ class Product(models.Model):
         SUBMITTED = "submitted", "Submitted"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
+        WITHDRAWN = "withdrawn", "Withdrawn"
         ARCHIVED = "archived", "Archived"
         DEACTIVATED = "deactivated", "Deactivated"
 
@@ -139,6 +140,9 @@ class Product(models.Model):
         blank=True,
     )
     deactivated_at = models.DateTimeField(null=True, blank=True)
+    catalog_revision = models.PositiveIntegerField(default=1)
+    pending_changes = models.JSONField(default=dict, blank=True)
+    pending_changes_submitted_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

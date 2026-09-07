@@ -229,7 +229,7 @@ def test_moderation_permissions_reject_validation_and_withdrawal(
     response = api_client.post(f"/api/v1/products/{product.id}/withdraw/")
     assert response.status_code == 204
     product.refresh_from_db()
-    assert product.status == Product.Status.ARCHIVED
+    assert product.status == Product.Status.WITHDRAWN
     assert (
         api_client.post(f"/api/v1/products/{product.id}/withdraw/").status_code == 400
     )

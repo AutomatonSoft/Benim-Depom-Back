@@ -160,10 +160,10 @@ REST_FRAMEWORK = {
         "apps.common.throttles.ManagerMutationRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "registration": "15/min",
-        "login": "30/min",
+        "registration": "150/min",
+        "login": "230/min",
         "ai_generation": "10/min",
-        "image_upload": "50/min",
+        "image_upload": "150/min",
         "manager_mutation": "184/min",
         "email_verification": "30/min",
         "email_verification_resend": "25/min",

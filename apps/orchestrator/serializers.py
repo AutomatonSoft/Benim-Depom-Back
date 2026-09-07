@@ -168,21 +168,55 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
         return attrs
 
 
+JOB_IN_PROGRESS_STATUSES = frozenset(
+    {
+        MarketplaceJob.Status.QUEUED,
+        MarketplaceJob.Status.RUNNING,
+        MarketplaceJob.Status.PENDING_CONFIRMATION,
+    }
+)
+
+
+class MarketplaceJobFilterSerializer(serializers.Serializer):
+    in_progress = serializers.BooleanField(required=False)
+    marketplace = serializers.ChoiceField(
+        choices=MarketplacePublication.Marketplace.choices,
+        required=False,
+    )
+    status = serializers.ChoiceField(
+        choices=MarketplaceJob.Status.choices,
+        required=False,
+    )
+    operation = serializers.ChoiceField(
+        choices=MarketplaceJob.Operation.choices,
+        required=False,
+    )
+    product_id = serializers.IntegerField(min_value=1, required=False)
+
+
 class MarketplaceJobSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(read_only=True)
+    product_title = serializers.CharField(source="product.title", read_only=True)
     requested_targets = serializers.SerializerMethodField()
+    in_progress = serializers.SerializerMethodField()
 
     @extend_schema_field(MarketplaceTargetSerializer(many=True))
     def get_requested_targets(self, job):
         return job.request_payload.get("targets", [])
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_in_progress(self, job):
+        return job.status in JOB_IN_PROGRESS_STATUSES
 
     class Meta:
         model = MarketplaceJob
         fields = (
             "id",
             "product_id",
+            "product_title",
             "operation",
             "status",
+            "in_progress",
             "request_id",
             "requested_channels",
             "requested_targets",

@@ -1,3 +1,4 @@
+from django.db.models import OuterRef, Subquery
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -22,6 +23,7 @@ from apps.idempotency.services import (
     claim_idempotency_key,
     complete_idempotency_claim,
 )
+from apps.moderation.models import ModerationDecision
 from apps.orchestrator.models import MarketplacePublication
 
 from .filters import filter_products
@@ -70,7 +72,11 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
         queryset.filter(
             pk=product_id,
             owner=user,
-            status__in=(Product.Status.DRAFT, Product.Status.REJECTED),
+            status__in=(
+                Product.Status.DRAFT,
+                Product.Status.REJECTED,
+                Product.Status.WITHDRAWN,
+            ),
         )
     )
 
@@ -282,12 +288,18 @@ class ProductDetailView(
         if not is_manager(self.request.user):
             queryset = queryset.filter(owner=self.request.user)
 
-        return queryset.exclude(status=Product.Status.ARCHIVED)
+        latest_decision = ModerationDecision.objects.filter(
+            product_id=OuterRef("pk")
+        ).order_by("-created_at")
+        return queryset.exclude(status=Product.Status.ARCHIVED).annotate(
+            last_moderation_decision=Subquery(latest_decision.values("decision")[:1])
+        )
 
     def perform_destroy(self, instance):
         if not is_manager(self.request.user) and instance.status not in {
             Product.Status.DRAFT,
             Product.Status.REJECTED,
+            Product.Status.WITHDRAWN,
         }:
             from rest_framework.exceptions import ValidationError
 

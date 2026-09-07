@@ -1,16 +1,51 @@
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from rest_framework import status as http_status
+from rest_framework.exceptions import APIException, ValidationError
 
 from apps.accounts.models import User
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.ean.services import assign_ean_codes_to_product
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
+from apps.orchestrator.job_services import (
+    MarketplacePayloadBuildError,
+    create_update_job_for_active_listings,
+)
 from apps.products.models import Product
+from apps.products.services import apply_pending_seller_changes
 
 from .models import ModerationDecision
+
+
+class ProductChangedBySeller(APIException):
+    status_code = http_status.HTTP_409_CONFLICT
+    default_code = "seller_changed_product"
+    default_detail = (
+        "The seller just changed this product. Reload the page to see the current data."
+    )
+
+
+def ensure_catalog_revision(
+    *,
+    product: Product,
+    expected_revision: int | None,
+    withdrawn_if_not_submitted: bool = False,
+) -> None:
+    if expected_revision is None:
+        return
+    if product.catalog_revision == expected_revision:
+        return
+    if withdrawn_if_not_submitted and product.status != Product.Status.SUBMITTED:
+        raise ProductChangedBySeller(
+            detail=(
+                "The seller withdrew this product from review. "
+                "Reload the page to see the current data."
+            ),
+            code="product_withdrawn_from_review",
+        )
+    raise ProductChangedBySeller()
 
 
 def validate_product_otto_data_for_submission(product: Product) -> None:
@@ -93,6 +128,7 @@ def submit_product_for_moderation(*, product: Product) -> Product:
     if product.status not in {
         Product.Status.DRAFT,
         Product.Status.REJECTED,
+        Product.Status.WITHDRAWN,
     }:
         raise ValidationError(
             {"detail": "This product cannot be submitted for moderation."}
@@ -138,8 +174,14 @@ def approve_product(
     product: Product,
     manager,
     comment: str = "",
+    expected_catalog_revision: int | None = None,
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+        withdrawn_if_not_submitted=True,
+    )
 
     if product.status != Product.Status.SUBMITTED:
         raise ValidationError({"detail": "Only submitted products can be approved."})
@@ -186,8 +228,14 @@ def reject_product(
     product: Product,
     manager,
     comment: str,
+    expected_catalog_revision: int | None = None,
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+        withdrawn_if_not_submitted=True,
+    )
 
     if product.status != Product.Status.SUBMITTED:
         raise ValidationError({"detail": "Only submitted products can be rejected."})
@@ -237,14 +285,15 @@ def change_approved_product_status(
     manager,
     status: str,
     comment: str = "",
+    expected_catalog_revision: int | None = None,
 ) -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
-    if product.status == Product.Status.REJECTED:
+    if product.status in {Product.Status.REJECTED, Product.Status.WITHDRAWN}:
         raise ValidationError(
             {
                 "detail": (
-                    "A rejected product cannot be moved by a manager. "
+                    "A rejected or withdrawn product cannot be moved by a manager. "
                     "The seller must edit it and submit it again."
                 )
             }
@@ -254,6 +303,11 @@ def change_approved_product_status(
         raise ValidationError(
             {"detail": "Only an approved product can be moved this way."}
         )
+
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+    )
 
     if status not in {Product.Status.SUBMITTED, Product.Status.REJECTED}:
         raise ValidationError({"status": "Choose submitted or rejected."})
@@ -302,3 +356,31 @@ def change_approved_product_status(
         comment=comment.strip(),
     )
     return product
+
+
+@transaction.atomic
+def approve_seller_changes(
+    *,
+    product: Product,
+    manager,
+    expected_catalog_revision: int | None = None,
+) -> tuple[Product, object]:
+    product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+    )
+    if product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can have seller changes approved."}
+        )
+
+    product = apply_pending_seller_changes(product=product)
+    try:
+        job = create_update_job_for_active_listings(
+            product=product,
+            requested_by=manager,
+        )
+    except MarketplacePayloadBuildError:
+        job = None
+    return product, job
