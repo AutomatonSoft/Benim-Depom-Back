@@ -5,6 +5,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.products.listing_images import (
+    MISSING_LISTING_IMAGES,
+    public_generated_listing_urls,
+)
 from apps.products.pricing import fill_marketplace_price
 
 
@@ -107,18 +111,13 @@ def build_hood_payload(
     if not category_id:
         errors["category_id"] = "Enter or select the Hood category ID."
 
-    image_urls = configuration.get("image_urls", [])
-
-    if not isinstance(image_urls, list) or not image_urls:
-        errors["image_urls"] = "Select at least one public image."
-        cleaned_image_urls: list[str] = []
-    else:
-        cleaned_image_urls = [
-            str(url).strip() for url in image_urls if str(url).strip()
-        ]
-
-        if any(not _is_public_http_url(url) for url in cleaned_image_urls):
-            errors["image_urls"] = "Every image URL must be a public HTTP(S) URL."
+    image_urls = public_generated_listing_urls(product)
+    if not image_urls:
+        errors["image_urls"] = MISSING_LISTING_IMAGES
+    elif any(not _is_public_http_url(url) for url in image_urls):
+        errors["image_urls"] = (
+            "Every generated listing image must be a public HTTP(S) URL."
+        )
 
     property_overrides = configuration.get("property_overrides", {})
 
@@ -170,7 +169,7 @@ def build_hood_payload(
         "price": float(price),
         "quantity": variant.quantity,
         "categoryID": category_id,
-        "image_urls": cleaned_image_urls,
+        "image_urls": image_urls,
         "product_properties": [
             {
                 "name": name,

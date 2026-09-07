@@ -129,6 +129,9 @@ def test_processing_request_and_approved_availability_services(
     image.refresh_from_db()
     assert image.processing_status == ProductImage.ProcessingStatus.PENDING
     delay.assert_called_once_with(image.id)
+    secondary = product_image_factory(product=product, is_primary=False)
+    with pytest.raises(ValidationError, match="cover photo"):
+        request_product_image_processing(product=product, image=secondary)
     image.processing_status = ProductImage.ProcessingStatus.PROCESSING
     image.save(update_fields=["processing_status"])
     with pytest.raises(ValidationError, match="already in progress"):
