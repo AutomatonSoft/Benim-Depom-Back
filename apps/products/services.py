@@ -7,7 +7,7 @@ from django.db.models import F, Max
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Product, ProductImage, ProductVariant
+from .models import Product, ProductGeneratedImage, ProductImage, ProductVariant
 
 
 def _json_ready(value: Any) -> Any:
@@ -82,6 +82,9 @@ def update_product(
 ) -> Product:
     for field, value in data.items():
         setattr(product, field, value)
+
+    if product.status == Product.Status.SUBMITTED:
+        product.catalog_revision += 1
 
     product.save()
 
@@ -208,6 +211,7 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
 
 EDITABLE_PRODUCT_STATUSES = {
     Product.Status.DRAFT,
+    Product.Status.SUBMITTED,
     Product.Status.REJECTED,
     Product.Status.WITHDRAWN,
 }
@@ -220,8 +224,20 @@ def ensure_product_is_editable(
 ) -> None:
     if not allow_after_approval and product.status not in EDITABLE_PRODUCT_STATUSES:
         raise ValidationError(
-            {"detail": ("Only draft, rejected or withdrawn products can be changed")}
+            {
+                "detail": (
+                    "Only draft, submitted, rejected or withdrawn products can be changed"
+                )
+            }
         )
+
+
+def bump_in_review_catalog_revision(product: Product) -> None:
+    """Invalidate a manager approve if the seller edits a product in review."""
+    if product.status != Product.Status.SUBMITTED:
+        return
+    product.catalog_revision += 1
+    product.save(update_fields=("catalog_revision", "updated_at"))
 
 
 @transaction.atomic
@@ -257,12 +273,14 @@ def upload_product_image(
         images_queryset.update(is_primary=False)
         is_primary = True
 
-    return ProductImage.objects.create(
+    created = ProductImage.objects.create(
         product=locked_product,
         image=image_file,
         position=position,
         is_primary=is_primary,
     )
+    bump_in_review_catalog_revision(locked_product)
+    return created
 
 
 @transaction.atomic
@@ -285,6 +303,7 @@ def delete_product_image(
     image_files = [
         image.image,
         image.processed_image,
+        *(generated.image for generated in image.generated_images.all()),
     ]
     was_primary = image.is_primary
 
@@ -307,6 +326,7 @@ def delete_product_image(
                 image_file.delete(save=False)
 
     transaction.on_commit(remove_files)
+    bump_in_review_catalog_revision(locked_product)
 
 
 @transaction.atomic
@@ -327,8 +347,41 @@ def make_product_image_primary(
 
     image.is_primary = True
     image.save(update_fields=("is_primary",))
-
+    bump_in_review_catalog_revision(locked_product)
     return image
+
+
+@transaction.atomic
+def delete_generated_product_image(
+    *,
+    product: Product,
+    generated,
+    allow_after_approval: bool = False,
+) -> None:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_product_is_editable(
+        locked_product,
+        allow_after_approval=allow_after_approval,
+    )
+    generated = (
+        ProductGeneratedImage.objects.select_for_update()
+        .select_related("source_image")
+        .get(pk=generated.pk, source_image__product=locked_product)
+    )
+    source = generated.source_image
+    image_file = generated.image
+
+    if generated.mode == ProductGeneratedImage.Mode.WHITE:
+        source.processed_image = None
+        source.save(update_fields=("processed_image",))
+
+    generated.delete()
+
+    def remove_file():
+        if image_file:
+            image_file.delete(save=False)
+
+    transaction.on_commit(remove_file)
 
 
 @transaction.atomic
@@ -372,6 +425,8 @@ def reorder_product_images(
             product=locked_product,
             pk=image_id,
         ).update(position=position)
+
+    bump_in_review_catalog_revision(locked_product)
 
 
 @transaction.atomic
@@ -452,12 +507,11 @@ def deactivate_product(*, product: Product) -> Product:
 
 @transaction.atomic
 def withdraw_product_submission(*, product: Product) -> Product:
-    """Take a submitted product off moderation so the seller can edit it.
+    """Take a submitted product off moderation.
 
-    The product becomes withdrawn, which allows PATCH and resubmit.
-    EANs are normally assigned only during approval. Releasing any attached
-    codes also makes withdrawal safe for products submitted by an older app
-    version that reserved them earlier.
+    Editing a submitted product no longer requires this step: PATCH updates
+    the live review copy and bumps catalog_revision so a stale manager
+    approve fails. Withdraw is for removing it from the queue entirely.
     """
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
 
@@ -552,6 +606,11 @@ def request_product_image_processing(
         pk=image.pk,
         product=locked_product,
     )
+
+    if not locked_image.is_primary:
+        raise ValidationError(
+            {"detail": "AI images can be generated only for the cover photo."}
+        )
 
     if locked_image.processing_status == ProductImage.ProcessingStatus.PROCESSING:
         raise ValidationError({"detail": "Image processing is already in progress"})

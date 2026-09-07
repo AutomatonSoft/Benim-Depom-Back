@@ -25,6 +25,7 @@ class CanAccessProduct(BasePermission):
 
         return product.status in {
             Product.Status.DRAFT,
+            Product.Status.SUBMITTED,
             Product.Status.REJECTED,
             Product.Status.WITHDRAWN,
             Product.Status.APPROVED,

@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
+from apps.ean.models import EanCode
 from apps.moderation.models import ModerationDecision
 from apps.notifications.models import Notification
 from apps.orchestrator.models import MarketplaceJob
@@ -161,24 +162,15 @@ def test_marketplace_job_list_filters_in_progress(api_client, manager, product_f
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_submitted_product_cannot_be_patched_until_withdrawn(
-    api_client, seller, product_factory
+def test_submitted_product_can_be_patched_without_withdraw(
+    api_client, seller, manager, product_factory, product_image_factory
 ):
     product = product_factory(
         owner=seller, status=Product.Status.SUBMITTED, title="Old"
     )
+    product_image_factory(product=product)
+    revision = product.catalog_revision
     authenticate(api_client, seller)
-    assert (
-        api_client.patch(
-            f"/api/v1/products/{product.id}/",
-            {"title": "New"},
-            format="json",
-        ).status_code
-        == 403
-    )
-    assert (
-        api_client.post(f"/api/v1/products/{product.id}/withdraw/").status_code == 204
-    )
     response = api_client.patch(
         f"/api/v1/products/{product.id}/",
         {"title": "New"},
@@ -186,5 +178,32 @@ def test_submitted_product_cannot_be_patched_until_withdrawn(
     )
     assert response.status_code == 200
     product.refresh_from_db()
-    assert product.status == Product.Status.WITHDRAWN
+    assert product.status == Product.Status.SUBMITTED
+    assert product.title == "New"
+    assert product.catalog_revision == revision + 1
+
+    authenticate(api_client, manager)
+    stale = api_client.post(
+        f"/api/v1/manager/products/{product.id}/approve/",
+        {"expected_catalog_revision": revision},
+        format="json",
+    )
+    assert stale.status_code == 409
+    product.refresh_from_db()
+    assert product.status == Product.Status.SUBMITTED
+
+    EanCode.objects.create(
+        code="4006381333931", account=EanCode.Account.JV, imported_by=manager
+    )
+    EanCode.objects.create(
+        code="9501101530003", account=EanCode.Account.XL, imported_by=manager
+    )
+    approved = api_client.post(
+        f"/api/v1/manager/products/{product.id}/approve/",
+        {"expected_catalog_revision": product.catalog_revision},
+        format="json",
+    )
+    assert approved.status_code == 200
+    product.refresh_from_db()
+    assert product.status == Product.Status.APPROVED
     assert product.title == "New"

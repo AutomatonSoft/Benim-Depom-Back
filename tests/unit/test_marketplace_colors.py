@@ -46,6 +46,29 @@ def make_product():
         ean_jv="4071489789768",
         ean_xl="",
         variants=SimpleNamespace(count=lambda: 1, get=lambda: variant),
+        images=SimpleNamespace(
+            all=lambda: [
+                SimpleNamespace(
+                    is_primary=True,
+                    generated_images=SimpleNamespace(
+                        all=lambda: [
+                            SimpleNamespace(
+                                mode="white",
+                                image=SimpleNamespace(
+                                    url="https://cdn.example/white.jpg"
+                                ),
+                            ),
+                            SimpleNamespace(
+                                mode="interior",
+                                image=SimpleNamespace(
+                                    url="https://cdn.example/interior.jpg"
+                                ),
+                            ),
+                        ]
+                    ),
+                )
+            ]
+        ),
     )
 
 
@@ -83,3 +106,6 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
     assert hood_color == "Blau"
     assert kaufland_payload["color"] == "Blau"
     assert kaufland_payload["material"] == "Wood"
+    assert hood_payload["image_urls"][0] == "https://cdn.example/white.jpg"
+    assert kaufland_payload["picture"][0] == "https://cdn.example/white.jpg"
+    assert "https://example.com/chair.jpg" not in hood_payload["image_urls"]

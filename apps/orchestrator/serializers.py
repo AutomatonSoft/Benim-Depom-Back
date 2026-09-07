@@ -407,7 +407,7 @@ class OttoListingConfigurationSerializer(serializers.Serializer):
         child=serializers.URLField(),
         required=False,
         allow_empty=True,
-        help_text="Public FTP image URLs selected by the manager.",
+        help_text=("Ignored. Marketplace listings use AI images of the cover photo."),
     )
     description = serializers.CharField(
         required=False,
@@ -603,7 +603,7 @@ class HoodListingConfigurationSerializer(serializers.Serializer):
         child=serializers.URLField(),
         required=False,
         allow_empty=True,
-        help_text="Публичные FTP URL изображений, выбранных менеджером.",
+        help_text="Ignored. Marketplace listings use AI images of the cover photo.",
     )
     property_overrides = serializers.DictField(
         child=serializers.CharField(
@@ -680,7 +680,7 @@ class KauflandListingConfigurationSerializer(serializers.Serializer):
         child=serializers.URLField(),
         required=False,
         allow_empty=False,
-        help_text="Публичные URL картинок на FTP.",
+        help_text="Ignored. Marketplace listings use AI images of the cover photo.",
     )
     delivery = serializers.IntegerField(
         min_value=0,

@@ -27,7 +27,7 @@ from apps.moderation.models import ModerationDecision
 from apps.orchestrator.models import MarketplacePublication
 
 from .filters import filter_products
-from .models import Product, ProductImage
+from .models import Product, ProductGeneratedImage, ProductImage
 from .permissions import CanAccessProduct
 from .pricing import latest_rate
 from .serializers import (
@@ -40,6 +40,7 @@ from .serializers import (
 )
 from .services import (
     confirm_product_availability,
+    delete_generated_product_image,
     delete_product_image,
     make_product_image_primary,
     reorder_product_images,
@@ -74,6 +75,7 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
             owner=user,
             status__in=(
                 Product.Status.DRAFT,
+                Product.Status.SUBMITTED,
                 Product.Status.REJECTED,
                 Product.Status.WITHDRAWN,
             ),
@@ -388,6 +390,29 @@ class ProductImageDeleteView(ManagerMutationThrottleMixin, APIView):
             allow_after_approval=is_manager(request.user),
         )
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProductGeneratedImageDeleteView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request, product_pk: int, image_pk: int, generated_pk: int):
+        product = get_editable_product_for_user(
+            user=request.user,
+            product_id=product_pk,
+        )
+        generated = get_object_or_404(
+            ProductGeneratedImage,
+            pk=generated_pk,
+            source_image_id=image_pk,
+            source_image__product=product,
+        )
+        delete_generated_product_image(
+            product=product,
+            generated=generated,
+            allow_after_approval=True,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

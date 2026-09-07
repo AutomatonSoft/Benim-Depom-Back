@@ -47,7 +47,26 @@ def make_product(*, ean="4071489789744", variant_count=1):
         otto_category_group_id=group_id,
         otto_attributes={str(attribute["attributeId"]): "Test value"},
         variants=SimpleNamespace(count=lambda: variant_count),
+        images=cover_listing_images(),
     )
+
+
+def cover_listing_images(*, url="https://cdn.example/white.jpg"):
+    generated = [
+        SimpleNamespace(mode="white", image=SimpleNamespace(url=url)),
+        SimpleNamespace(
+            mode="interior",
+            image=SimpleNamespace(url="https://cdn.example/interior.jpg"),
+        ),
+        SimpleNamespace(
+            mode="human", image=SimpleNamespace(url="https://cdn.example/human.jpg")
+        ),
+    ]
+    cover = SimpleNamespace(
+        is_primary=True,
+        generated_images=SimpleNamespace(all=lambda: generated),
+    )
+    return SimpleNamespace(all=lambda: [cover])
 
 
 def valid_configuration():
@@ -85,6 +104,37 @@ def test_build_otto_payload_maps_category_attributes_and_msrp():
         "deliveryTime": 5,
     }
     assert item["productDescription"]["attributes"][0]["values"] == ["Test value"]
+    assert item["mediaAssets"] == [
+        {"type": "IMAGE", "location": "https://cdn.example/white.jpg"},
+        {"type": "IMAGE", "location": "https://cdn.example/interior.jpg"},
+        {"type": "IMAGE", "location": "https://cdn.example/human.jpg"},
+    ]
+
+
+def test_build_otto_payload_ignores_configured_seller_photos():
+    product = make_product()
+    configuration = valid_configuration()
+    configuration["media_urls"] = ["https://seller.example/warehouse.jpg"]
+    item = build_otto_payload(
+        product=product,
+        account="jv",
+        configuration=configuration,
+    )[0]
+    locations = [asset["location"] for asset in item["mediaAssets"]]
+    assert "https://seller.example/warehouse.jpg" not in locations
+    assert "https://cdn.example/white.jpg" in locations
+
+
+def test_build_otto_payload_requires_generated_cover_images():
+    product = make_product()
+    product.images = SimpleNamespace(all=lambda: [])
+    with pytest.raises(OttoPayloadValidationError) as error:
+        build_otto_payload(
+            product=product,
+            account="jv",
+            configuration=valid_configuration(),
+        )
+    assert "media_urls" in error.value.errors
 
 
 def test_build_otto_payload_rejects_missing_ean_and_incomplete_configuration():
