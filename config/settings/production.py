@@ -1,5 +1,6 @@
-from .base import *  # noqa: F403
 import sentry_sdk
+
+from .base import *  # noqa: F403
 
 DEBUG = False
 
