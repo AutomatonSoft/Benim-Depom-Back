@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
 
@@ -86,7 +87,14 @@ UNIVERSAL_CONTENT_SCHEMA = {
 
 
 def _format_decimal(value) -> str:
-    return format(value, "f")
+    if value is None:
+        return ""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    try:
+        return format(Decimal(str(value)), "f")
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value).strip()
 
 
 def _human_otto_attributes(product) -> list[dict[str, Any]]:
