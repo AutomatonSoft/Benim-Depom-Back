@@ -118,6 +118,7 @@ class MarketplaceAutoSchema(AutoSchema):
             "/api/v1/notifications/devices/deactivate/",
         ): "Отключить FCM-устройство",
         ("GET", "/api/v1/notifications/"): "Получить свои уведомления",
+        ("GET", "/api/v1/notifications/summary/"): "Сводка уведомлений по категориям",
         (
             "POST",
             "/api/v1/notifications/{notification_pk}/read/",

@@ -6,6 +6,7 @@ from .views import (
     NotificationListView,
     NotificationReadAllView,
     NotificationReadView,
+    NotificationSummaryView,
 )
 
 app_name = "notifications"
@@ -25,6 +26,11 @@ urlpatterns = [
         "",
         NotificationListView.as_view(),
         name="notification-list",
+    ),
+    path(
+        "summary/",
+        NotificationSummaryView.as_view(),
+        name="notification-summary",
     ),
     path(
         "read-all/",

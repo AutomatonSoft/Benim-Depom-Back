@@ -96,7 +96,7 @@ class OttoCatalogLocalizationMixin:
                     {
                         "detail": (
                             "Unsupported OTTO catalog language. "
-                            "Available languages: de, en, tr."
+                            "Available languages: de, en, tr, ru."
                         )
                     },
                     status=status.HTTP_404_NOT_FOUND,
@@ -157,13 +157,24 @@ class OttoCatalogLocalizationMixin:
             .get("attributes", {})
         )
 
-        return [
-            {
-                **attribute,
-                **translated_attributes.get(str(attribute["attributeId"]), {}),
+        localized = []
+        for attribute in attributes:
+            translated = translated_attributes.get(str(attribute["attributeId"]), {})
+            overlay = {
+                field: translated[field]
+                for field in (
+                    "name",
+                    "attributeGroup",
+                    "description",
+                    "unitDisplayName",
+                )
+                if field in translated
             }
-            for attribute in attributes
-        ]
+            labels = translated.get("allowedValues")
+            if isinstance(labels, list):
+                overlay["allowedValueLabels"] = labels
+            localized.append({**attribute, **overlay})
+        return localized
 
 
 class OttoCategoryGroupListView(
@@ -178,9 +189,8 @@ class OttoCategoryGroupListView(
         summary="List OTTO category groups",
         description=(
             "Returns OTTO category groups from the local JSON catalog. "
-            "Without a suffix the response is German. Append /de/ for German or "
-            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
-            "to English."
+            "Without a suffix the response is German. Append /de/, /en/, /tr/, or "
+            "/ru/; an unsupported suffix falls back to English."
         ),
         parameters=[
             OpenApiParameter(
@@ -249,9 +259,8 @@ class OttoCategoryGroupCategoriesView(
         summary="List categories in an OTTO group",
         description=(
             "Returns selectable OTTO subcategories for one category group. "
-            "Without a suffix the response is German. Append /de/ for German or "
-            "/tr/ for Turkish or /en/ for English; an unsupported suffix falls back "
-            "to English."
+            "Without a suffix the response is German. Append /de/, /en/, /tr/, or "
+            "/ru/; an unsupported suffix falls back to English."
         ),
         parameters=[
             OpenApiParameter(name="page", type=int, required=False),
@@ -295,8 +304,8 @@ class OttoCategoryGroupAttributesView(OttoCatalogLocalizationMixin, APIView):
         summary="Get attributes for an OTTO category group",
         description=(
             "Returns attribute definitions for the selected group. Without a suffix "
-            "the response is German. Append /de/ for German, /tr/ for Turkish, or "
-            "/en/ for English; an unsupported suffix falls back to English. "
+            "the response is German. Append /de/, /en/, /tr/, or /ru/; an "
+            "unsupported suffix falls back to English. "
             "HIGH, MEDIUM and LOW relevance values are used only to order "
             "the manager/mobile UI; all attributes are optional."
         ),
