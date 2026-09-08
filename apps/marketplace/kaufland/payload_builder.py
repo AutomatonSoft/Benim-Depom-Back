@@ -11,6 +11,8 @@ from apps.products.listing_images import (
 )
 from apps.products.pricing import fill_marketplace_price
 
+DEFAULT_KAUFLAND_DELIVERY_DAYS = 32
+
 KAUFLAND_STOREFRONTS = (
     "de",
     "cz",
@@ -141,7 +143,7 @@ def build_kaufland_create_payload(
 
     delivery = _as_non_negative_int(configuration.get("delivery"))
     if delivery is None:
-        errors["delivery"] = "Enter delivery time as a whole number of days."
+        delivery = DEFAULT_KAUFLAND_DELIVERY_DAYS
 
     storefronts = configuration.get("storefronts") or ["de"]
 

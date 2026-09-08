@@ -109,3 +109,35 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
     assert hood_payload["image_urls"][0] == "https://cdn.example/white.jpg"
     assert kaufland_payload["picture"][0] == "https://cdn.example/white.jpg"
     assert "https://example.com/chair.jpg" not in hood_payload["image_urls"]
+
+
+def test_kaufland_payload_uses_default_delivery_when_missing():
+    product = make_product()
+
+    kaufland_payload = build_kaufland_create_payload(
+        product=product,
+        account="jv",
+        configuration={
+            "title": "Test chair",
+            "description": "Detailed product description",
+            "price": "299.00",
+        },
+    )
+
+    assert kaufland_payload["delivery"] == 32
+
+
+def test_hood_payload_uses_default_category_when_missing():
+    product = make_product()
+
+    hood_payload = build_hood_payload(
+        product=product,
+        account="jv",
+        configuration={
+            "title": "Test chair",
+            "description": "<p>Detailed product description</p>",
+            "price": "299.00",
+        },
+    )
+
+    assert hood_payload["categoryID"] == "2412"
