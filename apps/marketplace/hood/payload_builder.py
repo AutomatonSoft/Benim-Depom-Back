@@ -11,6 +11,8 @@ from apps.products.listing_images import (
 )
 from apps.products.pricing import fill_marketplace_price
 
+DEFAULT_HOOD_CATEGORY_ID = "2412"
+
 
 class HoodPayloadValidationError(ValueError):
     """Structured validation errors for the manager web panel"""
@@ -107,9 +109,9 @@ def build_hood_payload(
     if price is None:
         errors["price"] = "Enter a positive Hood price."
 
-    category_id = str(configuration.get("category_id", "")).strip()
-    if not category_id:
-        errors["category_id"] = "Enter or select the Hood category ID."
+    category_id = (
+        str(configuration.get("category_id", "")).strip() or DEFAULT_HOOD_CATEGORY_ID
+    )
 
     image_urls = public_generated_listing_urls(product)
     if not image_urls:

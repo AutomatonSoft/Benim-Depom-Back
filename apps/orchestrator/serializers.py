@@ -192,6 +192,7 @@ class MarketplaceJobFilterSerializer(serializers.Serializer):
         required=False,
     )
     product_id = serializers.IntegerField(min_value=1, required=False)
+    search = serializers.CharField(required=False, allow_blank=True, max_length=200)
 
 
 class MarketplaceJobSerializer(serializers.ModelSerializer):
@@ -326,6 +327,7 @@ class MarketplacePublicationFilterSerializer(serializers.Serializer):
         min_value=1,
         required=False,
     )
+    search = serializers.CharField(required=False, allow_blank=True, max_length=200)
 
 
 @extend_schema_serializer(component_name="MarketplacePublication")
@@ -597,7 +599,7 @@ class HoodListingConfigurationSerializer(serializers.Serializer):
         max_length=100,
         required=False,
         allow_blank=True,
-        help_text="ID категории Hood.",
+        help_text="Ignored. Hood listings always use category 2412.",
     )
     image_urls = serializers.ListField(
         child=serializers.URLField(),
@@ -685,7 +687,7 @@ class KauflandListingConfigurationSerializer(serializers.Serializer):
     delivery = serializers.IntegerField(
         min_value=0,
         required=False,
-        help_text="Срок доставки в днях.",
+        help_text="Ignored. Kaufland listings use 32 delivery days by default.",
     )
     storefronts = serializers.ListField(
         child=serializers.ChoiceField(choices=KAUFLAND_STOREFRONTS),

@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
@@ -447,6 +448,17 @@ class MarketplaceJobListView(generics.ListAPIView):
             if value is not None:
                 queryset = queryset.filter(**{field: value})
 
+        search = (filters.get("search") or "").strip()
+        if search:
+            query = (
+                Q(product__title__icontains=search)
+                | Q(product__ean_jv__icontains=search)
+                | Q(product__ean_xl__icontains=search)
+            )
+            if search.isdigit():
+                query |= Q(product_id=int(search))
+            queryset = queryset.filter(query)
+
         marketplace = filters.get("marketplace")
         if marketplace:
             queryset = queryset.filter(requested_channels__contains=[marketplace])
@@ -522,6 +534,18 @@ class MarketplacePublicationListView(generics.ListAPIView):
 
             if value is not None:
                 queryset = queryset.filter(**{field: value})
+
+        search = (filters.get("search") or "").strip()
+        if search:
+            query = (
+                Q(product__title__icontains=search)
+                | Q(ean__icontains=search)
+                | Q(product__ean_jv__icontains=search)
+                | Q(product__ean_xl__icontains=search)
+            )
+            if search.isdigit():
+                query |= Q(product_id=int(search))
+            queryset = queryset.filter(query)
 
         return queryset
 

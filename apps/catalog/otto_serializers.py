@@ -38,3 +38,10 @@ class OttoCategoryAttributeSerializer(serializers.Serializer):
         allow_null=True,
     )
     allowed_values = serializers.ListField(source="allowedValues")
+    allowed_value_labels = serializers.SerializerMethodField()
+
+    def get_allowed_value_labels(self, attribute):
+        if not isinstance(attribute, dict):
+            return []
+        labels = attribute.get("allowedValueLabels")
+        return labels if isinstance(labels, list) else []
