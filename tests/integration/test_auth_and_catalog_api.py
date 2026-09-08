@@ -627,3 +627,9 @@ def test_otto_catalog_endpoints_return_localized_overlays(api_client):
         and attribute["attribute_group"] == "Material"
         for attribute in english_attributes.data
     )
+
+    russian_groups = api_client.get("/api/v1/catalog/otto/category-groups/ru/")
+    if russian_groups.status_code == 200:
+        assert russian_groups.data.get("results")
+    else:
+        assert russian_groups.status_code == 404
