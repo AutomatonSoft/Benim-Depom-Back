@@ -3,7 +3,6 @@ from rest_framework import serializers
 
 from .models import DeviceToken, Notification
 
-
 NOTIFICATION_CATEGORY_CHOICES = (
     ("review", "Review"),
     ("availability", "Availability"),
