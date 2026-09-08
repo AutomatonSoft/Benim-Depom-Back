@@ -127,7 +127,6 @@ def test_kaufland_payload_uses_default_delivery_when_missing():
     assert kaufland_payload["delivery"] == 32
 
 
-
 def test_hood_payload_uses_default_category_when_missing():
     product = make_product()
 
@@ -142,4 +141,3 @@ def test_hood_payload_uses_default_category_when_missing():
     )
 
     assert hood_payload["categoryID"] == "2412"
-

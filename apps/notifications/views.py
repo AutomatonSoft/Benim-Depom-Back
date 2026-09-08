@@ -125,9 +125,7 @@ class NotificationSummaryView(APIView):
             availability=Count("id", filter=availability_q),
             other=Count("id", filter=other_q),
             unread_review=Count("id", filter=review_q & Q(is_read=False)),
-            unread_availability=Count(
-                "id", filter=availability_q & Q(is_read=False)
-            ),
+            unread_availability=Count("id", filter=availability_q & Q(is_read=False)),
             unread_other=Count("id", filter=other_q & Q(is_read=False)),
         )
         return Response(NotificationSummarySerializer(counts).data)
@@ -139,9 +137,7 @@ class NotificationReadView(APIView):
     @extend_schema(request=None, responses={200: NotificationSerializer})
     def post(self, request, notification_pk: int):
         notification = get_object_or_404(
-            Notification.objects.select_related(
-                "product", "product__owner", "sender"
-            ),
+            Notification.objects.select_related("product", "product__owner", "sender"),
             pk=notification_pk,
             user=request.user,
         )

@@ -162,7 +162,12 @@ class OttoCatalogLocalizationMixin:
             translated = translated_attributes.get(str(attribute["attributeId"]), {})
             overlay = {
                 field: translated[field]
-                for field in ("name", "attributeGroup", "description", "unitDisplayName")
+                for field in (
+                    "name",
+                    "attributeGroup",
+                    "description",
+                    "unitDisplayName",
+                )
                 if field in translated
             }
             labels = translated.get("allowedValues")
