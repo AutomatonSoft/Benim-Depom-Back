@@ -215,9 +215,7 @@ class ManagerSellerListView(generics.ListAPIView):
 
                 raise ValidationError({"is_email_verified": "Use true or false."})
 
-            queryset = queryset.filter(
-                is_email_verified=is_email_verified == "true"
-            )
+            queryset = queryset.filter(is_email_verified=is_email_verified == "true")
 
         return queryset
 
