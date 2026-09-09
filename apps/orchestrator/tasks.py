@@ -246,6 +246,16 @@ def get_expected_otto_marketplace_statuses(
     return ()
 
 
+OTTO_MARKETPLACE_CONFIRM_OPERATIONS = frozenset(
+    {
+        MarketplaceJob.Operation.PUBLISH,
+        MarketplaceJob.Operation.UPDATE,
+        MarketplaceJob.Operation.ACTIVATE,
+        MarketplaceJob.Operation.DEACTIVATE,
+    }
+)
+
+
 def _set_job_target_result(
     *,
     job: MarketplaceJob,
@@ -694,6 +704,25 @@ def execute_marketplace_job(self, job_id: str) -> None:
                         args=(publication.pk, 1),
                         eta=_next_otto_poll_time(response_payload),
                     )
+
+            elif (
+                marketplace == "otto"
+                and result["ok"]
+                and job.operation in OTTO_MARKETPLACE_CONFIRM_OPERATIONS
+            ):
+                # Wrapper accepted the command, but "снято"/"активен" must wait
+                # for the real OTTO marketplace status (INACTIVE/ONLINE).
+                publication = mark_publication_awaiting_confirmation(
+                    publication=publication,
+                    job=job,
+                    response_payload=response_payload,
+                )
+                first_successful_publication = False
+                awaiting_marketplace_confirmation = True
+                check_otto_marketplace_status.apply_async(
+                    args=(publication.pk, 1),
+                    countdown=settings.OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS,
+                )
 
             elif result["ok"]:
                 with transaction.atomic():

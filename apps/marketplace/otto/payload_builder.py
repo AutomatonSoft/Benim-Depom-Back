@@ -365,7 +365,7 @@ def build_otto_payload(
         raise OttoPayloadValidationError(errors)
 
     variation = {
-        "productReference": f"product-{product.pk}",
+        "productReference": ean,
         "sku": ean,
         "ean": ean,
         "shippingProfileId": shipping_profile_id,
