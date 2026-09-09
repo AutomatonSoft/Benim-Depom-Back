@@ -6,7 +6,7 @@ from .models import DeviceToken, Notification
 NOTIFICATION_CATEGORY_CHOICES = (
     ("review", "Review"),
     ("availability", "Availability"),
-    ("other", "Other"),
+    ("outgoing", "Outgoing"),
 )
 
 REVIEW_TYPES = (
@@ -15,6 +15,7 @@ REVIEW_TYPES = (
 )
 
 AVAILABILITY_TYPES = (
+    Notification.Type.PRODUCT_CONFIRMATION,
     Notification.Type.PRODUCT_AVAILABILITY_REMINDER,
     Notification.Type.PRODUCT_DEACTIVATION_REQUESTED,
 )
@@ -81,9 +82,13 @@ class NotificationSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     product_title = serializers.SerializerMethodField()
+    product_status = serializers.SerializerMethodField()
     seller_username = serializers.SerializerMethodField()
     seller_email = serializers.SerializerMethodField()
     seller_name = serializers.SerializerMethodField()
+    sender_username = serializers.SerializerMethodField()
+    sender_email = serializers.SerializerMethodField()
+    sender_name = serializers.SerializerMethodField()
 
     sender_id = serializers.IntegerField(
         source="sender.id",
@@ -98,6 +103,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "notification_type",
             "product_id",
             "product_title",
+            "product_status",
             "seller_username",
             "seller_email",
             "seller_name",
@@ -106,6 +112,9 @@ class NotificationSerializer(serializers.ModelSerializer):
             "read_at",
             "responded_at",
             "sender_id",
+            "sender_username",
+            "sender_email",
+            "sender_name",
             "title",
             "body",
         )
@@ -113,15 +122,29 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def _seller(self, notification: Notification):
         product = notification.product
-        if product is None:
+        if product is not None:
+            owner = getattr(product, "owner", None)
+            if owner is not None:
+                return owner
+        return getattr(notification, "user", None)
+
+    def _person_name(self, person) -> str | None:
+        if person is None:
             return None
-        return getattr(product, "owner", None)
+        full = f"{person.first_name or ''} {person.last_name or ''}".strip()
+        return full or None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_product_title(self, notification) -> str | None:
         if notification.product_id is None:
             return None
         return notification.product.title
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_product_status(self, notification) -> str | None:
+        if notification.product_id is None:
+            return None
+        return notification.product.status
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_seller_username(self, notification) -> str | None:
@@ -135,11 +158,21 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_seller_name(self, notification) -> str | None:
-        seller = self._seller(notification)
-        if seller is None:
-            return None
-        full = f"{seller.first_name or ''} {seller.last_name or ''}".strip()
-        return full or None
+        return self._person_name(self._seller(notification))
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_sender_username(self, notification) -> str | None:
+        sender = notification.sender
+        return sender.username if sender is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_sender_email(self, notification) -> str | None:
+        sender = notification.sender
+        return sender.email if sender is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_sender_name(self, notification) -> str | None:
+        return self._person_name(notification.sender)
 
 
 @extend_schema_serializer(component_name="NotificationsSummary")
@@ -148,10 +181,10 @@ class NotificationSummarySerializer(serializers.Serializer):
     all = serializers.IntegerField()
     review = serializers.IntegerField()
     availability = serializers.IntegerField()
-    other = serializers.IntegerField()
+    outgoing = serializers.IntegerField()
     unread_review = serializers.IntegerField()
     unread_availability = serializers.IntegerField()
-    unread_other = serializers.IntegerField()
+    unread_outgoing = serializers.IntegerField()
 
 
 @extend_schema_serializer(component_name="WebManagerProductNotification")

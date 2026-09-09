@@ -171,12 +171,13 @@ def test_manager_lists_only_sellers_with_search_and_activity_filter(
     assert response.data["results"][0]["id"] == seller.id
     assert response.data["results"][0]["role"] == User.Role.SELLER
     assert "product_count" in response.data["results"][0]
-    assert "is_email_verified" not in response.data["results"][0]
+    assert response.data["results"][0]["is_email_verified"] is True
+    assert response.data["results"][0]["is_active"] is True
 
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_manager_seller_list_hides_unverified_registrations(
+def test_manager_seller_list_includes_unverified_and_can_filter(
     api_client,
     manager,
     seller,
@@ -193,7 +194,54 @@ def test_manager_seller_list_hides_unverified_registrations(
     assert response.status_code == 200
     ids = {item["id"] for item in response.data["results"]}
     assert seller.id in ids
-    assert unverified.id not in ids
+    assert unverified.id in ids
+
+    pending = api_client.get(
+        "/api/v1/manager/users/sellers/",
+        {"is_email_verified": "false"},
+    )
+    assert pending.status_code == 200
+    pending_ids = {item["id"] for item in pending.data["results"]}
+    assert unverified.id in pending_ids
+    assert seller.id not in pending_ids
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_can_confirm_seller_email(
+    api_client,
+    manager,
+    seller,
+    user_factory,
+):
+    unverified = user_factory(
+        username="pending_seller",
+        email="pending@example.com",
+        is_email_verified=False,
+        is_active=False,
+    )
+
+    authenticate(api_client, seller)
+    assert (
+        api_client.post(
+            f"/api/v1/manager/users/sellers/{unverified.id}/confirm-email/"
+        ).status_code
+        == 403
+    )
+
+    authenticate(api_client, manager)
+    response = api_client.post(
+        f"/api/v1/manager/users/sellers/{unverified.id}/confirm-email/"
+    )
+    assert response.status_code == 200
+    assert response.data["id"] == unverified.id
+    assert response.data["is_email_verified"] is True
+    assert response.data["is_active"] is True
+
+    unverified.refresh_from_db()
+    assert unverified.is_email_verified is True
+    assert unverified.is_active is True
+    assert unverified.email_verification_code_hash == ""
 
 
 @pytest.mark.integration

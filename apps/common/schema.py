@@ -22,6 +22,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ("DELETE", "/api/v1/auth/me/"): "Удалить свой аккаунт",
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",
         ("GET", "/api/v1/manager/users/sellers/"): "Получить список продавцов",
+        (
+            "POST",
+            "/api/v1/manager/users/sellers/{user_id}/confirm-email/",
+        ): "Подтвердить email продавца",
         ("DELETE", "/api/v1/manager/users/sellers/{user_id}/"): "Удалить продавца",
         ("POST", "/api/v1/auth/password/change/"): "Изменить пароль",
         (

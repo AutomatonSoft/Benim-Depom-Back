@@ -49,10 +49,6 @@ def _apply_notification_filters(queryset, filters: dict):
         queryset = queryset.filter(notification_type__in=REVIEW_TYPES)
     elif category == "availability":
         queryset = queryset.filter(notification_type__in=AVAILABILITY_TYPES)
-    elif category == "other":
-        queryset = queryset.exclude(
-            notification_type__in=(*REVIEW_TYPES, *AVAILABILITY_TYPES)
-        )
 
     notification_type = filters.get("notification_type")
     if notification_type:
@@ -76,6 +72,10 @@ def _apply_notification_filters(queryset, filters: dict):
             | Q(product__owner__last_name__icontains=search)
             | Q(sender__username__icontains=search)
             | Q(sender__email__icontains=search)
+            | Q(user__username__icontains=search)
+            | Q(user__email__icontains=search)
+            | Q(user__first_name__icontains=search)
+            | Q(user__last_name__icontains=search)
         )
         if search.isdigit():
             query |= Q(product_id=int(search))
@@ -100,11 +100,19 @@ class NotificationListView(generics.ListAPIView):
     def get_queryset(self):
         filters = getattr(self, "filters", None)
         validated = filters.validated_data if filters is not None else {}
-        queryset = (
-            Notification.objects.filter(user=self.request.user)
-            .select_related("product", "product__owner", "sender")
-            .order_by("-created_at")
-        )
+        related = ("product", "product__owner", "sender", "user")
+        if validated.get("category") == "outgoing":
+            queryset = (
+                Notification.objects.filter(sender=self.request.user)
+                .select_related(*related)
+                .order_by("-created_at")
+            )
+        else:
+            queryset = (
+                Notification.objects.filter(user=self.request.user)
+                .select_related(*related)
+                .order_by("-created_at")
+            )
         return _apply_notification_filters(queryset, validated)
 
 
@@ -113,22 +121,26 @@ class NotificationSummaryView(APIView):
 
     @extend_schema(responses={200: NotificationSummarySerializer})
     def get(self, request):
-        base = Notification.objects.filter(user=request.user)
+        inbox = Notification.objects.filter(user=request.user)
+        outgoing = Notification.objects.filter(sender=request.user)
         review_q = Q(notification_type__in=REVIEW_TYPES)
         availability_q = Q(notification_type__in=AVAILABILITY_TYPES)
-        other_q = ~Q(notification_type__in=(*REVIEW_TYPES, *AVAILABILITY_TYPES))
 
-        counts = base.aggregate(
+        inbox_counts = inbox.aggregate(
             all=Count("id"),
             unread_total=Count("id", filter=Q(is_read=False)),
             review=Count("id", filter=review_q),
             availability=Count("id", filter=availability_q),
-            other=Count("id", filter=other_q),
             unread_review=Count("id", filter=review_q & Q(is_read=False)),
             unread_availability=Count("id", filter=availability_q & Q(is_read=False)),
-            unread_other=Count("id", filter=other_q & Q(is_read=False)),
         )
-        return Response(NotificationSummarySerializer(counts).data)
+        outgoing_counts = outgoing.aggregate(
+            outgoing=Count("id"),
+            unread_outgoing=Count("id", filter=Q(is_read=False)),
+        )
+        return Response(
+            NotificationSummarySerializer({**inbox_counts, **outgoing_counts}).data
+        )
 
 
 class NotificationReadView(APIView):
