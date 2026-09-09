@@ -25,6 +25,11 @@ from .ai_content import (
     validate_universal_content,
 )
 from .client import MarketplaceClient
+from .job_services import (
+    MarketplacePayloadBuildError,
+    build_target_payloads,
+    payload_contains_truncation_markers,
+)
 from .models import (
     MarketplaceContentGeneration,
     MarketplaceJob,
@@ -372,7 +377,7 @@ def request_for_non_hood_channel(
             return client.request(
                 settings.KAUFLAND_API_BASE_URL,
                 "GET",
-                settings.KAUFLAND_API_GET_BY_EAN_ENDPOINT,
+                path_with_ean(settings.KAUFLAND_API_GET_BY_EAN_ENDPOINT, ean),
                 params={
                     "ean": ean,
                     "controller": account,
@@ -534,8 +539,55 @@ def execute_marketplace_job(self, job_id: str) -> None:
         )
 
     payloads = job.request_payload.get("payloads", {})
-    target_payloads = job.request_payload.get("target_payloads", {})
+    stored_target_payloads = job.request_payload.get("target_payloads", {})
     targets = get_targets_for_job(job)
+    target_payloads = stored_target_payloads
+
+    if job.operation in {
+        MarketplaceJob.Operation.PUBLISH,
+        MarketplaceJob.Operation.UPDATE,
+    }:
+        try:
+            # Rebuild right before the external call so compact_external_json
+            # markers (or stale queued bodies) cannot corrupt OTTO attributes.
+            target_payloads = build_target_payloads(
+                product=job.product,
+                operation=job.operation,
+                targets=targets,
+            )
+        except MarketplacePayloadBuildError as exc:
+            if payload_contains_truncation_markers(stored_target_payloads):
+                job.status = MarketplaceJob.Status.FAILED
+                job.error = {
+                    "code": "marketplace_payload_truncated",
+                    "detail": (
+                        "Stored marketplace payload was truncated before send. "
+                        "Rebuild listing configuration and publish again."
+                    ),
+                    "build_error": exc.data,
+                }
+                job.finished_at = timezone.now()
+                job.save(update_fields=("status", "error", "finished_at"))
+                return
+            # Unit tests and rare custom jobs may inject a complete body without
+            # a full listing configuration — fall back only if it is intact.
+            target_payloads = stored_target_payloads
+
+    if payload_contains_truncation_markers(
+        target_payloads
+    ) or payload_contains_truncation_markers(payloads):
+        job.status = MarketplaceJob.Status.FAILED
+        job.error = {
+            "code": "marketplace_payload_truncated",
+            "detail": (
+                "Stored marketplace payload was truncated before send. "
+                "Rebuild listing configuration and publish again."
+            ),
+        }
+        job.finished_at = timezone.now()
+        job.save(update_fields=("status", "error", "finished_at"))
+        return
+
     client = MarketplaceClient(str(job.request_id))
     results = []
 

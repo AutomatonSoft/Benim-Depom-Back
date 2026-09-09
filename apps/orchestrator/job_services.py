@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from apps.common.external_json import compact_external_json
 from apps.marketplace.hood.payload_builder import (
     HoodPayloadValidationError,
     build_hood_payload,
@@ -20,6 +19,17 @@ from .models import (
     MarketplaceListingConfiguration,
     MarketplacePublication,
 )
+
+
+def payload_contains_truncation_markers(value) -> bool:
+    """True when compact_external_json markers leaked into a stored payload."""
+    if isinstance(value, dict):
+        if value.get("_truncated") is True:
+            return True
+        return any(payload_contains_truncation_markers(item) for item in value.values())
+    if isinstance(value, list):
+        return any(payload_contains_truncation_markers(item) for item in value)
+    return False
 
 
 class MarketplacePayloadBuildError(Exception):
@@ -182,7 +192,10 @@ def create_marketplace_job(
         operation=operation,
         requested_channels=channels
         or list(dict.fromkeys(target["marketplace"] for target in targets)),
-        request_payload=compact_external_json(payload),
+        # Keep the full outbound marketplace body. compact_external_json is for
+        # diagnostics only — applying it here truncated OTTO attribute values
+        # (depth limit) and those corrupted payloads were sent to the API.
+        request_payload=payload,
     )
 
 
