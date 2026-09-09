@@ -28,6 +28,7 @@ from .serializers import (
     EmailVerificationSerializer,
     LogoutSerializer,
     ManagerCreateSerializer,
+    ManagerSellerSerializer,
     PasswordChangeSerializer,
     PasswordResetCompleteSerializer,
     PasswordResetRequestResponseSerializer,
@@ -40,6 +41,7 @@ from .serializers import (
 from .services import (
     complete_password_reset,
     issue_email_verification_code,
+    manager_confirm_seller_email,
     request_password_reset,
     resend_email_verification_code,
     revoke_refresh_tokens,
@@ -177,15 +179,12 @@ class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
 class ManagerSellerListView(generics.ListAPIView):
     """Paginated seller directory for managers."""
 
-    serializer_class = ProfileSerializer
+    serializer_class = ManagerSellerSerializer
     permission_classes = [IsManager]
 
     def get_queryset(self):
         queryset = (
-            User.objects.filter(
-                role=User.Role.SELLER,
-                is_email_verified=True,
-            )
+            User.objects.filter(role=User.Role.SELLER)
             .annotate(product_count=Count("products", distinct=True))
             .order_by("-date_joined")
         )
@@ -209,7 +208,42 @@ class ManagerSellerListView(generics.ListAPIView):
 
             queryset = queryset.filter(is_active=is_active == "true")
 
+        is_email_verified = self.request.query_params.get("is_email_verified")
+        if is_email_verified:
+            if is_email_verified not in {"true", "false"}:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({"is_email_verified": "Use true or false."})
+
+            queryset = queryset.filter(
+                is_email_verified=is_email_verified == "true"
+            )
+
         return queryset
+
+
+class ManagerSellerConfirmEmailView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=None,
+        responses={200: ManagerSellerSerializer},
+        description=(
+            "Manually confirms a seller email and activates the account. "
+            "Use when the verification email did not arrive."
+        ),
+    )
+    def post(self, request, user_id: int):
+        seller = get_object_or_404(User, pk=user_id, role=User.Role.SELLER)
+        seller = manager_confirm_seller_email(seller=seller)
+        seller = (
+            User.objects.filter(pk=seller.pk)
+            .annotate(product_count=Count("products", distinct=True))
+            .get()
+        )
+        return Response(
+            ManagerSellerSerializer(seller, context={"request": request}).data
+        )
 
 
 class ManagerSellerDeleteView(ManagerMutationThrottleMixin, APIView):

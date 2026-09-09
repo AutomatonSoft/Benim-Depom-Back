@@ -45,7 +45,7 @@ from .services import (
     reject_product,
 )
 
-QUEUE_LIMIT = 6
+QUEUE_LIMIT = 8
 HISTORY_PAGE_SIZE = 5
 ACTIVE_LISTING_CHANNELS = (
     (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.JV),

@@ -183,6 +183,21 @@ class ProfileSerializer(serializers.ModelSerializer):
         return user.products.count()
 
 
+@extend_schema_serializer(component_name="ManagerSeller")
+class ManagerSellerSerializer(ProfileSerializer):
+    """Seller directory row for managers, including activation state."""
+
+    class Meta(ProfileSerializer.Meta):
+        fields = ProfileSerializer.Meta.fields + (
+            "is_active",
+            "is_email_verified",
+        )
+        read_only_fields = ProfileSerializer.Meta.read_only_fields + (
+            "is_active",
+            "is_email_verified",
+        )
+
+
 @extend_schema_serializer(component_name="AuthLogout")
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
