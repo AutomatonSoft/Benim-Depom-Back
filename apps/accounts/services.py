@@ -53,6 +53,33 @@ def issue_email_verification_code(*, user: User) -> str:
     return code
 
 
+@transaction.atomic
+def manager_confirm_seller_email(*, seller: User) -> User:
+    """Mark a seller email as verified and activate the account."""
+    if seller.role != User.Role.SELLER:
+        raise ValidationError({"detail": "Only seller accounts can be confirmed."})
+
+    seller = User.objects.select_for_update().get(pk=seller.pk)
+    if seller.is_email_verified and seller.is_active:
+        return seller
+
+    seller.is_email_verified = True
+    seller.is_active = True
+    seller.email_verification_code_hash = ""
+    seller.email_verification_expires_at = None
+    seller.email_verification_attempts = 0
+    seller.save(
+        update_fields=(
+            "is_email_verified",
+            "is_active",
+            "email_verification_code_hash",
+            "email_verification_expires_at",
+            "email_verification_attempts",
+        )
+    )
+    return seller
+
+
 def verify_email_code(*, email: str, code: str) -> User:
     invalid_error = ValidationError({"code": "Invalid or expired verification code."})
 
