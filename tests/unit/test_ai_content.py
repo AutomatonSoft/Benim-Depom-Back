@@ -49,6 +49,11 @@ def test_validates_and_normalizes_universal_ai_content():
             "description": "Erster Absatz.\n\nZweiter Absatz.",
             "bullet_points": ["Nur ein Punkt"],
         },
+        {
+            "title": "X" * 71,
+            "description": "Erster Absatz.\n\nZweiter Absatz.",
+            "bullet_points": ["A", "B", "C"],
+        },
     ],
 )
 def test_rejects_invalid_universal_ai_content(content):
