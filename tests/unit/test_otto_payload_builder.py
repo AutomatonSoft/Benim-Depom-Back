@@ -89,6 +89,7 @@ def test_build_otto_payload_maps_category_attributes_and_msrp():
     )
 
     item = payload[0]
+    assert item["productReference"] == "4071489789744"
     assert item["sku"] == "4071489789744"
     assert item["ean"] == "4071489789744"
     assert item["pricing"]["standardPrice"] == {
