@@ -324,6 +324,60 @@ def test_otto_marketplace_online_confirms_update(
 
 
 @pytest.mark.django_db
+def test_otto_deactivate_ok_without_pending_waits_for_marketplace_inactive(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.ACTIVE,
+    )
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.DEACTIVATE,
+        requested_channels=["otto"],
+        request_payload={
+            "targets": [{"marketplace": "otto", "account": "jv"}],
+            "target_payloads": {"otto:jv": {}},
+        },
+    )
+    immediate_ok = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "success": True,
+            "ean": product.ean_jv,
+            "active": False,
+        },
+    }
+
+    with (
+        patch(
+            "apps.orchestrator.tasks.request_for_non_hood_channel",
+            return_value=immediate_ok,
+        ),
+        patch(
+            "apps.orchestrator.tasks.check_otto_marketplace_status.apply_async"
+        ) as schedule_status,
+    ):
+        from apps.orchestrator.tasks import execute_marketplace_job
+
+        execute_marketplace_job.run(str(job.id))
+
+    publication = MarketplacePublication.objects.get(product=product, account="jv")
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.DEACTIVATING
+    assert job.status == MarketplaceJob.Status.PENDING_CONFIRMATION
+    schedule_status.assert_called_once()
+    assert schedule_status.call_args.kwargs["args"] == (publication.pk, 1)
+
+
+@pytest.mark.django_db
 def test_otto_marketplace_inactive_confirms_deactivation(
     product_factory,
     manager,
