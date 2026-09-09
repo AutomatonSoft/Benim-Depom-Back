@@ -62,7 +62,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": ("German marketplace title, maximum 100 characters."),
+            "description": ("German marketplace title, maximum 70 characters."),
         },
         "description": {
             "type": "string",
@@ -203,7 +203,7 @@ def build_universal_content_request(
         instructions=(
             f"{COMMON_INSTRUCTIONS}\n\n"
             "Create one universal German marketplace content draft.\n"
-            "- title: maximum 100 characters;\n"
+            "- title: maximum 70 characters;\n"
             "- description: two or three plain-text paragraphs separated "
             "by one empty line; do not use HTML;\n"
             "- bullet_points: exactly three to five concise points;\n"
@@ -234,9 +234,9 @@ def validate_universal_content(data: dict[str, Any]) -> dict[str, Any]:
         if paragraph.strip()
     ]
 
-    if not title or len(title) > 100:
+    if not title or len(title) > 70:
         raise GeneratedContentValidationError(
-            "AI title must contain 1 to 100 characters."
+            "AI title must contain 1 to 70 characters."
         )
 
     if not 2 <= len(paragraphs) <= 3:

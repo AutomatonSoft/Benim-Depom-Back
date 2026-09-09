@@ -237,9 +237,9 @@ def build_otto_payload(
     product_line = str(configuration.get("product_line", "")).strip()
     if not product_line:
         errors["product_line"] = "Enter the German product name/product line."
-    elif len(product_line) > 100:
+    elif len(product_line) > 70:
         errors["product_line"] = (
-            "Product name/product line may not exceed 100 characters."
+            "Product name/product line may not exceed 70 characters."
         )
 
     standard_price = _as_positive_decimal(
