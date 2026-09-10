@@ -1,6 +1,8 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from apps.marketplace.hood.models import HoodProductSnapshot
 from apps.marketplace.hood.services import execute as execute_hood
@@ -568,8 +570,6 @@ def test_recover_stale_orchestrator_jobs_requeues_otto_confirmation_poll(
         last_job=job,
         last_response={"success": True, "active": False},
     )
-    from django.utils import timezone
-    from datetime import timedelta
 
     MarketplacePublication.objects.filter(pk=publication.pk).update(
         updated_at=timezone.now() - timedelta(minutes=20),
