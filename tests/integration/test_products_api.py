@@ -183,9 +183,7 @@ def test_product_api_rejects_invalid_variant_and_non_seller_create(
         multipart_product_payload(
             product_type,
             image_file,
-            variants=[
-                {**product_payload(product_type)["variants"][0], "color": "  "}
-            ],
+            variants=[{**product_payload(product_type)["variants"][0], "color": "  "}],
         ),
         format="multipart",
     )
