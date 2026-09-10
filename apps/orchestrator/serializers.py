@@ -288,8 +288,8 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
     """Manager edits of a completed AI draft before it is applied."""
 
     title = serializers.CharField(
-        max_length=70,
-        help_text="German marketplace title, maximum 70 characters.",
+        max_length=65,
+        help_text="German marketplace title, maximum 65 characters. (BD) is added on publish.",
     )
     description = serializers.CharField(
         help_text=(
@@ -414,7 +414,7 @@ class OttoListingConfigurationSerializer(
         max_length=70,
         required=False,
         allow_blank=True,
-        help_text="German product name / product line (max 70 characters).",
+        help_text="German product name / product line (max 70 characters, including (BD)).",
     )
     standard_price = serializers.DecimalField(
         max_digits=12,

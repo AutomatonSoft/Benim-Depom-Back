@@ -20,6 +20,7 @@ from apps.catalog.otto_shipping_profiles import (
     get_otto_shipping_profile,
 )
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -237,10 +238,8 @@ def build_otto_payload(
     product_line = str(configuration.get("product_line", "")).strip()
     if not product_line:
         errors["product_line"] = "Enter the German product name/product line."
-    elif len(product_line) > 70:
-        errors["product_line"] = (
-            "Product name/product line may not exceed 70 characters."
-        )
+    else:
+        product_line = with_listing_brand_mark(product_line, max_length=70)
 
     standard_price = _as_positive_decimal(
         fill_marketplace_price(configuration, product, field="standard_price").get(

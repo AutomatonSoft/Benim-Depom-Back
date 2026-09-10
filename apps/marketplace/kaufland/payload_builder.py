@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
@@ -132,6 +133,8 @@ def build_kaufland_create_payload(
 
     if not title:
         errors["title"] = "Enter the Kaufland product title."
+    else:
+        title = with_listing_brand_mark(title, max_length=255)
 
     if not description:
         errors["description"] = "Enter the Kaufland product description."
@@ -239,7 +242,7 @@ def build_kaufland_update_payload(
 
     title = str(configuration.get("title", "")).strip()
     if title:
-        payload["title"] = title
+        payload["title"] = with_listing_brand_mark(title, max_length=255)
 
     description = str(configuration.get("description", "")).strip()
     if description:

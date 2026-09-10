@@ -51,7 +51,7 @@ def test_validates_and_normalizes_universal_ai_content():
             "bullet_points": ["Nur ein Punkt"],
         },
         {
-            "title": "X" * 71,
+            "title": "X" * 66,
             "description": "Erster Absatz.\n\nZweiter Absatz.",
             "bullet_points": ["A", "B", "C"],
         },
@@ -85,16 +85,16 @@ def test_maps_one_draft_to_each_marketplace_configuration():
     )
 
     assert otto == {
-        "product_line": content["title"],
+        "product_line": f"{content['title']} (BD)",
         "description": content["description"],
         "bullet_points": content["bullet_points"],
         "materials": ["Holz", "Stoff"],
     }
-    assert hood["title"] == content["title"]
+    assert hood["title"] == f"{content['title']} (BD)"
     assert hood["description"] == ("<p>Erster Absatz.</p><p>Zweiter Absatz.</p>")
     assert hood["materials"] == ["Holz", "Stoff"]
     assert kaufland == {
-        "title": content["title"],
+        "title": f"{content['title']} (BD)",
         "description": content["description"],
         "materials": ["Holz", "Stoff"],
     }

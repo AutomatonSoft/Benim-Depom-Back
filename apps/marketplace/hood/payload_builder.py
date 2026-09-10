@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
@@ -96,9 +97,8 @@ def build_hood_payload(
 
     if not title:
         errors["title"] = "Enter the Hood product title"
-
-    elif len(title) > 255:
-        errors["title"] = "Hood title may not exceed 255 characters"
+    else:
+        title = with_listing_brand_mark(title, max_length=255)
 
     description = str(configuration.get("description", "")).strip()
     if not description:

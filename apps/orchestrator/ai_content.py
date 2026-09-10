@@ -10,6 +10,7 @@ from typing import Any
 
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import (
     contains_source_language,
     seller_materials_from_snapshot,
@@ -53,6 +54,8 @@ Rules:
 - Do not write phrases such as "according to product data" or describe
   the source data itself.
 - Do not use quotation marks around the generated product title.
+- Title must be at most 65 characters. Do not append a brand suffix;
+  the system adds `` (BD)`` later.
 - Use only facts present in the supplied product data.
 - Keep the content clear, commercially useful and suitable for a marketplace.
 - Return only data matching the supplied JSON schema.
@@ -66,7 +69,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": ("German marketplace title, maximum 70 characters."),
+            "description": ("German marketplace title, maximum 65 characters."),
         },
         "description": {
             "type": "string",
@@ -209,7 +212,8 @@ def build_universal_content_request(
         instructions=(
             f"{COMMON_INSTRUCTIONS}\n\n"
             "Create one universal German marketplace content draft.\n"
-            "- title: maximum 70 characters;\n"
+            "- title: maximum 65 characters; do not add (BD), the system "
+            "appends it;\n"
             "- description: two or three plain-text paragraphs separated "
             "by one empty line; do not use HTML;\n"
             "- bullet_points: exactly three to five concise points;\n"
@@ -248,9 +252,9 @@ def validate_universal_content(
     materials = [
         str(item).strip() for item in data.get("materials", []) if str(item).strip()
     ][:2]
-    if not title or len(title) > 70:
+    if not title or len(title) > 65:
         raise GeneratedContentValidationError(
-            "AI title must contain 1 to 70 characters."
+            "AI title must contain 1 to 65 characters."
         )
 
     if not 2 <= len(paragraphs) <= 3:
@@ -300,9 +304,11 @@ def universal_content_to_marketplace_configuration(
 ) -> dict[str, Any]:
     """Maps one validated AI draft to marketplace configuration fields."""
 
+    title = with_listing_brand_mark(content["title"], max_length=70)
+
     if marketplace == "otto":
         return {
-            "product_line": content["title"],
+            "product_line": title,
             "description": content["description"],
             "bullet_points": content["bullet_points"],
             "materials": content.get("materials") or [],
@@ -310,14 +316,14 @@ def universal_content_to_marketplace_configuration(
 
     if marketplace == "hood":
         return {
-            "title": content["title"],
+            "title": title,
             "description": universal_description_to_hood_html(content["description"]),
             "materials": content.get("materials") or [],
         }
 
     if marketplace == "kaufland":
         return {
-            "title": content["title"],
+            "title": title,
             "description": content["description"],
             "materials": content.get("materials") or [],
         }
