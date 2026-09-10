@@ -1207,9 +1207,7 @@ def check_otto_marketplace_status(
             "marketplace_status": marketplace_status,
             "active": active_flag,
             "moin": (
-                marketplace_item.get("moin", "")
-                if marketplace_item is not None
-                else ""
+                marketplace_item.get("moin", "") if marketplace_item is not None else ""
             ),
             "shop_url": next(
                 (

@@ -401,7 +401,9 @@ class MarketplacePublicationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="OttoListingConfiguration")
-class OttoListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
+class OttoListingConfigurationSerializer(
+    GermanListingMaterialsMixin, serializers.Serializer
+):
     """Editable OTTO content shown in the manager web panel.
 
     These names are API-stable; the web frontend should render human labels,
@@ -598,7 +600,9 @@ class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="HoodListingConfiguration")
-class HoodListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
+class HoodListingConfigurationSerializer(
+    GermanListingMaterialsMixin, serializers.Serializer
+):
     """
     Настройки менеджера для одного Hood-объявления.
     Финальный JSON для Hood строится автоматически из товара и этих полей.
@@ -684,7 +688,9 @@ class HoodListingConfigurationResponseSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="KauflandListingConfiguration")
-class KauflandListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
+class KauflandListingConfigurationSerializer(
+    GermanListingMaterialsMixin, serializers.Serializer
+):
     """Настройки менеджера для одного Kaufland-объявления."""
 
     title = serializers.CharField(

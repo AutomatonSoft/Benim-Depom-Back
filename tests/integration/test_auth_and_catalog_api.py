@@ -189,7 +189,10 @@ def test_manager_lists_staff_accounts(api_client, manager, seller, user_factory)
     assert manager.id in ids
     assert other.id in ids
     assert seller.id not in ids
-    assert all(item["role"] in {User.Role.MANAGER, User.Role.ADMIN} for item in response.data["results"])
+    assert all(
+        item["role"] in {User.Role.MANAGER, User.Role.ADMIN}
+        for item in response.data["results"]
+    )
 
 
 @pytest.mark.integration

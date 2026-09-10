@@ -246,9 +246,7 @@ def validate_universal_content(
     ]
     seller_materials = seller_materials_from_snapshot(product_snapshot)
     materials = [
-        str(item).strip()
-        for item in data.get("materials", [])
-        if str(item).strip()
+        str(item).strip() for item in data.get("materials", []) if str(item).strip()
     ][:2]
     if not title or len(title) > 70:
         raise GeneratedContentValidationError(
@@ -271,9 +269,7 @@ def validate_universal_content(
         )
 
     if any(contains_source_language(name) for name in materials):
-        raise GeneratedContentValidationError(
-            "AI materials must be written in German."
-        )
+        raise GeneratedContentValidationError("AI materials must be written in German.")
 
     if len(materials) > 2:
         materials = materials[:2]
