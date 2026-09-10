@@ -30,7 +30,7 @@ def test_product_creation_requires_image_and_notifies_managers_without_reserving
         "variants": json.dumps(
             [
                 {
-                    "color_hex": "#5B91C8",
+                    "color": "beyaz",
                     "materials": ["Wood"],
                     "width_cm": "50.00",
                     "height_cm": "90.00",

@@ -25,6 +25,11 @@ from .models import (
 )
 from .services import create_product, create_product_with_images, update_product
 
+EXACTLY_ONE_VARIANT = (
+    "A product must contain exactly one variant. "
+    "Marketplaces use one EAN per listing, so only one color is allowed."
+)
+
 
 @extend_schema_serializer(component_name="ProductsOwner")
 class ProductOwnerSerializer(serializers.Serializer):
@@ -36,12 +41,9 @@ class ProductOwnerSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ProductsVariant")
 class ProductVariantSerializer(serializers.ModelSerializer):
-    color_hex = serializers.RegexField(
-        regex=r"^#[0-9A-Fa-f]{6}$",
-        max_length=7,
-        error_messages={
-            "invalid": "Use a hexadecimal color in the #RRGGBB format.",
-        },
+    color = serializers.CharField(
+        max_length=80,
+        help_text="Seller colour name, for example beyaz or white.",
     )
     materials = serializers.ListField(
         child=serializers.CharField(max_length=100, trim_whitespace=True),
@@ -57,7 +59,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = (
             "id",
-            "color_hex",
+            "color",
             "materials",
             "width_cm",
             "height_cm",
@@ -66,8 +68,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
-    def validate_color_hex(self, value):
-        return value.upper()
+    def validate_color(self, value):
+        color = value.strip()
+        if not color:
+            raise serializers.ValidationError("Enter a colour name.")
+        return color
 
     def validate_materials(self, values):
         normalized = [value.strip() for value in values]
@@ -198,7 +203,13 @@ class ProductSerializer(serializers.ModelSerializer):
             "corrections are complete to send it back to moderation."
         ),
     )
-    variants = ProductVariantSerializer(many=True, required=False)
+    variants = ProductVariantSerializer(
+        many=True,
+        required=False,
+        min_length=1,
+        max_length=1,
+        help_text="Exactly one variant. One color per product listing.",
+    )
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
@@ -455,15 +466,11 @@ class ProductSerializer(serializers.ModelSerializer):
 
         variants = attrs.get("variants")
 
-        if self.instance is None and not variants:
-            raise serializers.ValidationError(
-                {"variants": "A product must contain at least one variant."}
-            )
+        if self.instance is None and (not variants or len(variants) != 1):
+            raise serializers.ValidationError({"variants": EXACTLY_ONE_VARIANT})
 
-        if variants is not None and not variants:
-            raise serializers.ValidationError(
-                {"variants": "At least one variant is required."}
-            )
+        if variants is not None and len(variants) != 1:
+            raise serializers.ValidationError({"variants": EXACTLY_ONE_VARIANT})
 
         self._validate_otto_catalog_data(attrs)
 
@@ -892,7 +899,9 @@ class ProductMultipartCreateSerializer(ProductSerializer):
     variants = MultipartJSONListField(
         child=ProductVariantSerializer(),
         allow_empty=False,
-        help_text="JSON array of product variants.",
+        min_length=1,
+        max_length=1,
+        help_text="JSON array with exactly one product variant.",
     )
     otto_attributes = MultipartJSONDictField(
         required=False,
