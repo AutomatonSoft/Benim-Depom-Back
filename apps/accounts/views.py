@@ -220,6 +220,39 @@ class ManagerSellerListView(generics.ListAPIView):
         return queryset
 
 
+class ManagerStaffListView(generics.ListAPIView):
+    """Paginated manager directory for the manager panel."""
+
+    serializer_class = ProfileSerializer
+    permission_classes = [IsManager]
+
+    def get_queryset(self):
+        queryset = User.objects.filter(
+            role__in={User.Role.MANAGER, User.Role.ADMIN}
+        ).order_by("-date_joined")
+        search = self.request.query_params.get("search", "").strip()
+
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+            )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active:
+            if is_active not in {"true", "false"}:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({"is_active": "Use true or false."})
+
+            queryset = queryset.filter(is_active=is_active == "true")
+
+        return queryset
+
+
 class ManagerSellerConfirmEmailView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 

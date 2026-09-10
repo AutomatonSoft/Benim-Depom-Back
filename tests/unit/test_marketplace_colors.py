@@ -84,6 +84,7 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
             "price": "299.00",
             "category_id": "2412",
             "image_urls": ["https://example.com/chair.jpg"],
+            "materials": ["Holz", "Stoff"],
         },
     )
     kaufland_payload = build_kaufland_create_payload(
@@ -95,6 +96,7 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
             "price": "299.00",
             "delivery": 30,
             "image_urls": ["https://example.com/chair.jpg"],
+            "materials": ["Holz", "Stoff"],
         },
     )
 
@@ -105,7 +107,13 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
     )
     assert hood_color == "Blau"
     assert kaufland_payload["color"] == "Blau"
-    assert kaufland_payload["material"] == "Wood"
+    assert kaufland_payload["material"] == "Holz"
+    hood_material = next(
+        item["value"]
+        for item in hood_payload["product_properties"]
+        if item["name"] == "Material"
+    )
+    assert hood_material == "Holz, Stoff"
     assert hood_payload["image_urls"][0] == "https://cdn.example/white.jpg"
     assert kaufland_payload["picture"][0] == "https://cdn.example/white.jpg"
     assert "https://example.com/chair.jpg" not in hood_payload["image_urls"]
@@ -121,6 +129,7 @@ def test_kaufland_payload_uses_default_delivery_when_missing():
             "title": "Test chair",
             "description": "Detailed product description",
             "price": "299.00",
+            "materials": ["Holz"],
         },
     )
 
@@ -137,6 +146,7 @@ def test_hood_payload_uses_default_category_when_missing():
             "title": "Test chair",
             "description": "<p>Detailed product description</p>",
             "price": "299.00",
+            "materials": ["Holz"],
         },
     )
 

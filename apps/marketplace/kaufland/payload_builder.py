@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -159,22 +160,20 @@ def build_kaufland_create_payload(
 
     image_urls = _get_listing_image_urls(product, errors)
 
+    materials: list[str] = []
     if variant is not None:
-        materials = [
-            str(material).strip()
-            for material in variant.materials
-            if str(material).strip()
-        ]
-
-        if not materials:
-            errors["material"] = "Enter at least one material."
+        materials, material_error = listing_materials(
+            configuration=configuration,
+            variant_materials=variant.materials,
+        )
+        if material_error:
+            errors["material"] = material_error
 
     if errors:
         raise KauflandPayloadValidationError(errors)
 
-    # The Kaufland API accepts one material.  The mobile contract keeps the
-    # first list item as the seller's primary material; remaining entries are
-    # still preserved for OTTO, Hood and internal manager review.
+    # The Kaufland API accepts one material. Remaining listing materials stay
+    # on Hood, OTTO configuration and the manager listing form.
     primary_material = materials[0]
 
     return {

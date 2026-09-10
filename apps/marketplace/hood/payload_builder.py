@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import german_color_name
+from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -155,10 +156,13 @@ def build_hood_payload(
         "Länge": _format_cm(variant.length_cm),
     }
 
-    materials = [
-        str(material).strip() for material in variant.materials if str(material).strip()
-    ]
-
+    materials, material_error = listing_materials(
+        configuration=configuration,
+        variant_materials=variant.materials,
+    )
+    if material_error:
+        errors["materials"] = material_error
+        raise HoodPayloadValidationError(errors)
     if materials:
         automatic_properties["Material"] = ", ".join(materials)
 
