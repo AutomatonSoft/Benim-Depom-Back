@@ -11,6 +11,10 @@ from apps.catalog.otto_shipping_profiles import (
 from apps.marketplace.kaufland.payload_builder import (
     KAUFLAND_STOREFRONTS,
 )
+from apps.marketplace.materials import (
+    clean_material_names,
+    contains_source_language,
+)
 from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
 from apps.products.pricing import fill_marketplace_price
 
@@ -21,6 +25,22 @@ from .models import (
     MarketplaceListingConfiguration,
     MarketplacePublication,
 )
+
+
+class GermanListingMaterialsMixin(serializers.Serializer):
+    materials = serializers.ListField(
+        child=serializers.CharField(max_length=80, allow_blank=False),
+        max_length=2,
+        required=False,
+        allow_empty=True,
+        help_text="German material names for the marketplace listing (max 2).",
+    )
+
+    def validate_materials(self, values):
+        names = clean_material_names(values)
+        if any(contains_source_language(name) for name in names):
+            raise serializers.ValidationError("Materials must be in German.")
+        return names
 
 
 class MarketplaceTargetSerializer(serializers.Serializer):
@@ -282,6 +302,13 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Three to five concise German product highlights.",
     )
+    materials = serializers.ListField(
+        child=serializers.CharField(max_length=80, allow_blank=False),
+        max_length=2,
+        required=False,
+        allow_empty=True,
+        help_text="German material names copied into listing configurations.",
+    )
 
 
 @extend_schema_serializer(component_name="MarketplaceContentGeneration")
@@ -374,7 +401,7 @@ class MarketplacePublicationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="OttoListingConfiguration")
-class OttoListingConfigurationSerializer(serializers.Serializer):
+class OttoListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
     """Editable OTTO content shown in the manager web panel.
 
     These names are API-stable; the web frontend should render human labels,
@@ -571,7 +598,7 @@ class OttoListingConfigurationResponseSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="HoodListingConfiguration")
-class HoodListingConfigurationSerializer(serializers.Serializer):
+class HoodListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
     """
     Настройки менеджера для одного Hood-объявления.
     Финальный JSON для Hood строится автоматически из товара и этих полей.
@@ -657,7 +684,7 @@ class HoodListingConfigurationResponseSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(component_name="KauflandListingConfiguration")
-class KauflandListingConfigurationSerializer(serializers.Serializer):
+class KauflandListingConfigurationSerializer(GermanListingMaterialsMixin, serializers.Serializer):
     """Настройки менеджера для одного Kaufland-объявления."""
 
     title = serializers.CharField(

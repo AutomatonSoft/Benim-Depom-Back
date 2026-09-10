@@ -177,6 +177,23 @@ def test_manager_lists_only_sellers_with_search_and_activity_filter(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_manager_lists_staff_accounts(api_client, manager, seller, user_factory):
+    other = user_factory(role=User.Role.MANAGER, email="other.manager@example.com")
+    authenticate(api_client, seller)
+    assert api_client.get("/api/v1/manager/users/managers/").status_code == 403
+
+    authenticate(api_client, manager)
+    response = api_client.get("/api/v1/manager/users/managers/")
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.data["results"]}
+    assert manager.id in ids
+    assert other.id in ids
+    assert seller.id not in ids
+    assert all(item["role"] in {User.Role.MANAGER, User.Role.ADMIN} for item in response.data["results"])
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_manager_seller_list_includes_unverified_and_can_filter(
     api_client,
     manager,

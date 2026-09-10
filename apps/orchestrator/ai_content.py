@@ -10,7 +10,10 @@ from typing import Any
 
 from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.marketplace.colors import german_color_name
-from apps.marketplace.materials import german_material_name
+from apps.marketplace.materials import (
+    contains_source_language,
+    seller_materials_from_snapshot,
+)
 
 
 class GeneratedContentValidationError(ValueError):
@@ -37,9 +40,10 @@ Rules:
   delivery times, product functions or legal claims.
 - Translating seller title, product type and material names into German is
   required. Translation is not inventing a fact.
-- If `materials_de` is present, use those German material names. If a
-  material has no German name and you cannot translate it confidently,
-  omit it rather than pasting the original word.
+- Translate each seller material into a short German noun. Never paste
+  Russian, Turkish or English source words into `materials`.
+- Return `materials` as one or two German names, in the same order as the
+  seller materials. Do not add extra materials.
 - `seller_title` is a raw product title only. It is not a seller name,
   supplier, manufacturer or brand.
 - Never mention a seller, supplier, manufacturer or brand unless that
@@ -76,11 +80,19 @@ UNIVERSAL_CONTENT_SCHEMA = {
             "items": {"type": "string"},
             "description": ("Three to five concise German product highlights."),
         },
+        "materials": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "One or two German material names for the marketplace listing."
+            ),
+        },
     },
     "required": (
         "title",
         "description",
         "bullet_points",
+        "materials",
     ),
     "additionalProperties": False,
 }
@@ -151,18 +163,12 @@ def build_product_snapshot(product) -> dict[str, Any]:
         raw_materials = [
             str(item).strip() for item in (variant.materials or []) if str(item).strip()
         ]
-        materials_de = [
-            german_name
-            for material in raw_materials
-            if (german_name := german_material_name(material))
-        ]
 
         variants.append(
             {
                 "color_hex": variant.color_hex,
                 "color_name_de": color_name_de,
                 "materials": raw_materials,
-                "materials_de": materials_de,
                 "width_cm": _format_decimal(variant.width_cm),
                 "height_cm": _format_decimal(variant.height_cm),
                 "length_cm": _format_decimal(variant.length_cm),
@@ -207,11 +213,12 @@ def build_universal_content_request(
             "- description: two or three plain-text paragraphs separated "
             "by one empty line; do not use HTML;\n"
             "- bullet_points: exactly three to five concise points;\n"
+            "- materials: translate the seller materials into one or two "
+            "German names, same order, no extras;\n"
             "- do not include prices, delivery promises, guarantees or "
             "claims not present in product data;\n"
             "- turn a raw seller title into a natural German product title;\n"
-            "- use dimensions and materials only as factual product details;\n"
-            "- use German material names from materials_de when provided."
+            "- use dimensions and materials only as factual product details."
         ),
         input_text=json.dumps(
             {"product": product_snapshot},
@@ -220,7 +227,11 @@ def build_universal_content_request(
     )
 
 
-def validate_universal_content(data: dict[str, Any]) -> dict[str, Any]:
+def validate_universal_content(
+    data: dict[str, Any],
+    *,
+    product_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Normalize and validate the one universal AI response."""
 
     title = str(data.get("title", "")).strip()
@@ -233,7 +244,12 @@ def validate_universal_content(data: dict[str, Any]) -> dict[str, Any]:
         for paragraph in description.split("\n\n")
         if paragraph.strip()
     ]
-
+    seller_materials = seller_materials_from_snapshot(product_snapshot)
+    materials = [
+        str(item).strip()
+        for item in data.get("materials", [])
+        if str(item).strip()
+    ][:2]
     if not title or len(title) > 70:
         raise GeneratedContentValidationError(
             "AI title must contain 1 to 70 characters."
@@ -249,10 +265,24 @@ def validate_universal_content(data: dict[str, Any]) -> dict[str, Any]:
             "AI response must contain three to five bullet points."
         )
 
+    if seller_materials and not materials:
+        raise GeneratedContentValidationError(
+            "AI materials must be German translations of the seller materials."
+        )
+
+    if any(contains_source_language(name) for name in materials):
+        raise GeneratedContentValidationError(
+            "AI materials must be written in German."
+        )
+
+    if len(materials) > 2:
+        materials = materials[:2]
+
     return {
         "title": title,
         "description": "\n\n".join(paragraphs),
         "bullet_points": bullet_points,
+        "materials": materials,
     }
 
 
@@ -279,18 +309,21 @@ def universal_content_to_marketplace_configuration(
             "product_line": content["title"],
             "description": content["description"],
             "bullet_points": content["bullet_points"],
+            "materials": content.get("materials") or [],
         }
 
     if marketplace == "hood":
         return {
             "title": content["title"],
             "description": universal_description_to_hood_html(content["description"]),
+            "materials": content.get("materials") or [],
         }
 
     if marketplace == "kaufland":
         return {
             "title": content["title"],
             "description": content["description"],
+            "materials": content.get("materials") or [],
         }
 
     raise ValueError(f"Unsupported marketplace: {marketplace}")

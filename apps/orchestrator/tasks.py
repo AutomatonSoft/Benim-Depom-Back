@@ -207,6 +207,53 @@ def get_otto_marketplace_status(
     )
 
 
+def get_otto_products(
+    client: MarketplaceClient,
+    *,
+    ean: str,
+    account: str,
+) -> dict[str, Any]:
+    """Fetches OTTO product search data (same source as manager Search)."""
+
+    return client.request(
+        settings.OTTO_API_BASE_URL,
+        "GET",
+        settings.OTTO_API_PRODUCTS_ENDPOINT,
+        params={
+            "ean": ean,
+            "page": 0,
+            "limit": 10,
+            "controller": account,
+        },
+    )
+
+
+def unwrap_otto_details_payload(
+    response_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Prefer nested ``response`` when it carries listing/status fields."""
+
+    nested = response_payload.get("response")
+    if not isinstance(nested, dict):
+        return response_payload
+
+    if any(
+        key in nested
+        for key in (
+            "marketPlaceStatus",
+            "active",
+            "products",
+            "product",
+            "variations",
+            "results",
+            "items",
+        )
+    ):
+        return nested
+
+    return response_payload
+
+
 def get_otto_marketplace_item(
     response_payload: dict[str, Any],
     *,
@@ -214,14 +261,67 @@ def get_otto_marketplace_item(
 ) -> dict[str, Any] | None:
     """Returns the item matching our SKU from OTTO marketplace-status."""
 
-    items = response_payload.get("marketPlaceStatus", [])
+    payload = unwrap_otto_details_payload(response_payload)
+    items = payload.get("marketPlaceStatus", [])
 
     if not isinstance(items, list):
         return None
 
+    sku_normalized = str(sku)
     for item in items:
-        if isinstance(item, dict) and str(item.get("sku", "")) == sku:
+        if not isinstance(item, dict):
+            continue
+        item_sku = str(item.get("sku") or item.get("ean") or "")
+        if item_sku == sku_normalized:
             return item
+
+    return None
+
+
+def extract_otto_active_flag(
+    response_payload: dict[str, Any],
+    *,
+    ean: str = "",
+) -> bool | None:
+    """
+    Reads OTTO ``active`` from activate/deactivate or get_products responses.
+
+    Returns True/False when present, otherwise None.
+    """
+
+    payload = unwrap_otto_details_payload(response_payload)
+    candidates: list[dict[str, Any]] = [payload, response_payload]
+
+    nested = response_payload.get("response")
+    if isinstance(nested, dict):
+        candidates.append(nested)
+
+    for candidate in candidates:
+        if "active" in candidate:
+            return bool(candidate["active"])
+
+    ean_normalized = str(ean)
+    collection_keys = ("products", "product", "variations", "results", "items")
+    for candidate in candidates:
+        for key in collection_keys:
+            items = candidate.get(key)
+            if isinstance(items, dict):
+                items = [items]
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict) or "active" not in item:
+                    continue
+                if not ean_normalized:
+                    return bool(item["active"])
+                item_ref = str(
+                    item.get("ean")
+                    or item.get("sku")
+                    or item.get("productReference")
+                    or ""
+                )
+                if item_ref == ean_normalized or not item_ref:
+                    return bool(item["active"])
 
     return None
 
@@ -244,6 +344,35 @@ def get_expected_otto_marketplace_statuses(
         return (OttoMarketplaceStatus.INACTIVE,)
 
     return ()
+
+
+def is_otto_operation_confirmed(
+    *,
+    operation: str,
+    marketplace_status: str,
+    active_flag: bool | None,
+) -> bool:
+    """
+    Decide whether OTTO has confirmed the operation.
+
+    Activate/deactivate follow active-status (Search ``active``). Marketplace
+    ONLINE/INACTIVE remains a valid confirmation signal as well.
+    Publish/update still require marketplace ONLINE.
+    """
+
+    expected_statuses = get_expected_otto_marketplace_statuses(operation)
+
+    if operation == MarketplaceJob.Operation.ACTIVATE:
+        if active_flag is True:
+            return True
+        return marketplace_status in expected_statuses
+
+    if operation == MarketplaceJob.Operation.DEACTIVATE:
+        if active_flag is False:
+            return True
+        return marketplace_status in expected_statuses
+
+    return marketplace_status in expected_statuses
 
 
 OTTO_MARKETPLACE_CONFIRM_OPERATIONS = frozenset(
@@ -708,10 +837,31 @@ def execute_marketplace_job(self, job_id: str) -> None:
             elif (
                 marketplace == "otto"
                 and result["ok"]
+                and job.operation == MarketplaceJob.Operation.ACTIVATE
+                and extract_otto_active_flag(response_payload, ean=ean) is True
+            ):
+                # Activate is confirmed by active-status, not marketplace ONLINE.
+                with transaction.atomic():
+                    publication, first_successful_publication = (
+                        mark_publication_succeeded(
+                            publication=publication,
+                            job=job,
+                            response_payload=response_payload,
+                            external_id=extract_external_id(
+                                marketplace=marketplace,
+                                response_payload=response_payload,
+                            ),
+                        )
+                    )
+
+            elif (
+                marketplace == "otto"
+                and result["ok"]
                 and job.operation in OTTO_MARKETPLACE_CONFIRM_OPERATIONS
             ):
-                # Wrapper accepted the command, but "снято"/"активен" must wait
-                # for the real OTTO marketplace status (INACTIVE/ONLINE).
+                # Wrapper accepted the command, but final listing state may lag.
+                # Publish/update wait for ONLINE; deactivate for INACTIVE;
+                # activate without an immediate active=true also polls.
                 publication = mark_publication_awaiting_confirmation(
                     publication=publication,
                     job=job,
@@ -939,11 +1089,10 @@ def check_otto_marketplace_status(
     attempt: int = 1,
 ) -> None:
     """
-    Confirms that a variation is actually visible on OTTO marketplace.
+    Confirms that OTTO reached the expected listing state.
 
-    The expected final OTTO marketplace status depends on the requested
-    operation: ONLINE for publish/update/activate and a configured final
-    value for deactivation.
+    Publish/update wait for marketplace ONLINE. Activate/deactivate also
+    accept the products ``active`` flag (same signal as manager Search).
     """
 
     publication = MarketplacePublication.objects.select_related(
@@ -984,18 +1133,55 @@ def check_otto_marketplace_status(
     if marketplace_item is not None:
         marketplace_status = str(marketplace_item.get("status", "")).upper()
 
-    if result.get("ok") and marketplace_status in expected_statuses:
+    products_result: dict[str, Any] | None = None
+    products_payload: dict[str, Any] = {}
+    active_flag: bool | None = None
+
+    if job.operation in {
+        MarketplaceJob.Operation.ACTIVATE,
+        MarketplaceJob.Operation.DEACTIVATE,
+    }:
+        products_result = get_otto_products(
+            client,
+            ean=publication.ean,
+            account=publication.account,
+        )
+        products_payload = normalize_payload(products_result.get("details", {}))
+        if products_result.get("ok"):
+            active_flag = extract_otto_active_flag(
+                products_payload,
+                ean=publication.ean,
+            )
+
+    confirmed = is_otto_operation_confirmed(
+        operation=job.operation,
+        marketplace_status=marketplace_status,
+        active_flag=active_flag,
+    )
+    confirmed_via_active = active_flag is not None and confirmed
+    confirmed_via_marketplace = bool(result.get("ok")) and (
+        marketplace_status in expected_statuses
+    )
+
+    if confirmed_via_active or confirmed_via_marketplace:
         combined_response = {
             "process": publication.last_response,
             "marketplace_status": response_payload,
         }
+        if products_result is not None:
+            combined_response["products"] = products_payload
+            combined_response["active"] = active_flag
 
         with transaction.atomic():
             publication, first_successful_publication = mark_publication_succeeded(
                 publication=publication,
                 job=job,
                 response_payload=combined_response,
-                external_id=str(marketplace_item.get("moin", "")),
+                external_id=(
+                    str(marketplace_item.get("moin", ""))
+                    if marketplace_item is not None
+                    else ""
+                ),
             )
 
             ean_consumed = False
@@ -1019,11 +1205,20 @@ def check_otto_marketplace_status(
             "details": response_payload,
             "process_id": publication.external_reference,
             "marketplace_status": marketplace_status,
-            "moin": marketplace_item.get("moin", ""),
+            "active": active_flag,
+            "moin": (
+                marketplace_item.get("moin", "")
+                if marketplace_item is not None
+                else ""
+            ),
             "shop_url": next(
                 (
                     link.get("href")
-                    for link in marketplace_item.get("links", [])
+                    for link in (
+                        marketplace_item.get("links", [])
+                        if marketplace_item is not None
+                        else []
+                    )
                     if isinstance(link, dict) and link.get("rel") == "shop"
                 ),
                 "",
@@ -1043,12 +1238,14 @@ def check_otto_marketplace_status(
 
     # Save the latest response so the manager can see the actual OTTO state
     # while a publication/deactivation is still being processed.
-    publication.last_response = compact_external_json(
-        {
-            "process": publication.last_response,
-            "marketplace_status": response_payload,
-        }
-    )
+    probe_payload: dict[str, Any] = {
+        "process": publication.last_response,
+        "marketplace_status": response_payload,
+    }
+    if products_result is not None:
+        probe_payload["products"] = products_payload
+        probe_payload["active"] = active_flag
+    publication.last_response = compact_external_json(probe_payload)
     publication.save(update_fields=("last_response", "updated_at"))
 
     if attempt >= settings.OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS:
@@ -1061,6 +1258,7 @@ def check_otto_marketplace_status(
             "attempts": attempt,
             "expected_statuses": list(expected_statuses),
             "last_marketplace_status": response_payload,
+            "last_active": active_flag,
         }
 
         publication = mark_publication_failed(
@@ -1180,7 +1378,10 @@ def generate_marketplace_content(
             schema_name=request.schema_name,
             schema=request.schema,
         )
-        content = validate_universal_content(ai_result.data)
+        content = validate_universal_content(
+            ai_result.data,
+            product_snapshot=generation.input_snapshot,
+        )
     except (
         OpenAITextServiceError,
         GeneratedContentValidationError,
@@ -1238,6 +1439,10 @@ def recover_stale_orchestrator_jobs() -> dict[str, int]:
     This task never retries an unknown external request automatically: a worker
     may have died after a marketplace accepted it. Marking it failed preserves
     an audit trail and lets a manager review/retry deliberately.
+
+    OTTO confirmation polls use Celery countdown; after a worker restart those
+    delayed messages can disappear. Re-queue still-waiting publications so
+    status does not stick on "publishing" forever.
     """
     now = timezone.now()
     marketplace_cutoff = now - timedelta(
@@ -1267,7 +1472,101 @@ def recover_stale_orchestrator_jobs() -> dict[str, int]:
         },
         finished_at=now,
     )
+
+    poll_stale_after = timedelta(
+        seconds=max(
+            settings.OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS * 2,
+            600,
+        )
+    )
+    max_confirmation_wait = timedelta(
+        seconds=(
+            settings.OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS
+            * settings.OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS
+        )
+    )
+    otto_poll_requeued = 0
+    otto_poll_timed_out = 0
+
+    stale_otto_publications = (
+        MarketplacePublication.objects.select_related("last_job")
+        .filter(
+            marketplace=MarketplacePublication.Marketplace.OTTO,
+            status__in={
+                MarketplacePublication.Status.PUBLISHING,
+                MarketplacePublication.Status.DEACTIVATING,
+            },
+            last_job__status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+            updated_at__lt=now - poll_stale_after,
+        )
+        .iterator()
+    )
+
+    for publication in stale_otto_publications:
+        job = publication.last_job
+        if job is None:
+            continue
+
+        started = publication.last_attempt_at or publication.updated_at
+        if started is not None and started < now - max_confirmation_wait:
+            error_payload = {
+                "code": "otto_marketplace_status_timeout",
+                "detail": (
+                    "OTTO confirmation wait exceeded the configured window "
+                    "after poll recovery."
+                ),
+            }
+            publication = mark_publication_failed(
+                publication=publication,
+                job=job,
+                error_payload=error_payload,
+                response_payload=error_payload,
+            )
+            _set_job_target_result(
+                job=job,
+                marketplace="otto",
+                account=publication.account,
+                replacement={
+                    "marketplace": "otto",
+                    "account": publication.account,
+                    "ean": publication.ean,
+                    "publication_id": publication.pk,
+                    "ok": False,
+                    "status_code": 504,
+                    "details": error_payload,
+                    "process_id": publication.external_reference,
+                    "awaiting_marketplace_confirmation": False,
+                    "ean_consumed": False,
+                },
+            )
+            _refresh_job_status(job)
+            otto_poll_timed_out += 1
+            continue
+
+        last_response = publication.last_response
+        if not isinstance(last_response, dict):
+            last_response = {}
+
+        needs_process_poll = bool(publication.external_reference) and (
+            "process_result" not in last_response
+            and "marketplace_status" not in last_response
+        )
+
+        if needs_process_poll:
+            check_otto_publication_process.apply_async(
+                args=(publication.pk, 1),
+                countdown=5,
+            )
+        else:
+            check_otto_marketplace_status.apply_async(
+                args=(publication.pk, 1),
+                countdown=5,
+            )
+        otto_poll_requeued += 1
+
     return {
         "marketplace_jobs": marketplace_recovered,
         "content_generations": content_recovered,
+        "otto_confirmation_polls_requeued": otto_poll_requeued,
+        "otto_confirmation_polls_timed_out": otto_poll_timed_out,
     }
