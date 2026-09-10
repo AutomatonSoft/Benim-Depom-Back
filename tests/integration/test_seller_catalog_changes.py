@@ -93,6 +93,12 @@ def test_seller_approved_patch_is_pending_until_manager_approves(
     assert product.title == "New title"
     assert product.pending_changes == {}
     assert approved.data["marketplace_job"] is None
+    assert Notification.objects.filter(
+        notification_type=Notification.Type.PRODUCT_APPROVED,
+        product=product,
+        user=seller,
+        title="Product changes approved",
+    ).exists()
 
 
 @pytest.mark.integration
@@ -132,6 +138,55 @@ def test_approve_seller_changes_succeeds_when_broker_is_down(
     product.refresh_from_db()
     assert product.title == "New title"
     assert product.pending_changes == {}
+    assert Notification.objects.filter(
+        notification_type=Notification.Type.PRODUCT_APPROVED,
+        product=product,
+        user=seller,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_reject_seller_changes_discards_pending_and_notifies(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+    django_capture_on_commit_callbacks,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED, title="Old")
+    authenticate(api_client, seller)
+    assert (
+        api_client.patch(
+            f"/api/v1/products/{product.id}/",
+            {"title": "New title"},
+            format="json",
+        ).status_code
+        == 200
+    )
+    product.refresh_from_db()
+    authenticate(api_client, manager)
+    with django_capture_on_commit_callbacks(execute=True):
+        rejected = api_client.post(
+            f"/api/v1/manager/products/{product.id}/seller-changes/reject/",
+            {
+                "expected_catalog_revision": product.catalog_revision,
+                "comment": "Keep the old title.",
+            },
+            format="json",
+        )
+    assert rejected.status_code == 200
+    product.refresh_from_db()
+    assert product.title == "Old"
+    assert product.status == Product.Status.APPROVED
+    assert product.pending_changes == {}
+    notification = Notification.objects.get(
+        notification_type=Notification.Type.PRODUCT_REJECTED,
+        product=product,
+        user=seller,
+    )
+    assert notification.title == "Product changes rejected"
+    assert notification.body == "Keep the old title."
 
 
 @pytest.mark.integration

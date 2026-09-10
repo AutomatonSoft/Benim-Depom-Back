@@ -37,12 +37,14 @@ from .serializers import (
     ManagerDashboardSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
+    RejectSellerChangesSerializer,
 )
 from .services import (
     approve_product,
     approve_seller_changes,
     change_approved_product_status,
     reject_product,
+    reject_seller_changes,
 )
 
 QUEUE_LIMIT = 8
@@ -412,6 +414,37 @@ class ManagerApproveSellerChangesView(ManagerMutationThrottleMixin, APIView):
         except Exception:
             payload["marketplace_job"] = None
         return Response(payload)
+
+
+class ManagerRejectSellerChangesView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=RejectSellerChangesSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Discard pending seller catalog changes. The product stays approved. "
+            "The seller is notified with the rejection reason."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = RejectSellerChangesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = reject_seller_changes(
+            product=product,
+            manager=request.user,
+            comment=serializer.validated_data["comment"],
+            expected_catalog_revision=serializer.validated_data[
+                "expected_catalog_revision"
+            ],
+        )
+        product = (
+            Product.objects.select_related("owner")
+            .prefetch_related("variants", "images", "images__generated_images")
+            .get(pk=product.pk)
+        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
 class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIView):

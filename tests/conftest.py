@@ -132,7 +132,7 @@ def product_factory(db, product_type):
         if with_variant:
             ProductVariant.objects.create(
                 product=product,
-                color_hex="#5B91C8",
+                color="beyaz",
                 materials=["Wood", "Fabric"],
                 width_cm="50.00",
                 height_cm="90.00",

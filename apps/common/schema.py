@@ -103,6 +103,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Одобрить изменения продавца и обновить листинги",
         (
             "POST",
+            "/api/v1/manager/products/{product_pk}/seller-changes/reject/",
+        ): "Отклонить изменения продавца",
+        (
+            "POST",
             "/api/v1/manager/products/{product_pk}/notifications/",
         ): "Отправить сообщение продавцу",
         (
