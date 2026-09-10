@@ -524,10 +524,13 @@ MARKETPLACE_HTTP_RETRY_BACKOFF_FACTOR = env.float(
 
 OTTO_API_MARKETPLACE_STATUS_ENDPOINT = env(
     "OTTO_API_MARKETPLACE_STATUS_ENDPOINT",
-    default="/v1/products/marketplace_status",
+    default=env(
+        "OTTO_API_MARKETPLACE_STATUS",
+        default="/v1/products/marketplace_status",
+    ),
 )
 
-# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 24 часа.
+# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 8 часов.
 OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
     "OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS",
     default=300,
@@ -535,7 +538,7 @@ OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
 
 OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
     "OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS",
-    default=288,
+    default=96,
 )
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(

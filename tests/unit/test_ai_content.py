@@ -28,6 +28,7 @@ def test_validates_and_normalizes_universal_ai_content():
     assert content["title"] == "Holzstuhl mit Stoffbezug"
     assert len(content["bullet_points"]) == 3
     assert content["description"].count("\n\n") == 1
+    assert content["materials"] == []
 
 
 @pytest.mark.unit
@@ -67,6 +68,7 @@ def test_maps_one_draft_to_each_marketplace_configuration():
         "title": "Holzstuhl mit Stoffbezug",
         "description": "Erster Absatz.\n\nZweiter Absatz.",
         "bullet_points": ["Holz", "Stoff", "Blau"],
+        "materials": ["Holz", "Stoff"],
     }
 
     otto = universal_content_to_marketplace_configuration(
@@ -86,12 +88,15 @@ def test_maps_one_draft_to_each_marketplace_configuration():
         "product_line": content["title"],
         "description": content["description"],
         "bullet_points": content["bullet_points"],
+        "materials": ["Holz", "Stoff"],
     }
     assert hood["title"] == content["title"]
     assert hood["description"] == ("<p>Erster Absatz.</p><p>Zweiter Absatz.</p>")
+    assert hood["materials"] == ["Holz", "Stoff"]
     assert kaufland == {
         "title": content["title"],
         "description": content["description"],
+        "materials": ["Holz", "Stoff"],
     }
 
 

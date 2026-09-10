@@ -1,6 +1,8 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from apps.marketplace.hood.models import HoodProductSnapshot
 from apps.marketplace.hood.services import execute as execute_hood
@@ -17,6 +19,7 @@ from apps.orchestrator.tasks import (
     get_otto_async_process_payload,
     get_otto_process_result,
     is_otto_process_pending,
+    recover_stale_orchestrator_jobs,
     request_for_non_hood_channel,
 )
 
@@ -411,9 +414,15 @@ def test_otto_marketplace_inactive_confirms_deactivation(
         },
     }
 
-    with patch(
-        "apps.orchestrator.tasks.get_otto_marketplace_status",
-        return_value=inactive_response,
+    with (
+        patch(
+            "apps.orchestrator.tasks.get_otto_marketplace_status",
+            return_value=inactive_response,
+        ),
+        patch(
+            "apps.orchestrator.tasks.get_otto_products",
+            return_value={"ok": True, "status_code": 200, "details": {}},
+        ),
     ):
         check_otto_marketplace_status.run(publication.pk)
 
@@ -421,6 +430,159 @@ def test_otto_marketplace_inactive_confirms_deactivation(
     job.refresh_from_db()
     assert publication.status == MarketplacePublication.Status.DEACTIVATED
     assert job.status == MarketplaceJob.Status.SUCCEEDED
+
+
+@pytest.mark.django_db
+def test_otto_activate_with_active_true_succeeds_immediately(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.DEACTIVATED,
+    )
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.ACTIVATE,
+        requested_channels=["otto"],
+        request_payload={
+            "targets": [{"marketplace": "otto", "account": "jv"}],
+            "target_payloads": {"otto:jv": {}},
+        },
+    )
+    immediate_ok = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "success": True,
+            "ean": product.ean_jv,
+            "active": True,
+        },
+    }
+
+    with (
+        patch(
+            "apps.orchestrator.tasks.request_for_non_hood_channel",
+            return_value=immediate_ok,
+        ),
+        patch(
+            "apps.orchestrator.tasks.check_otto_marketplace_status.apply_async"
+        ) as schedule_status,
+    ):
+        from apps.orchestrator.tasks import execute_marketplace_job
+
+        execute_marketplace_job.run(str(job.id))
+
+    publication = MarketplacePublication.objects.get(product=product, account="jv")
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.ACTIVE
+    assert job.status == MarketplaceJob.Status.SUCCEEDED
+    schedule_status.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_otto_activate_confirms_via_products_active_flag(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.ACTIVATE,
+        requested_channels=["otto"],
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+    )
+    marketplace_pending = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "marketPlaceStatus": [
+                {
+                    "sku": product.ean_jv,
+                    "status": "INACTIVE",
+                }
+            ]
+        },
+    }
+    products_active = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "products": [
+                {
+                    "ean": product.ean_jv,
+                    "active": True,
+                }
+            ]
+        },
+    }
+
+    with (
+        patch(
+            "apps.orchestrator.tasks.get_otto_marketplace_status",
+            return_value=marketplace_pending,
+        ),
+        patch(
+            "apps.orchestrator.tasks.get_otto_products",
+            return_value=products_active,
+        ),
+    ):
+        check_otto_marketplace_status.run(publication.pk)
+
+    publication.refresh_from_db()
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.ACTIVE
+    assert job.status == MarketplaceJob.Status.SUCCEEDED
+
+
+@pytest.mark.django_db
+def test_recover_stale_orchestrator_jobs_requeues_otto_confirmation_poll(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.ACTIVATE,
+        requested_channels=["otto"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+        last_response={"success": True, "active": False},
+    )
+
+    MarketplacePublication.objects.filter(pk=publication.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=20),
+    )
+
+    with patch(
+        "apps.orchestrator.tasks.check_otto_marketplace_status.apply_async"
+    ) as schedule_status:
+        result = recover_stale_orchestrator_jobs.run()
+
+    assert result["otto_confirmation_polls_requeued"] == 1
+    schedule_status.assert_called_once()
+    assert schedule_status.call_args.kwargs["args"] == (publication.pk, 1)
 
 
 @pytest.mark.django_db

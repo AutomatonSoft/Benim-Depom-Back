@@ -24,6 +24,7 @@ SUCCESSFUL_AI_CONTENT = {
         "Stoffbezug",
         "Farbe: Blau",
     ],
+    "materials": [],
 }
 
 
