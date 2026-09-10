@@ -1,101 +1,69 @@
-"""German material labels for marketplace AI copy.
+"""German listing materials from AI draft / manager edits.
 
-Sellers type materials in Russian, Turkish, English or German.  The AI draft
-must use German names.  This map covers common furniture terms; unknown values
-stay in the raw snapshot so the model can translate or omit them.
+Sellers enter materials in any language. Marketplace payloads use only the
+listing field after AI translation (or a manager edit). There is no local
+dictionary.
 """
 
 from __future__ import annotations
 
-# Keys are lowercase, ё folded to е, extra spaces collapsed.
-MATERIAL_ALIASES: dict[str, str] = {
-    "хлопок": "Baumwolle",
-    "cotton": "Baumwolle",
-    "pamuk": "Baumwolle",
-    "baumwolle": "Baumwolle",
-    "лен": "Leinen",
-    "лён": "Leinen",
-    "linen": "Leinen",
-    "keten": "Leinen",
-    "leinen": "Leinen",
-    "шерсть": "Wolle",
-    "wool": "Wolle",
-    "yun": "Wolle",
-    "yün": "Wolle",
-    "wolle": "Wolle",
-    "ткань": "Stoff",
-    "fabric": "Stoff",
-    "kumas": "Stoff",
-    "kumaş": "Stoff",
-    "stoff": "Stoff",
-    "велюр": "Velours",
-    "velour": "Velours",
-    "velours": "Velours",
-    "бархат": "Samt",
-    "velvet": "Samt",
-    "kadife": "Samt",
-    "samt": "Samt",
-    "микрофибра": "Mikrofaser",
-    "microfiber": "Mikrofaser",
-    "microfibre": "Mikrofaser",
-    "mikrofiber": "Mikrofaser",
-    "mikrofaser": "Mikrofaser",
-    "полиэстер": "Polyester",
-    "polyester": "Polyester",
-    "кожа": "Leder",
-    "leather": "Leder",
-    "deri": "Leder",
-    "leder": "Leder",
-    "экокожа": "Kunstleder",
-    "эко-кожа": "Kunstleder",
-    "эко кожа": "Kunstleder",
-    "искусственная кожа": "Kunstleder",
-    "eco leather": "Kunstleder",
-    "faux leather": "Kunstleder",
-    "suni deri": "Kunstleder",
-    "kunstleder": "Kunstleder",
-    "дерево": "Holz",
-    "wood": "Holz",
-    "ahsap": "Holz",
-    "ahşap": "Holz",
-    "holz": "Holz",
-    "массив": "Massivholz",
-    "массив дерева": "Massivholz",
-    "solid wood": "Massivholz",
-    "masif": "Massivholz",
-    "massivholz": "Massivholz",
-    "мдф": "MDF",
-    "mdf": "MDF",
-    "дсп": "Spanplatte",
-    "chipboard": "Spanplatte",
-    "particle board": "Spanplatte",
-    "sunta": "Spanplatte",
-    "spanplatte": "Spanplatte",
-    "металл": "Metall",
-    "metal": "Metall",
-    "metall": "Metall",
-    "пластик": "Kunststoff",
-    "plastic": "Kunststoff",
-    "plastik": "Kunststoff",
-    "kunststoff": "Kunststoff",
-    "стекло": "Glas",
-    "glass": "Glas",
-    "cam": "Glas",
-    "glas": "Glas",
-    "ротанг": "Rattan",
-    "rattan": "Rattan",
-}
+import re
+
+_SOURCE_LANGUAGE_RE = re.compile(r"[\u0400-\u04FF]|[ğĞşŞıİçÇ]")
 
 
-def _normalize_material(value: str) -> str:
-    compact = " ".join(str(value).strip().casefold().replace("ё", "е").split())
-    return compact.replace("ı", "i")
+def contains_source_language(value: str) -> bool:
+    """True when a label still looks Russian or Turkish, not German."""
+
+    return bool(_SOURCE_LANGUAGE_RE.search(str(value or "")))
 
 
-def german_material_name(value: str) -> str | None:
-    """Return a German material name, or None when the source term is unknown."""
+def clean_material_names(values) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in values or []:
+        name = str(item).strip()
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+        if len(names) == 2:
+            break
+    return names
 
-    normalized = _normalize_material(value)
-    if not normalized:
-        return None
-    return MATERIAL_ALIASES.get(normalized)
+
+def seller_materials_from_snapshot(snapshot: dict | None) -> list[str]:
+    names: list[str] = []
+    for variant in (snapshot or {}).get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        names.extend(variant.get("materials") or [])
+    return clean_material_names(names)
+
+
+def listing_materials(
+    *,
+    configuration: dict | None,
+    variant_materials,
+) -> tuple[list[str], str | None]:
+    """German materials for marketplace payloads.
+
+    Only the listing field (AI draft / manager edit) is sent. Seller source
+    words are never substituted from a dictionary.
+    """
+
+    configuration = configuration or {}
+    chosen = clean_material_names(configuration.get("materials"))
+    seller = clean_material_names(variant_materials)
+
+    if any(contains_source_language(name) for name in chosen):
+        return chosen, "Materials must be in German."
+
+    if seller and not chosen:
+        return [], "Translate product materials to German."
+
+    if not chosen:
+        return [], "Enter at least one German material."
+
+    return chosen, None
