@@ -3,8 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from apps.marketplace.colors import german_color_name
-from apps.marketplace.hood.payload_builder import build_hood_payload
+from apps.marketplace.colors import listing_color
+from apps.marketplace.hood.payload_builder import (
+    HoodPayloadValidationError,
+    build_hood_payload,
+)
 from apps.marketplace.kaufland.payload_builder import (
     build_kaufland_create_payload,
 )
@@ -12,30 +15,9 @@ from apps.marketplace.kaufland.payload_builder import (
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.parametrize(
-    ("hex_color", "expected"),
-    [
-        ("#000000", "Schwarz"),
-        ("#FFFFFF", "Weiß"),
-        ("#5B91C8", "Blau"),
-        ("#8B4513", "Braun"),
-        ("#303030", "Anthrazit"),
-        ("#005F6A", "Petrol"),
-        ("#B87333", "Kupfer"),
-    ],
-)
-def test_german_color_name_resolves_basic_color_families(hex_color, expected):
-    assert german_color_name(hex_color) == expected
-
-
-def test_german_color_name_rejects_invalid_hex():
-    with pytest.raises(ValueError):
-        german_color_name("blue")
-
-
 def make_product():
     variant = SimpleNamespace(
-        color_hex="#5B91C8",
+        color="beyaz",
         materials=["Wood", "Fabric"],
         width_cm=Decimal("50.00"),
         height_cm=Decimal("90.00"),
@@ -72,20 +54,41 @@ def make_product():
     )
 
 
-def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material():
+def test_listing_color_uses_only_listing_field():
+    chosen, error = listing_color(
+        configuration={"color": "Weiß"},
+        variant_color="beyaz",
+    )
+    assert error is None
+    assert chosen == "Weiß"
+
+    chosen, error = listing_color(configuration={}, variant_color="siyah")
+    assert chosen == ""
+    assert error == "Translate the product color to German."
+
+    chosen, error = listing_color(
+        configuration={"color": "açık mavi"},
+        variant_color="beyaz",
+    )
+    assert error == "Color must be in German."
+
+
+def test_hood_and_kaufland_use_listing_german_color():
     product = make_product()
+    configuration = {
+        "title": "Test chair",
+        "description": "<p>Detailed product description</p>",
+        "price": "299.00",
+        "category_id": "2412",
+        "image_urls": ["https://example.com/chair.jpg"],
+        "materials": ["Holz", "Stoff"],
+        "color": "Weiß",
+    }
 
     hood_payload = build_hood_payload(
         product=product,
         account="jv",
-        configuration={
-            "title": "Test chair",
-            "description": "<p>Detailed product description</p>",
-            "price": "299.00",
-            "category_id": "2412",
-            "image_urls": ["https://example.com/chair.jpg"],
-            "materials": ["Holz", "Stoff"],
-        },
+        configuration=configuration,
     )
     kaufland_payload = build_kaufland_create_payload(
         product=product,
@@ -97,6 +100,7 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
             "delivery": 30,
             "image_urls": ["https://example.com/chair.jpg"],
             "materials": ["Holz", "Stoff"],
+            "color": "Weiß",
         },
     )
 
@@ -105,8 +109,8 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
         for item in hood_payload["product_properties"]
         if item["name"] == "Farbe"
     )
-    assert hood_color == "Blau"
-    assert kaufland_payload["color"] == "Blau"
+    assert hood_color == "Weiß"
+    assert kaufland_payload["color"] == "Weiß"
     assert kaufland_payload["material"] == "Holz"
     hood_material = next(
         item["value"]
@@ -117,6 +121,23 @@ def test_hood_and_kaufland_use_german_color_but_kaufland_uses_primary_material()
     assert hood_payload["image_urls"][0] == "https://cdn.example/white.jpg"
     assert kaufland_payload["picture"][0] == "https://cdn.example/white.jpg"
     assert "https://example.com/chair.jpg" not in hood_payload["image_urls"]
+
+
+def test_hood_rejects_seller_language_listing_color():
+    product = make_product()
+    with pytest.raises(HoodPayloadValidationError) as caught:
+        build_hood_payload(
+            product=product,
+            account="jv",
+            configuration={
+                "title": "Test chair",
+                "description": "<p>Detailed product description</p>",
+                "price": "299.00",
+                "materials": ["Holz"],
+                "color": "açık mavi",
+            },
+        )
+    assert caught.value.errors["color"] == "Color must be in German."
 
 
 def test_kaufland_payload_uses_default_delivery_when_missing():
@@ -130,6 +151,7 @@ def test_kaufland_payload_uses_default_delivery_when_missing():
             "description": "Detailed product description",
             "price": "299.00",
             "materials": ["Holz"],
+            "color": "Weiß",
         },
     )
 
@@ -147,6 +169,7 @@ def test_hood_payload_uses_default_category_when_missing():
             "description": "<p>Detailed product description</p>",
             "price": "299.00",
             "materials": ["Holz"],
+            "color": "Weiß",
         },
     )
 

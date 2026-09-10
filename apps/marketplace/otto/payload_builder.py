@@ -19,7 +19,7 @@ from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profile,
 )
-from apps.marketplace.colors import german_color_name
+from apps.marketplace.colors import listing_color
 from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
@@ -143,19 +143,18 @@ def _is_color_attribute(definition: dict[str, Any]) -> bool:
     return "farbe" in name or "color" in name
 
 
-def _get_product_color_name(product) -> str | None:
-    """Resolve the internal HEX only when the product has exactly one variant."""
-
+def _seller_color(product) -> str:
     if product.variants.count() != 1:
-        return None
+        return ""
+    getter = getattr(product.variants, "get", None)
+    if getter is None:
+        return ""
+    return str(getattr(getter(), "color", "") or "").strip()
 
-    try:
-        return german_color_name(product.variants.get().color_hex)
-    except (AttributeError, ValueError):
-        return None
 
-
-def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str, Any]]:
+def _build_category_attributes(
+    product, errors: dict[str, str], configuration: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     if not product.otto_category_group_id:
         return []
 
@@ -170,7 +169,8 @@ def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str
         {},
     )
     attributes = []
-    product_color_name = _get_product_color_name(product)
+    listing_color_name = ""
+    color_error: str | None = None
 
     for raw_id, raw_value in (product.otto_attributes or {}).items():
         try:
@@ -191,8 +191,16 @@ def _build_category_attributes(product, errors: dict[str, str]) -> list[dict[str
         # OTTO does not have one universal `color` field.  It is a category
         # attribute, therefore replace its value only when that category has
         # an explicitly selected color attribute.
-        if product_color_name and _is_color_attribute(definition):
-            values = [product_color_name]
+        if _is_color_attribute(definition):
+            if color_error is None and not listing_color_name:
+                listing_color_name, color_error = listing_color(
+                    configuration=configuration or {},
+                    variant_color=_seller_color(product),
+                )
+                if color_error:
+                    errors["color"] = color_error
+            if listing_color_name:
+                values = [listing_color_name]
         if values:
             attributes.append(
                 {
@@ -302,7 +310,7 @@ def build_otto_payload(
         if len(cleaned_bullet_points) > 5:
             errors["bullet_points"] = "OTTO accepts at most five bullet points."
 
-    attributes = _build_category_attributes(product, errors)
+    attributes = _build_category_attributes(product, errors, configuration)
 
     product_description: dict[str, Any] = {
         "category": product.otto_category_name,

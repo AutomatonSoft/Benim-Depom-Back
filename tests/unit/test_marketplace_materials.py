@@ -19,6 +19,7 @@ def test_content_request_forbids_source_language_in_customer_text():
     assert "write only in german" in instructions
     assert "never copy russian" in instructions
     assert "translate each seller material" in instructions
+    assert "translate the seller colour" in instructions
     assert "materials_de" not in instructions
     assert "claims not present in product data;\n" in request.instructions
 
@@ -33,7 +34,9 @@ def test_product_snapshot_keeps_seller_materials(product_factory, seller):
 
     variant = snapshot["variants"][0]
     assert variant["materials"] == ["хлопок", "Wood"]
-    assert "materials_de" not in variant
+    assert variant["color"] == "beyaz"
+    assert "color_hex" not in variant
+    assert "color_name_de" not in variant
 
 
 @pytest.mark.unit
@@ -77,5 +80,28 @@ def test_rejects_ai_draft_without_translated_materials():
             },
             product_snapshot={
                 "variants": [{"materials": ["дерево", "ткань"]}],
+            },
+        )
+
+
+@pytest.mark.unit
+def test_rejects_ai_draft_without_translated_color():
+    with pytest.raises(GeneratedContentValidationError, match="German translation"):
+        validate_universal_content(
+            {
+                "title": "Holzstuhl mit Stoffbezug",
+                "description": (
+                    "Ein stabiler Holzstuhl mit Stoffbezug.\n\n"
+                    "Die Maße betragen 55 × 50 × 90 cm."
+                ),
+                "bullet_points": [
+                    "Holzgestell",
+                    "Stoffbezug",
+                    "Farbe: Blau",
+                ],
+                "materials": ["Holz", "Stoff"],
+            },
+            product_snapshot={
+                "variants": [{"color": "beyaz", "materials": ["Wood", "Fabric"]}],
             },
         )

@@ -8,6 +8,7 @@ from .views import (
     ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
+    ManagerRejectSellerChangesView,
     ManagerRequestProductAvailabilityView,
     ManagerSendProductNotificationView,
     ProductModerationHistoryView,
@@ -50,6 +51,11 @@ urlpatterns = [
         "manager/products/<int:product_pk>/seller-changes/approve/",
         ManagerApproveSellerChangesView.as_view(),
         name="manager-product-seller-changes-approve",
+    ),
+    path(
+        "manager/products/<int:product_pk>/seller-changes/reject/",
+        ManagerRejectSellerChangesView.as_view(),
+        name="manager-product-seller-changes-reject",
     ),
     path(
         "manager/products/<int:product_pk>/notifications/",

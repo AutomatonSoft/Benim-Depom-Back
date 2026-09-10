@@ -41,12 +41,9 @@ class ProductOwnerSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ProductsVariant")
 class ProductVariantSerializer(serializers.ModelSerializer):
-    color_hex = serializers.RegexField(
-        regex=r"^#[0-9A-Fa-f]{6}$",
-        max_length=7,
-        error_messages={
-            "invalid": "Use a hexadecimal color in the #RRGGBB format.",
-        },
+    color = serializers.CharField(
+        max_length=80,
+        help_text="Seller colour name, for example beyaz or white.",
     )
     materials = serializers.ListField(
         child=serializers.CharField(max_length=100, trim_whitespace=True),
@@ -62,7 +59,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = (
             "id",
-            "color_hex",
+            "color",
             "materials",
             "width_cm",
             "height_cm",
@@ -71,8 +68,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
-    def validate_color_hex(self, value):
-        return value.upper()
+    def validate_color(self, value):
+        color = value.strip()
+        if not color:
+            raise serializers.ValidationError("Enter a colour name.")
+        return color
 
     def validate_materials(self, values):
         normalized = [value.strip() for value in values]

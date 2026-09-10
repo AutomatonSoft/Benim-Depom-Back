@@ -78,6 +78,7 @@ def valid_configuration():
         "media_urls": ["https://xlmeubilair.nl/api-media/test-chair.jpg"],
         "description": "Deutsche Beschreibung",
         "bullet_points": ["Massivholz", "Modernes Design"],
+        "color": "Blau",
     }
 
 

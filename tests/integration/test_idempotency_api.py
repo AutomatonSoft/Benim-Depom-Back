@@ -22,7 +22,7 @@ def product_payload():
         "otto_category_group_id": 3593,
         "variants": [
             {
-                "color_hex": "#5B91C8",
+                "color": "beyaz",
                 "materials": ["Wood", "Fabric"],
                 "width_cm": "50.00",
                 "height_cm": "90.00",

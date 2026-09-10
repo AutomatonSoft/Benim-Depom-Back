@@ -14,7 +14,10 @@ from apps.orchestrator.job_services import (
     create_update_job_for_active_listings,
 )
 from apps.products.models import Product
-from apps.products.services import apply_pending_seller_changes
+from apps.products.services import (
+    apply_pending_seller_changes,
+    discard_pending_seller_changes,
+)
 
 from .models import ModerationDecision
 
@@ -383,4 +386,52 @@ def approve_seller_changes(
         )
     except MarketplacePayloadBuildError:
         job = None
+
+    name = (product.title or "").strip() or f"#{product.pk}"
+    owner = product.owner
+    transaction.on_commit(
+        lambda owner=owner, product=product, name=name: create_notification(
+            user=owner,
+            product=product,
+            notification_type=Notification.Type.PRODUCT_APPROVED,
+            title="Product changes approved",
+            body=f"Your changes to '{name}' were approved.",
+        )
+    )
     return product, job
+
+
+@transaction.atomic
+def reject_seller_changes(
+    *,
+    product: Product,
+    manager,
+    comment: str,
+    expected_catalog_revision: int | None = None,
+) -> Product:
+    product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+    )
+    if product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can have seller changes rejected."}
+        )
+
+    reason = comment.strip()
+    if not reason:
+        raise ValidationError({"comment": "A rejection reason is required."})
+
+    product = discard_pending_seller_changes(product=product)
+    owner = product.owner
+    transaction.on_commit(
+        lambda owner=owner, product=product, reason=reason: create_notification(
+            user=owner,
+            product=product,
+            notification_type=Notification.Type.PRODUCT_REJECTED,
+            title="Product changes rejected",
+            body=reason,
+        )
+    )
+    return product

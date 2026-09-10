@@ -170,19 +170,9 @@ class ProductVariant(models.Model):
         on_delete=models.CASCADE,
         related_name="variants",
     )
-    # The mobile app sends a colour selected in its picker and one or two
-    # free-form material names. Keeping these values on the variant avoids an
-    # unnecessary catalog CRUD workflow for sellers.
-    color_hex = models.CharField(
-        max_length=7,
-        validators=[
-            RegexValidator(
-                regex=r"^#[0-9A-Fa-f]{6}$",
-                message="Use a hexadecimal color in the #RRGGBB format.",
-            )
-        ],
-        db_index=True,
-    )
+    # The mobile app sends a free-form colour name (Turkish, English, etc.).
+    # German marketplace colour lives on the listing after AI translation.
+    color = models.CharField(max_length=80, db_index=True)
     materials = models.JSONField(default=list)
     width_cm = models.DecimalField(
         max_digits=8,
@@ -207,7 +197,7 @@ class ProductVariant(models.Model):
         ordering = ("id",)
 
     def __str__(self) -> str:
-        return f"{self.product.title} — {self.color_hex} / {', '.join(self.materials)}"
+        return f"{self.product.title} — {self.color} / {', '.join(self.materials)}"
 
 
 class ProductImage(models.Model):

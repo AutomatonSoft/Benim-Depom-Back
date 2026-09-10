@@ -9,7 +9,7 @@ from apps.products.serializers import (
 
 def valid_variant(**overrides):
     data = {
-        "color_hex": "#5b91c8",
+        "color": " beyaz ",
         "materials": [" Wood ", "Fabric"],
         "width_cm": "50.00",
         "height_cm": "90.00",
@@ -21,11 +21,11 @@ def valid_variant(**overrides):
 
 
 @pytest.mark.unit
-def test_variant_normalizes_hex_and_materials():
+def test_variant_normalizes_color_and_materials():
     serializer = ProductVariantSerializer(data=valid_variant())
 
     assert serializer.is_valid(), serializer.errors
-    assert serializer.validated_data["color_hex"] == "#5B91C8"
+    assert serializer.validated_data["color"] == "beyaz"
     assert serializer.validated_data["materials"] == ["Wood", "Fabric"]
 
 
@@ -33,7 +33,7 @@ def test_variant_normalizes_hex_and_materials():
 @pytest.mark.parametrize(
     "overrides, field",
     [
-        ({"color_hex": "5B91C8"}, "color_hex"),
+        ({"color": "  "}, "color"),
         ({"materials": []}, "materials"),
         ({"materials": ["Wood", "wood"]}, "materials"),
         ({"materials": [" "]}, "materials"),
@@ -58,7 +58,7 @@ def test_product_rejects_more_than_one_variant():
             "warehouse_city": "IST",
             "variants": [
                 valid_variant(),
-                valid_variant(color_hex="#FFFFFF"),
+                valid_variant(color="white"),
             ],
         }
     )

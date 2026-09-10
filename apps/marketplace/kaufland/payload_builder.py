@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
-from apps.marketplace.colors import german_color_name
+from apps.marketplace.colors import listing_color
 from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
@@ -164,7 +164,14 @@ def build_kaufland_create_payload(
     image_urls = _get_listing_image_urls(product, errors)
 
     materials: list[str] = []
+    color = ""
     if variant is not None:
+        color, color_error = listing_color(
+            configuration=configuration,
+            variant_color=variant.color,
+        )
+        if color_error:
+            errors["color"] = color_error
         materials, material_error = listing_materials(
             configuration=configuration,
             variant_materials=variant.materials,
@@ -191,7 +198,7 @@ def build_kaufland_create_payload(
             f"{_format_number(variant.height_cm)} x "
             f"{_format_number(variant.length_cm)} cm"
         ),
-        "color": german_color_name(variant.color_hex),
+        "color": color,
         "material": primary_material,
         "delivery": delivery,
         "height": float(variant.height_cm),
