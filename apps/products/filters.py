@@ -59,21 +59,9 @@ def filter_products(*, queryset, query_params):
     if product_type:
         queryset = queryset.filter(product_type__iexact=product_type)
 
-    color_hex = query_params.get("color_hex", "").strip()
-    if color_hex:
-        if len(color_hex) != 7 or not color_hex.startswith("#"):
-            raise ValidationError(
-                {"color_hex": "Use a hexadecimal color in the #RRGGBB format."}
-            )
-
-        try:
-            int(color_hex[1:], 16)
-        except ValueError as error:
-            raise ValidationError(
-                {"color_hex": "Use a hexadecimal color in the #RRGGBB format."}
-            ) from error
-
-        queryset = queryset.filter(variants__color_hex__iexact=color_hex)
+    color = query_params.get("color", "").strip()
+    if color:
+        queryset = queryset.filter(variants__color__icontains=color)
 
     material = query_params.get("material", "").strip()
     if material:

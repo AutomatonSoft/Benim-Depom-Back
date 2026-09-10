@@ -8,6 +8,7 @@ from apps.catalog.otto_shipping_profiles import (
     OttoShippingProfilesError,
     get_otto_shipping_profile,
 )
+from apps.marketplace.colors import clean_color_name
 from apps.marketplace.kaufland.payload_builder import (
     KAUFLAND_STOREFRONTS,
 )
@@ -35,12 +36,24 @@ class GermanListingMaterialsMixin(serializers.Serializer):
         allow_empty=True,
         help_text="German material names for the marketplace listing (max 2).",
     )
+    color = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="German colour name for the marketplace listing.",
+    )
 
     def validate_materials(self, values):
         names = clean_material_names(values)
         if any(contains_source_language(name) for name in names):
             raise serializers.ValidationError("Materials must be in German.")
         return names
+
+    def validate_color(self, value):
+        color = clean_color_name(value)
+        if color and contains_source_language(color):
+            raise serializers.ValidationError("Color must be in German.")
+        return color
 
 
 class MarketplaceTargetSerializer(serializers.Serializer):
@@ -288,8 +301,8 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
     """Manager edits of a completed AI draft before it is applied."""
 
     title = serializers.CharField(
-        max_length=70,
-        help_text="German marketplace title, maximum 70 characters.",
+        max_length=65,
+        help_text="German marketplace title, maximum 65 characters. (BD) is added on publish.",
     )
     description = serializers.CharField(
         help_text=(
@@ -309,6 +322,18 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="German material names copied into listing configurations.",
     )
+    color = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="German colour name copied into listing configurations.",
+    )
+
+    def validate_color(self, value):
+        color = clean_color_name(value)
+        if color and contains_source_language(color):
+            raise serializers.ValidationError("Color must be in German.")
+        return color
 
 
 @extend_schema_serializer(component_name="MarketplaceContentGeneration")
@@ -414,7 +439,7 @@ class OttoListingConfigurationSerializer(
         max_length=70,
         required=False,
         allow_blank=True,
-        help_text="German product name / product line (max 70 characters).",
+        help_text="German product name / product line (max 70 characters, including (BD)).",
     )
     standard_price = serializers.DecimalField(
         max_digits=12,

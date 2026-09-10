@@ -163,7 +163,7 @@ Push — только сигнал. После push и при открытии �
   "otto_attributes": {},
   "variants": [
     {
-      "color_hex": "#5B91C8",
+      "color": "beyaz",
       "materials": ["Wood", "Fabric"],
       "width_cm": "50.00",
       "height_cm": "90.00",
@@ -179,7 +179,7 @@ Push — только сигнал. После push и при открытии �
 - `product_type` — свободная строка. Мобильное приложение показывает локальные подсказки; backend не ведёт каталог типов.
 - `unit_price` обязателен. `currency`: `TRY` по умолчанию, `EUR`, `USD`.
 - `total_amount` отдаёт backend: `unit_price × total_quantity`.
-- `color_hex` строго `#RRGGBB`; используйте color picker.
+- `color` — название цвета строкой (турецкий или английский), например `beyaz` или `white`. Опечатки допустимы; на маркетплейс уходит немецкий цвет из листинга после AI.
 - `materials` — массив строк; первый материал основной для Kaufland.
 - Размеры в сантиметрах и больше нуля; quantity — целое число больше нуля.
 - OTTO attributes сейчас optional, но их значения проверяются по типу и allowed values из каталога.

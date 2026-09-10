@@ -209,6 +209,24 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
     return locked_product
 
 
+@transaction.atomic
+def discard_pending_seller_changes(*, product: Product) -> Product:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    if not locked_product.pending_changes:
+        raise ValidationError({"detail": "This product has no pending seller changes."})
+
+    locked_product.pending_changes = {}
+    locked_product.pending_changes_submitted_at = None
+    locked_product.save(
+        update_fields=(
+            "pending_changes",
+            "pending_changes_submitted_at",
+            "updated_at",
+        )
+    )
+    return locked_product
+
+
 EDITABLE_PRODUCT_STATUSES = {
     Product.Status.DRAFT,
     Product.Status.SUBMITTED,

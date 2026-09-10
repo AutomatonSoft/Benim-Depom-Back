@@ -122,3 +122,17 @@ class ChangeApprovedProductStatusSerializer(serializers.Serializer):
 @extend_schema_serializer(component_name="SellerChangesApprove")
 class ApproveSellerChangesSerializer(serializers.Serializer):
     expected_catalog_revision = serializers.IntegerField(min_value=1)
+
+
+@extend_schema_serializer(component_name="SellerChangesReject")
+class RejectSellerChangesSerializer(serializers.Serializer):
+    comment = serializers.CharField(
+        max_length=2000,
+        trim_whitespace=True,
+    )
+    expected_catalog_revision = serializers.IntegerField(min_value=1)
+
+    def validate_comment(self, comment):
+        if not comment:
+            raise serializers.ValidationError("A rejection reason is required.")
+        return comment

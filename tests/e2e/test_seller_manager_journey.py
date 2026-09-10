@@ -56,7 +56,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
             "variants": json.dumps(
                 [
                     {
-                        "color_hex": "#112233",
+                        "color": "siyah",
                         "materials": ["Wood"],
                         "width_cm": "50",
                         "height_cm": "90",
@@ -165,7 +165,7 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
             "variants": json.dumps(
                 [
                     {
-                        "color_hex": "#FFFFFF",
+                        "color": "white",
                         "materials": ["Metal"],
                         "width_cm": "1",
                         "height_cm": "1",

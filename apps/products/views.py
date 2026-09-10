@@ -158,10 +158,10 @@ class ProductListCreateView(
                 description="Exact seller-entered product type.",
             ),
             OpenApiParameter(
-                name="color_hex",
+                name="color",
                 type=OpenApiTypes.STR,
                 required=False,
-                description="Variant colour in #RRGGBB format.",
+                description="Case-insensitive match on the seller colour name.",
             ),
             OpenApiParameter(
                 name="material",
