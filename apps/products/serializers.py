@@ -37,6 +37,7 @@ class ProductOwnerSerializer(serializers.Serializer):
     username = serializers.CharField(read_only=True)
     first_name = serializers.CharField(read_only=True)
     email = serializers.CharField(read_only=True)
+    phone = serializers.CharField(read_only=True)
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
