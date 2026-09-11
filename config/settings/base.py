@@ -37,6 +37,7 @@ LOCAL_APPS = [
     "apps.notifications.apps.NotificationsConfig",
     "apps.ean.apps.EanConfig",
     "apps.orchestrator.apps.OrchestratorConfig",
+    "apps.afterbuy.apps.AfterbuyConfig",
     "apps.marketplace.hood.apps.HoodConfig",
     "apps.marketplace.otto.apps.OttoConfig",
     "apps.marketplace.kaufland.apps.KauflandConfig",
@@ -381,6 +382,7 @@ CELERY_TASK_ROUTES = {
     "apps.notifications.tasks.recover_stale_push_deliveries": {
         "queue": "maintenance",
     },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {"queue": "maintenance"},
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
@@ -402,6 +404,10 @@ CELERY_TASK_ANNOTATIONS = {
     "apps.notifications.tasks.send_notification_push": {
         "soft_time_limit": 60,
         "time_limit": 90,
+    },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {
+        "soft_time_limit": 240,
+        "time_limit": 270,
     },
 }
 ORCHESTRATOR_STALE_JOB_MINUTES = env.int(
@@ -608,6 +614,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.notifications.tasks.recover_stale_push_deliveries",
         "schedule": crontab(minute="*/5"),
     },
+    "sync-afterbuy-sales": {
+        "task": "apps.afterbuy.tasks.sync_afterbuy_sales",
+        "schedule": crontab(minute="*/15"),
+    },
 }
 
 PUSH_NOTIFICATION_MAX_ATTEMPTS = env.int(
@@ -721,6 +731,18 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
     "PASSWORD_RESET_TOKEN_TTL_MINUTES",
     default=10,
 )
+
+AFTERBUY_SYNC_ENABLED = env.bool("AFTERBUY_SYNC_ENABLED", default=True)
+AFTERBUY_LOOKBACK_HOURS = env.int("AFTERBUY_LOOKBACK_HOURS", default=24)
+AFTERBUY_MAX_SOLD_ITEMS = env.int("AFTERBUY_MAX_SOLD_ITEMS", default=100)
+AFTERBUY_HTTP_TIMEOUT_SECONDS = env.int("AFTERBUY_HTTP_TIMEOUT_SECONDS", default=60)
+AFTERBUY_HTTP_RETRIES = env.int("AFTERBUY_HTTP_RETRIES", default=3)
+AFTERBUY_JV_PARTNER_TOKEN = env("AFTERBUY_JV_PARTNER_TOKEN", default="")
+AFTERBUY_JV_ACCOUNT_TOKEN = env("AFTERBUY_JV_ACCOUNT_TOKEN", default="")
+AFTERBUY_JV_PARTNER_ID = env("AFTERBUY_JV_PARTNER_ID", default="")
+AFTERBUY_XL_PARTNER_TOKEN = env("AFTERBUY_XL_PARTNER_TOKEN", default="")
+AFTERBUY_XL_ACCOUNT_TOKEN = env("AFTERBUY_XL_ACCOUNT_TOKEN", default="")
+AFTERBUY_XL_PARTNER_ID = env("AFTERBUY_XL_PARTNER_ID", default="")
 
 BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(
     host.strip().lower()
