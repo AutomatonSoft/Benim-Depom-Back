@@ -104,7 +104,7 @@ def sync_account(*, account: str) -> dict:
         orders, has_more, last_order_id = parse_sold_items_xml(xml)
         fetched += len(orders)
         for order in orders:
-            if not order.items:
+            if not order.items or order.paid_at is None:
                 continue
             if not any(
                 is_tracked_marketplace(item.marketplace) for item in order.items

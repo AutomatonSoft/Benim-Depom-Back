@@ -184,7 +184,7 @@ def mark_publication_awaiting_confirmation(
     external_reference: str = "",
 ) -> MarketplacePublication:
     """
-    OTTO accepted an asynchronous request, but has not confirmed publication yet.
+    Marketplace accepted an asynchronous request, but has not confirmed yet.
     """
     publication = MarketplacePublication.objects.select_for_update().get(
         pk=publication.pk
@@ -197,6 +197,7 @@ def mark_publication_awaiting_confirmation(
         MarketplaceJob.Operation.DEACTIVATE: (
             MarketplacePublication.Status.DEACTIVATING
         ),
+        MarketplaceJob.Operation.DELETE: (MarketplacePublication.Status.DELETING),
     }
 
     target_status = status_by_operation.get(job.operation)
