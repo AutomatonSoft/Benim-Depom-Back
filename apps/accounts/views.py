@@ -35,6 +35,7 @@ from .serializers import (
     PasswordResetRequestSerializer,
     PasswordResetVerifyResponseSerializer,
     PasswordResetVerifySerializer,
+    PreferredLanguageSerializer,
     ProfileSerializer,
     RegisterSerializer,
 )
@@ -295,6 +296,27 @@ class ManagerSellerDeleteView(ManagerMutationThrottleMixin, APIView):
         if result["deleted"]:
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(result, status=status.HTTP_202_ACCEPTED)
+
+
+class PreferredLanguageView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=PreferredLanguageSerializer,
+        responses={200: ProfileSerializer},
+        description=(
+            "Stores the seller's interface language. Later notifications "
+            "and pushes use this language: ru, en, de, or tr."
+        ),
+    )
+    def patch(self, request):
+        serializer = PreferredLanguageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request.user.preferred_language = serializer.validated_data["language"]
+        request.user.save(update_fields=("preferred_language",))
+        return Response(
+            ProfileSerializer(request.user, context={"request": request}).data
+        )
 
 
 class MeView(generics.RetrieveUpdateAPIView):

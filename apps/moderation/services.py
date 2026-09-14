@@ -163,8 +163,6 @@ def submit_product_for_moderation(*, product: Product) -> Product:
                 sender=product.owner,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
-                title="New product awaiting review",
-                body=f"{product.owner.username} submitted '{product.title}' for moderation.",
             )
         )
 
@@ -258,7 +256,6 @@ def reject_product(
             user=product.owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_REJECTED,
-            title="Product rejected",
             body=comment,
         )
     )
@@ -343,7 +340,6 @@ def change_approved_product_status(
                 user=product.owner,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_REJECTED,
-                title="Product rejected",
                 body=comment,
             )
         )
@@ -387,15 +383,13 @@ def approve_seller_changes(
     except MarketplacePayloadBuildError:
         job = None
 
-    name = (product.title or "").strip() or f"#{product.pk}"
     owner = product.owner
     transaction.on_commit(
-        lambda owner=owner, product=product, name=name: create_notification(
+        lambda owner=owner, product=product: create_notification(
             user=owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_APPROVED,
-            title="Product changes approved",
-            body=f"Your changes to '{name}' were approved.",
+            copy_key="product_changes_approved",
         )
     )
     return product, job
@@ -430,7 +424,7 @@ def reject_seller_changes(
             user=owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_REJECTED,
-            title="Product changes rejected",
+            copy_key="product_changes_rejected",
             body=reason,
         )
     )

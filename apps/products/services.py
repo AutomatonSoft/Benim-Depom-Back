@@ -158,20 +158,13 @@ def save_seller_pending_changes(
         from apps.notifications.models import Notification
         from apps.notifications.services import create_notification, manager_inbox_users
 
-        name = (locked_product.title or "").strip() or f"#{locked_product.pk}"
         seller = locked_product.owner
-        seller_name = (seller.username or seller.email or "Seller").strip()
         for manager in manager_inbox_users(exclude_user=seller):
             create_notification(
                 user=manager,
                 sender=seller,
                 product=locked_product,
                 notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
-                title="Seller wants to change a product",
-                body=(
-                    f"{seller_name} requested changes to '{name}'. "
-                    "Open the product to compare current and new values."
-                ),
             )
 
     return locked_product
@@ -559,20 +552,13 @@ def withdraw_product_submission(*, product: Product) -> Product:
         comment="Seller withdrew the product from review.",
     )
 
-    name = (locked_product.title or "").strip() or f"#{locked_product.pk}"
     seller = locked_product.owner
-    seller_name = (seller.username or seller.email or "Seller").strip()
     for manager in manager_inbox_users(exclude_user=seller):
         create_notification(
             user=manager,
             sender=seller,
             product=locked_product,
             notification_type=Notification.Type.PRODUCT_WITHDRAWN_FROM_REVIEW,
-            title="Seller withdrew a product from review",
-            body=(
-                f"{seller_name} withdrew '{name}' from moderation. "
-                "Reload the product before continuing."
-            ),
         )
     return locked_product
 
