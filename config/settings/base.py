@@ -365,6 +365,7 @@ CELERY_TASK_ROUTES = {
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.check_kaufland_product_status": {"queue": "marketplace"},
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
@@ -466,6 +467,24 @@ KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
     default="/api/products/delete/{ean}",
 )
+KAUFLAND_API_STATUS_ENDPOINT = env(
+    "KAUFLAND_API_STATUS_ENDPOINT",
+    default="/api/products/status/{ean}/",
+)
+KAUFLAND_STATUS_STOREFRONT = env(
+    "KAUFLAND_STATUS_STOREFRONT",
+    default="de",
+)
+# Upload/update can look successful while Kaufland still validates.
+# Poll every 2 minutes, up to ~3 hours.
+KAUFLAND_STATUS_POLL_INTERVAL_SECONDS = env.int(
+    "KAUFLAND_STATUS_POLL_INTERVAL_SECONDS",
+    default=120,
+)
+KAUFLAND_STATUS_MAX_POLL_ATTEMPTS = env.int(
+    "KAUFLAND_STATUS_MAX_POLL_ATTEMPTS",
+    default=90,
+)
 
 OTTO_API_BASE_URL = env(
     "OTTO_API_BASE_URL",
@@ -549,7 +568,7 @@ OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_DAYS",
-    default=14,
+    default=30,
 )
 PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE",
