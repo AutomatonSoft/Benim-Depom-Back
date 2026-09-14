@@ -97,7 +97,7 @@ def test_seller_approved_patch_is_pending_until_manager_approves(
         notification_type=Notification.Type.PRODUCT_APPROVED,
         product=product,
         user=seller,
-        title="Product changes approved",
+        title="Изменения товара одобрены",
     ).exists()
 
 
@@ -185,7 +185,7 @@ def test_reject_seller_changes_discards_pending_and_notifies(
         product=product,
         user=seller,
     )
-    assert notification.title == "Product changes rejected"
+    assert notification.title == "Изменения товара отклонены"
     assert notification.body == "Keep the old title."
 
 

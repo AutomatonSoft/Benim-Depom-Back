@@ -18,6 +18,7 @@ class MarketplaceAutoSchema(AutoSchema):
         ("POST", "/api/v1/auth/logout/"): "Выйти и отозвать refresh-токен",
         ("GET", "/api/v1/auth/me/"): "Получить свой профиль",
         ("PATCH", "/api/v1/auth/me/"): "Изменить свой профиль",
+        ("PATCH", "/api/v1/auth/me/language/"): "Выбрать язык уведомлений",
         ("PUT", "/api/v1/auth/me/"): "Заменить свой профиль",
         ("DELETE", "/api/v1/auth/me/"): "Удалить свой аккаунт",
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",

@@ -428,4 +428,4 @@ def test_seller_confirms_availability_only_for_approved_product(
     )
     assert confirmation["product_id"] == product.id
     assert confirmation["product_title"] == product.title
-    assert "not available" in confirmation["body"]
+    assert "нет в наличии" in confirmation["body"]

@@ -5,17 +5,42 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.products.models import Product
 
+from .copy import copy_key_for_type, render_notification_copy
 from .models import Notification
 from .tasks import send_notification_push
 
+_NAME_FALLBACK = {
+    "en": "this product",
+    "ru": "этот товар",
+    "de": "dieses Produkt",
+    "tr": "bu ürün",
+}
 
-def product_availability_reminder_copy(product: Product) -> tuple[str, str]:
+
+def notification_language(user: User) -> str:
+    from .copy import normalize_language
+
+    return normalize_language(user.preferred_language)
+
+
+def product_display_name(product: Product | None, *, language: str) -> str:
+    if product is None:
+        return _NAME_FALLBACK.get(language, _NAME_FALLBACK["ru"])
     name = (product.title or "").strip()
     if name:
-        body = f'Do you still have "{name}" available?'
-    else:
-        body = "Do you still have this product available?"
-    return "Product availability", body
+        return name
+    return _NAME_FALLBACK.get(language, _NAME_FALLBACK["ru"])
+
+
+def product_availability_reminder_copy(
+    product: Product, *, language: str | None = None
+) -> tuple[str, str]:
+    lang = language or notification_language(product.owner)
+    return render_notification_copy(
+        key="product_availability_reminder",
+        language=lang,
+        name=product_display_name(product, language=lang),
+    )
 
 
 def mark_product_availability_reminders_responded(*, product: Product) -> int:
@@ -41,23 +66,18 @@ def notify_managers_of_availability_confirmation(
     seller: User,
     is_available: bool,
 ) -> None:
-    name = (product.title or "").strip() or f"#{product.pk}"
-    seller_name = (seller.username or seller.email or "Seller").strip()
-    if is_available:
-        title = "Product is available"
-        body = f"{seller_name} confirmed '{name}' is still available."
-    else:
-        title = "Product is not available"
-        body = f"{seller_name} confirmed '{name}' is not available."
-
+    copy_key = (
+        "product_confirmation_available"
+        if is_available
+        else "product_confirmation_unavailable"
+    )
     for manager in manager_inbox_users(exclude_user=seller):
         create_notification(
             user=manager,
             sender=seller,
             product=product,
             notification_type=Notification.Type.PRODUCT_CONFIRMATION,
-            title=title,
-            body=body,
+            copy_key=copy_key,
         )
 
 
@@ -69,7 +89,23 @@ def create_notification(
     sender: User | None = None,
     title: str = "",
     body: str = "",
+    copy_key: str = "",
 ) -> Notification:
+    key = copy_key_for_type(notification_type, copy_key=copy_key)
+    if key and (not title or not body):
+        language = notification_language(user)
+        actor = sender or (product.owner if product is not None else None)
+        seller_name = ""
+        if actor is not None:
+            seller_name = (actor.username or actor.email or "").strip()
+        generated_title, generated_body = render_notification_copy(
+            key=key,
+            language=language,
+            name=product_display_name(product, language=language),
+            seller_name=seller_name,
+        )
+        title = title or generated_title
+        body = body or generated_body
 
     notification = Notification.objects.create(
         user=user,

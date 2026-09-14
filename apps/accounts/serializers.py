@@ -149,6 +149,16 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
         )
 
 
+@extend_schema_serializer(component_name="PreferredLanguage")
+class PreferredLanguageSerializer(serializers.Serializer):
+    language = serializers.ChoiceField(choices=User.Language.choices)
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict) and isinstance(data.get("language"), str):
+            data = {**data, "language": data["language"].strip().casefold()}
+        return super().to_internal_value(data)
+
+
 @extend_schema_serializer(component_name="AuthProfile")
 class ProfileSerializer(serializers.ModelSerializer):
     product_count = serializers.SerializerMethodField()
