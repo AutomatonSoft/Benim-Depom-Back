@@ -7,11 +7,11 @@ from .views import (
     LoginView,
     LogoutView,
     MeView,
-    PreferredLanguageView,
     PasswordChangeView,
     PasswordResetCompleteView,
     PasswordResetRequestView,
     PasswordResetVerifyView,
+    PreferredLanguageView,
     RegisterView,
 )
 
