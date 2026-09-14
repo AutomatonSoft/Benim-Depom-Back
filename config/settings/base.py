@@ -37,6 +37,7 @@ LOCAL_APPS = [
     "apps.notifications.apps.NotificationsConfig",
     "apps.ean.apps.EanConfig",
     "apps.orchestrator.apps.OrchestratorConfig",
+    "apps.afterbuy.apps.AfterbuyConfig",
     "apps.marketplace.hood.apps.HoodConfig",
     "apps.marketplace.otto.apps.OttoConfig",
     "apps.marketplace.kaufland.apps.KauflandConfig",
@@ -364,6 +365,7 @@ CELERY_TASK_ROUTES = {
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.check_kaufland_product_status": {"queue": "marketplace"},
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
@@ -381,6 +383,7 @@ CELERY_TASK_ROUTES = {
     "apps.notifications.tasks.recover_stale_push_deliveries": {
         "queue": "maintenance",
     },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {"queue": "maintenance"},
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
@@ -402,6 +405,10 @@ CELERY_TASK_ANNOTATIONS = {
     "apps.notifications.tasks.send_notification_push": {
         "soft_time_limit": 60,
         "time_limit": 90,
+    },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {
+        "soft_time_limit": 240,
+        "time_limit": 270,
     },
 }
 ORCHESTRATOR_STALE_JOB_MINUTES = env.int(
@@ -459,6 +466,24 @@ KAUFLAND_API_UPDATE_ENDPOINT = env(
 KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
     default="/api/products/delete/{ean}",
+)
+KAUFLAND_API_STATUS_ENDPOINT = env(
+    "KAUFLAND_API_STATUS_ENDPOINT",
+    default="/api/products/status/{ean}/",
+)
+KAUFLAND_STATUS_STOREFRONT = env(
+    "KAUFLAND_STATUS_STOREFRONT",
+    default="de",
+)
+# Upload/update can look successful while Kaufland still validates.
+# Poll every 2 minutes, up to ~3 hours.
+KAUFLAND_STATUS_POLL_INTERVAL_SECONDS = env.int(
+    "KAUFLAND_STATUS_POLL_INTERVAL_SECONDS",
+    default=120,
+)
+KAUFLAND_STATUS_MAX_POLL_ATTEMPTS = env.int(
+    "KAUFLAND_STATUS_MAX_POLL_ATTEMPTS",
+    default=90,
 )
 
 OTTO_API_BASE_URL = env(
@@ -543,7 +568,7 @@ OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_DAYS",
-    default=14,
+    default=30,
 )
 PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE",
@@ -607,6 +632,10 @@ CELERY_BEAT_SCHEDULE = {
     "recover-stale-push-deliveries": {
         "task": "apps.notifications.tasks.recover_stale_push_deliveries",
         "schedule": crontab(minute="*/5"),
+    },
+    "sync-afterbuy-sales": {
+        "task": "apps.afterbuy.tasks.sync_afterbuy_sales",
+        "schedule": crontab(minute="*/15"),
     },
 }
 
@@ -721,6 +750,18 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
     "PASSWORD_RESET_TOKEN_TTL_MINUTES",
     default=10,
 )
+
+AFTERBUY_SYNC_ENABLED = env.bool("AFTERBUY_SYNC_ENABLED", default=True)
+AFTERBUY_LOOKBACK_HOURS = env.int("AFTERBUY_LOOKBACK_HOURS", default=24)
+AFTERBUY_MAX_SOLD_ITEMS = env.int("AFTERBUY_MAX_SOLD_ITEMS", default=100)
+AFTERBUY_HTTP_TIMEOUT_SECONDS = env.int("AFTERBUY_HTTP_TIMEOUT_SECONDS", default=60)
+AFTERBUY_HTTP_RETRIES = env.int("AFTERBUY_HTTP_RETRIES", default=3)
+AFTERBUY_JV_PARTNER_TOKEN = env("AFTERBUY_JV_PARTNER_TOKEN", default="")
+AFTERBUY_JV_ACCOUNT_TOKEN = env("AFTERBUY_JV_ACCOUNT_TOKEN", default="")
+AFTERBUY_JV_PARTNER_ID = env("AFTERBUY_JV_PARTNER_ID", default="")
+AFTERBUY_XL_PARTNER_TOKEN = env("AFTERBUY_XL_PARTNER_TOKEN", default="")
+AFTERBUY_XL_ACCOUNT_TOKEN = env("AFTERBUY_XL_ACCOUNT_TOKEN", default="")
+AFTERBUY_XL_PARTNER_ID = env("AFTERBUY_XL_PARTNER_ID", default="")
 
 BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(
     host.strip().lower()

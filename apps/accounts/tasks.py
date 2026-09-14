@@ -4,6 +4,8 @@ from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
+from .emails import build_email_verification_message
+
 
 @shared_task(
     autoretry_for=(OSError, SMTPException),
@@ -12,18 +14,7 @@ from django.core.mail import EmailMultiAlternatives
     max_retries=3,
 )
 def send_email_verification_code(*, email: str, code: str) -> None:
-    subject = "Подтверждение регистрации"
-    text_body = (
-        f"Ваш код подтверждения: {code}\n\n"
-        f"Код действует "
-        f"{settings.EMAIL_VERIFICATION_CODE_TTL_MINUTES} минут."
-    )
-    html_body = (
-        "<p>Ваш код подтверждения:</p>"
-        f"<h2>{code}</h2>"
-        f"<p>Код действует "
-        f"{settings.EMAIL_VERIFICATION_CODE_TTL_MINUTES} минут.</p>"
-    )
+    subject, text_body, html_body = build_email_verification_message(code=code)
 
     message = EmailMultiAlternatives(
         subject=subject,

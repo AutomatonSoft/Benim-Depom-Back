@@ -548,8 +548,6 @@ class ProductDeactivateView(APIView):
                 sender=request.user,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_DEACTIVATION_REQUESTED,
-                title="Deactivation requested",
-                body=f"Seller requested deactivation for '{product.title}'.",
             )
 
         return Response(

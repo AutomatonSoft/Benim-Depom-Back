@@ -98,8 +98,14 @@ def send_notification_push(self, notification_id: int) -> dict:
     if not device_tokens.exists():
         return {"status": "skipped", "reason": "no_active_device_tokens"}
 
-    title = notification.title or "Marketplace"
-    body = notification.body or "You have a new notification."
+    from .copy import render_notification_copy
+
+    fallback_title, fallback_body = render_notification_copy(
+        key="push_fallback",
+        language=notification.user.preferred_language,
+    )
+    title = notification.title or fallback_title
+    body = notification.body or fallback_body
     data = {
         "notification_id": str(notification.id),
         "notification_type": notification.notification_type,

@@ -11,6 +11,7 @@ from .views import (
     PasswordResetCompleteView,
     PasswordResetRequestView,
     PasswordResetVerifyView,
+    PreferredLanguageView,
     RegisterView,
 )
 
@@ -51,5 +52,6 @@ urlpatterns = [
         PasswordResetCompleteView.as_view(),
         name="password-reset-complete",
     ),
+    path("me/language/", PreferredLanguageView.as_view(), name="me-language"),
     path("me/", MeView.as_view(), name="me"),
 ]

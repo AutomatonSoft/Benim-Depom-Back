@@ -6,6 +6,10 @@ from django.utils import timezone
 
 from apps.marketplace.hood.models import HoodProductSnapshot
 from apps.marketplace.hood.services import execute as execute_hood
+from apps.marketplace.kaufland.status import (
+    classify_kaufland_status_outcome,
+    extract_kaufland_external_id,
+)
 from apps.orchestrator.models import MarketplaceJob, MarketplacePublication
 from apps.orchestrator.publication_services import (
     mark_publication_failed,
@@ -13,6 +17,7 @@ from apps.orchestrator.publication_services import (
     start_publication_attempt,
 )
 from apps.orchestrator.tasks import (
+    check_kaufland_product_status,
     check_otto_marketplace_status,
     extract_otto_process_id,
     get_expected_otto_marketplace_statuses,
@@ -741,3 +746,331 @@ def test_hood_search_persists_the_product_snapshot(product_factory, manager):
     assert result == response
     assert snapshot.ean == "4012345678901"
     assert snapshot.payload == {"itemID": "123", "title": "Chair"}
+
+
+def test_classify_kaufland_status_outcomes():
+    blocked = {
+        "status": "BLOCKED",
+        "is_live": False,
+        "is_valid": False,
+        "issues_detected": ["missing image"],
+    }
+    live = {"status": "LIVE", "is_live": True, "is_valid": True}
+    incomplete = {"status": "INCOMPLETE", "is_live": False, "is_valid": True}
+    missing = {"status": "NOT_FOUND", "is_live": False}
+
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.PUBLISH,
+            payload=blocked,
+        )
+        == "failure"
+    )
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.UPDATE,
+            payload=live,
+        )
+        == "success"
+    )
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.PUBLISH,
+            payload=incomplete,
+        )
+        == "pending"
+    )
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.PUBLISH,
+            payload=missing,
+        )
+        == "pending"
+    )
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.DELETE,
+            payload=missing,
+        )
+        == "success"
+    )
+    assert (
+        classify_kaufland_status_outcome(
+            operation=MarketplaceJob.Operation.DELETE,
+            payload=live,
+        )
+        == "pending"
+    )
+    assert (
+        extract_kaufland_external_id(
+            {"product_url": "https://www.kaufland.de/product/573571024/"}
+        )
+        == "573571024"
+    )
+
+
+@pytest.mark.django_db
+def test_kaufland_publish_waits_for_status_confirmation(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.PUBLISH,
+        requested_channels=["kaufland"],
+        request_payload={
+            "targets": [{"marketplace": "kaufland", "account": "jv"}],
+            "target_payloads": {"kaufland:jv": {"title": "Chair"}},
+        },
+    )
+
+    accepted = {
+        "ok": True,
+        "status_code": 200,
+        "details": {"success": True, "message": "uploaded"},
+    }
+
+    with (
+        patch(
+            "apps.orchestrator.tasks.request_for_non_hood_channel",
+            return_value=accepted,
+        ),
+        patch(
+            "apps.orchestrator.tasks.check_kaufland_product_status.apply_async"
+        ) as schedule,
+    ):
+        from apps.orchestrator.tasks import execute_marketplace_job
+
+        execute_marketplace_job.run(str(job.id))
+
+    job.refresh_from_db()
+    publication = product.marketplace_publications.get(
+        marketplace="kaufland",
+        account="jv",
+    )
+    assert job.status == MarketplaceJob.Status.PENDING_CONFIRMATION
+    assert publication.status == MarketplacePublication.Status.PUBLISHING
+    assert job.results[0]["awaiting_marketplace_confirmation"] is True
+    assert job.results[0]["ean_consumed"] is False
+    schedule.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_kaufland_blocked_status_marks_publication_failed(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4071489789768")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.PUBLISH,
+        requested_channels=["kaufland"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+        results=[
+            {
+                "marketplace": "kaufland",
+                "account": "jv",
+                "ean": product.ean_jv,
+                "ok": True,
+                "awaiting_marketplace_confirmation": True,
+                "ean_consumed": False,
+            }
+        ],
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="kaufland",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+        last_response={"success": True},
+    )
+
+    blocked = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "success": True,
+            "ean": product.ean_jv,
+            "status": "BLOCKED",
+            "is_live": False,
+            "is_valid": False,
+            "summary": "Product is NOT LIVE due to validation issues.",
+            "issues_detected": ["missing image"],
+            "product_url": "https://www.kaufland.de/product/573571024/",
+        },
+    }
+
+    with patch(
+        "apps.orchestrator.tasks.get_kaufland_product_status",
+        return_value=blocked,
+    ):
+        check_kaufland_product_status.run(publication.pk)
+
+    publication.refresh_from_db()
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.FAILED
+    assert job.status == MarketplaceJob.Status.FAILED
+    assert job.results[0]["ok"] is False
+    assert job.results[0]["details"]["code"] == "kaufland_product_status_blocked"
+
+
+@pytest.mark.django_db
+def test_kaufland_live_status_confirms_publish(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.PUBLISH,
+        requested_channels=["kaufland"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+        results=[
+            {
+                "marketplace": "kaufland",
+                "account": "jv",
+                "ean": product.ean_jv,
+                "ok": True,
+                "awaiting_marketplace_confirmation": True,
+                "ean_consumed": False,
+            }
+        ],
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="kaufland",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+    )
+
+    live = {
+        "ok": True,
+        "status_code": 200,
+        "details": {
+            "success": True,
+            "status": "LIVE",
+            "is_live": True,
+            "is_valid": True,
+            "product_url": "https://www.kaufland.de/product/111/",
+        },
+    }
+
+    with (
+        patch(
+            "apps.orchestrator.tasks.get_kaufland_product_status",
+            return_value=live,
+        ),
+        patch(
+            "apps.orchestrator.tasks.consume_ean_code",
+            return_value=True,
+        ) as consume,
+    ):
+        check_kaufland_product_status.run(publication.pk)
+
+    publication.refresh_from_db()
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.ACTIVE
+    assert publication.external_id == "111"
+    assert job.status == MarketplaceJob.Status.SUCCEEDED
+    assert job.results[0]["ean_consumed"] is True
+    consume.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_kaufland_delete_waits_for_not_found(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.DELETE,
+        requested_channels=["kaufland"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+        results=[
+            {
+                "marketplace": "kaufland",
+                "account": "jv",
+                "ean": product.ean_jv,
+                "ok": True,
+                "awaiting_marketplace_confirmation": True,
+                "ean_consumed": False,
+            }
+        ],
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="kaufland",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.DELETING,
+        last_job=job,
+    )
+
+    missing = {
+        "ok": False,
+        "status_code": 404,
+        "details": {
+            "success": False,
+            "status": "NOT_FOUND",
+            "is_live": False,
+            "summary": "Product was not found on Kaufland.",
+        },
+    }
+
+    with patch(
+        "apps.orchestrator.tasks.get_kaufland_product_status",
+        return_value=missing,
+    ):
+        check_kaufland_product_status.run(publication.pk)
+
+    publication.refresh_from_db()
+    job.refresh_from_db()
+    assert publication.status == MarketplacePublication.Status.DELETED
+    assert job.status == MarketplaceJob.Status.SUCCEEDED
+
+
+@pytest.mark.django_db
+def test_recover_stale_orchestrator_jobs_requeues_kaufland_confirmation_poll(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.UPDATE,
+        requested_channels=["kaufland"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="kaufland",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+        last_response={"success": True},
+    )
+
+    MarketplacePublication.objects.filter(pk=publication.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=20),
+    )
+
+    with patch(
+        "apps.orchestrator.tasks.check_kaufland_product_status.apply_async"
+    ) as schedule_status:
+        result = recover_stale_orchestrator_jobs.run()
+
+    assert result["kaufland_confirmation_polls_requeued"] == 1
+    schedule_status.assert_called_once()
+    assert schedule_status.call_args.kwargs["args"] == (publication.pk, 1)
