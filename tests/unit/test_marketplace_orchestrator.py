@@ -801,9 +801,12 @@ def test_classify_kaufland_status_outcomes():
         )
         == "pending"
     )
-    assert extract_kaufland_external_id(
-        {"product_url": "https://www.kaufland.de/product/573571024/"}
-    ) == "573571024"
+    assert (
+        extract_kaufland_external_id(
+            {"product_url": "https://www.kaufland.de/product/573571024/"}
+        )
+        == "573571024"
+    )
 
 
 @pytest.mark.django_db
