@@ -267,9 +267,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         if not negotiations:
             return None
         cutoff = notification.created_at
-        earlier = [
-            item for item in negotiations if item.created_at <= cutoff
-        ]
+        earlier = [item for item in negotiations if item.created_at <= cutoff]
         pool = earlier or negotiations
         return max(pool, key=lambda item: (item.created_at, item.id))
 
