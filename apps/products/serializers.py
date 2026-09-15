@@ -195,6 +195,16 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=dict,
     )
+    change_comment = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Optional seller note when changing an approved product or "
+            "resubmitting a rejected one. Ignored for draft/submitted products."
+        ),
+    )
     resubmit_for_moderation = serializers.BooleanField(
         write_only=True,
         required=False,
@@ -237,6 +247,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_category_name",
             "otto_category_group_name",
             "otto_attributes",
+            "change_comment",
             "resubmit_for_moderation",
             "status",
             "last_moderation_decision",
@@ -251,6 +262,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "catalog_revision",
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
             "variants",
             "images",
             "total_quantity",
@@ -280,6 +292,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "catalog_revision",
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
             "listing_price_eur",
             "pricing_formula",
         )
@@ -508,6 +521,41 @@ class ProductSerializer(serializers.ModelSerializer):
                     }
                 )
 
+        if "change_comment" in getattr(self, "initial_data", {}):
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "A comment can only be sent when updating a product."
+                        )
+                    }
+                )
+            status = self.instance.status
+            if status == Product.Status.APPROVED:
+                pass
+            elif status == Product.Status.REJECTED and attrs.get(
+                "resubmit_for_moderation"
+            ):
+                pass
+            elif status == Product.Status.REJECTED:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "Send change_comment together with "
+                            "resubmit_for_moderation for a rejected product."
+                        )
+                    }
+                )
+            else:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "A comment is only allowed when changing an approved "
+                            "product or resubmitting a rejected one."
+                        )
+                    }
+                )
+
         return attrs
 
     def _validate_otto_catalog_data(self, attrs):
@@ -711,6 +759,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
         validated_data.pop("resubmit_for_moderation", None)
+        validated_data.pop("change_comment", None)
 
         return create_product(
             owner=self.context["request"].user,
@@ -724,6 +773,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "resubmit_for_moderation",
             False,
         )
+        change_comment = validated_data.pop("change_comment", None)
         request = self.context.get("request")
         if (
             instance.status == Product.Status.APPROVED
@@ -736,6 +786,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 product=instance,
                 data=validated_data,
                 variants_data=variants_data,
+                comment=change_comment,
             )
 
         if (
@@ -744,17 +795,38 @@ class ProductSerializer(serializers.ModelSerializer):
         ):
             validated_data["listing_price_eur_override"] = None
 
+        resubmission_review = None
+        if resubmit_for_moderation and instance.status in {
+            Product.Status.REJECTED,
+            Product.Status.WITHDRAWN,
+        }:
+            from .services import build_seller_resubmission_review
+
+            resubmission_review = build_seller_resubmission_review(
+                product=instance,
+                data=validated_data,
+                variants_data=variants_data,
+                comment=change_comment or "",
+            )
+
         product = update_product(
             product=instance,
             data=validated_data,
             variants_data=variants_data,
         )
 
+        if resubmission_review is not None:
+            product.seller_change_review = resubmission_review
+            product.save(update_fields=("seller_change_review", "updated_at"))
+
         if resubmit_for_moderation:
             # Lazy import avoids a products <-> moderation import cycle.
             from apps.moderation.services import submit_product_for_moderation
 
-            return submit_product_for_moderation(product=product)
+            return submit_product_for_moderation(
+                product=product,
+                comment=change_comment or "",
+            )
 
         return product
 
