@@ -143,6 +143,9 @@ class Product(models.Model):
     catalog_revision = models.PositiveIntegerField(default=1)
     pending_changes = models.JSONField(default=dict, blank=True)
     pending_changes_submitted_at = models.DateTimeField(null=True, blank=True)
+    # Last rejected pending request, or the snapshot from a rejected/withdrawn
+    # resubmission — so managers still see seller comment + field diffs on the card.
+    seller_change_review = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

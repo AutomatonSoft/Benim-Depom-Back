@@ -1,0 +1,5460 @@
+openapi: 3.0.3
+info:
+  title: Benim Depom Backend API
+  version: 1.0.0
+  description: API for the seller mobile application and manager web panel. Operations
+    are grouped by client and business domain.
+paths:
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/email/resend-verification/:
+    post:
+      operationId: v1_auth_email_resend_verification_create
+      description: Sends a new six-digit email verification code.
+      summary: Отправить email-код повторно
+      tags:
+      - Auth - Seller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationResendRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationResendRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationResendRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/email/verify/:
+    post:
+      operationId: v1_auth_email_verify_create
+      description: Verifies the six-digit email code and returns JWT tokens.
+      summary: Подтвердить email кодом
+      tags:
+      - Auth - Seller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/login/:
+    post:
+      operationId: v1_auth_login_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      summary: Войти по email и паролю
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout/:
+    post:
+      operationId: v1_auth_logout_create
+      summary: Выйти и отозвать refresh-токен
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthLogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthLogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/me/:
+    get:
+      operationId: v1_auth_me_retrieve
+      summary: Получить свой профиль
+      tags:
+      - Auth - Seller
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProfile'
+          description: ''
+    patch:
+      operationId: v1_auth_me_partial_update
+      summary: Изменить свой профиль
+      tags:
+      - Auth - Seller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthProfileRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProfile'
+          description: ''
+    delete:
+      operationId: v1_auth_me_destroy
+      description: Lets a seller delete their own account. Active marketplace listings
+        are removed first; the account is disabled immediately and fully deleted after
+        those jobs finish.
+      summary: Удалить свой аккаунт
+      tags:
+      - Auth - Seller
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          description: No response body
+        '204':
+          description: No response body
+  /api/v1/auth/me/language/:
+    patch:
+      operationId: v1_auth_me_language_partial_update
+      description: 'Stores the seller''s interface language. Later notifications and
+        pushes use this language: ru, en, de, or tr.'
+      summary: Выбрать язык уведомлений
+      tags:
+      - Auth - Seller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferredLanguageRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferredLanguageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferredLanguageRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProfile'
+          description: ''
+  /api/v1/auth/password/change/:
+    post:
+      operationId: v1_auth_password_change_create
+      description: Изменяет пароль авторизованного пользователя и отзывает все его
+        refresh-токены.
+      summary: Изменить пароль
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordChangeRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/password/reset/complete/:
+    post:
+      operationId: v1_auth_password_reset_complete_create
+      description: Устанавливает новый пароль по reset_token и отзывает все активные
+        refresh-токены. После этого пользователь входит заново.
+      summary: Установить новый пароль
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetCompleteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetCompleteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetCompleteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/password/reset/request/:
+    post:
+      operationId: v1_auth_password_reset_request_create
+      description: Отправляет шестизначный код сброса пароля на email. Ответ не раскрывает,
+        зарегистрирован ли такой пользователь.
+      summary: Запросить код для сброса пароля
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthPasswordResetRequestResponse'
+          description: ''
+  /api/v1/auth/password/reset/verify/:
+    post:
+      operationId: v1_auth_password_reset_verify_create
+      description: Проверяет шестизначный код и возвращает короткоживущий reset_token
+        для установки нового пароля.
+      summary: Проверить код сброса пароля
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordResetVerifyRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthPasswordResetVerifyResponse'
+          description: ''
+  /api/v1/auth/refresh/:
+    post:
+      operationId: v1_auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      summary: Обновить JWT-токены
+      tags:
+      - Auth - Shared
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/register/:
+    post:
+      operationId: v1_auth_register_create
+      summary: Зарегистрировать продавца
+      tags:
+      - Auth - Seller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthRegister'
+          description: ''
+  /api/v1/catalog/otto/category-groups/:
+    get:
+      operationId: v1_catalog_otto_category_groups_list
+      description: Returns OTTO category groups from the local JSON catalog. Without
+        a suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English.
+      summary: List OTTO category groups
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of a category group name.
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategoryGroup'
+          description: ''
+  /api/v1/catalog/otto/category-groups/{group_id}/attributes/:
+    get:
+      operationId: v1_catalog_otto_category_groups_attributes_list
+      description: Returns attribute definitions for the selected group. Without a
+        suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English. HIGH, MEDIUM and LOW relevance values are used
+        only to order the manager/mobile UI; all attributes are optional.
+      summary: Get attributes for an OTTO category group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategoryAttribute'
+          description: ''
+  /api/v1/catalog/otto/category-groups/{group_id}/attributes/{language}/:
+    get:
+      operationId: v1_catalog_otto_category_groups_attributes_list_2
+      description: Returns attribute definitions for the selected group. Without a
+        suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English. HIGH, MEDIUM and LOW relevance values are used
+        only to order the manager/mobile UI; all attributes are optional.
+      summary: Get attributes for an OTTO category group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: language
+        schema:
+          type: string
+        required: true
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategoryAttribute'
+          description: ''
+  /api/v1/catalog/otto/category-groups/{group_id}/categories/:
+    get:
+      operationId: v1_catalog_otto_category_groups_categories_list
+      description: Returns selectable OTTO subcategories for one category group. Without
+        a suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English.
+      summary: List categories in an OTTO group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategory'
+          description: ''
+  /api/v1/catalog/otto/category-groups/{group_id}/categories/{language}/:
+    get:
+      operationId: v1_catalog_otto_category_groups_categories_list_2
+      description: Returns selectable OTTO subcategories for one category group. Without
+        a suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English.
+      summary: List categories in an OTTO group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: language
+        schema:
+          type: string
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategory'
+          description: ''
+  /api/v1/catalog/otto/category-groups/{language}/:
+    get:
+      operationId: v1_catalog_otto_category_groups_list_2
+      description: Returns OTTO category groups from the local JSON catalog. Without
+        a suffix the response is German. Append /de/, /en/, /tr/, or /ru/; an unsupported
+        suffix falls back to English.
+      summary: List OTTO category groups
+      parameters:
+      - in: path
+        name: language
+        schema:
+          type: string
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Part of a category group name.
+      tags:
+      - OTTO - Catalog
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoCategoryGroup'
+          description: ''
+  /api/v1/catalog/otto/shipping-profiles/:
+    get:
+      operationId: v1_catalog_otto_shipping_profiles_list
+      description: Returns selectable shipping profile names for JV or XL. The frontend
+        displays only shipping_profile_name and keeps shipping_profile_id as a hidden
+        technical value.
+      summary: List OTTO shipping profiles for an account
+      parameters:
+      - in: query
+        name: account
+        schema:
+          type: string
+        description: 'OTTO account: jv or xl.'
+        required: true
+      tags:
+      - OTTO - Delivery
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OttoShippingProfile'
+          description: ''
+  /api/v1/manager/dashboard/:
+    get:
+      operationId: v1_manager_dashboard_retrieve
+      description: 'Live overview counts for the manager home page: moderation queue,
+        active marketplace listings, free EANs, and sellers.'
+      summary: Получить сводку панели менеджера
+      tags:
+      - Manager moderation
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagerDashboard'
+          description: ''
+  /api/v1/manager/eans/:
+    get:
+      operationId: v1_manager_eans_list
+      summary: Получить EAN-коды
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - EAN pool
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEanCodeList'
+          description: ''
+  /api/v1/manager/eans/import/:
+    post:
+      operationId: v1_manager_eans_import_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Импортировать EAN-коды
+      tags:
+      - EAN pool
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EanImportRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EanImportRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EanImportRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/manager/eans/summary/:
+    get:
+      operationId: v1_manager_eans_summary_retrieve
+      summary: Получить остаток EAN-кодов
+      tags:
+      - EAN pool
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/manager/products/:
+    get:
+      operationId: v1_manager_products_list
+      summary: Получить товары для менеджера
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - Manager moderation
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductsProductList'
+          description: ''
+  /api/v1/manager/products/{product_pk}/approve/:
+    post:
+      operationId: v1_manager_products_approve_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Одобрить товар и назначить EAN
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationApproveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModerationApproveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModerationApproveRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/products/{product_pk}/availability-request/:
+    post:
+      operationId: v1_manager_products_availability_request_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Запросить подтверждение наличия
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/products/{product_pk}/deactivate/:
+    post:
+      operationId: v1_manager_products_deactivate_create
+      description: Legacy shortcut that deactivates every active listing of a product.
+        Use the orchestrator listing-state endpoint to choose targets.
+      summary: Отключить все активные публикации
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceJob'
+          description: ''
+  /api/v1/manager/products/{product_pk}/notifications/:
+    post:
+      operationId: v1_manager_products_notifications_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Отправить сообщение продавцу
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebManagerProductNotificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebManagerProductNotificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebManagerProductNotificationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsNotification'
+          description: ''
+  /api/v1/manager/products/{product_pk}/reject/:
+    post:
+      operationId: v1_manager_products_reject_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Отклонить товар
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationRejectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModerationRejectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModerationRejectRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/products/{product_pk}/seller-changes/approve/:
+    post:
+      operationId: v1_manager_products_seller_changes_approve_create
+      description: Apply pending seller catalog changes and queue marketplace updates
+        for active listings.
+      summary: Одобрить изменения продавца и обновить листинги
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerChangesApproveRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SellerChangesApproveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SellerChangesApproveRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/products/{product_pk}/seller-changes/reject/:
+    post:
+      operationId: v1_manager_products_seller_changes_reject_create
+      description: Discard pending seller catalog changes. The product stays approved.
+        The seller is notified with the rejection reason.
+      summary: Отклонить изменения продавца
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerChangesRejectRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SellerChangesRejectRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SellerChangesRejectRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/products/{product_pk}/status/:
+    post:
+      operationId: v1_manager_products_status_create
+      description: Move an approved product back to review or reject it. Blocked while
+        marketplace listings are still live or in progress.
+      summary: Изменить статус одобренного товара
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager moderation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagerProductStatusChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagerProductStatusChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagerProductStatusChangeRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/manager/users/:
+    post:
+      operationId: v1_manager_users_create
+      description: Create a manager account from the protected manager web panel.
+      summary: Создать аккаунт менеджера
+      tags:
+      - Manager accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebManagerCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebManagerCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebManagerCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebManagerCreate'
+          description: ''
+  /api/v1/manager/users/managers/:
+    get:
+      operationId: v1_manager_users_managers_list
+      description: Paginated manager directory for the manager panel.
+      summary: Получить список менеджеров
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Manager accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthProfileList'
+          description: ''
+  /api/v1/manager/users/sellers/:
+    get:
+      operationId: v1_manager_users_sellers_list
+      description: Paginated seller directory for managers.
+      summary: Получить список продавцов
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Manager accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedManagerSellerList'
+          description: ''
+  /api/v1/manager/users/sellers/{user_id}/:
+    delete:
+      operationId: v1_manager_users_sellers_destroy
+      description: Hard-deletes a seller. Active marketplace listings are removed
+        first (OTTO deactivate, Hood/Kaufland delete). The account is disabled immediately
+        and fully deleted after those jobs finish.
+      summary: Удалить продавца
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          description: No response body
+        '204':
+          description: No response body
+  /api/v1/manager/users/sellers/{user_id}/confirm-email/:
+    post:
+      operationId: v1_manager_users_sellers_confirm_email_create
+      description: Manually confirms a seller email and activates the account. Use
+        when the verification email did not arrive.
+      summary: Подтвердить email продавца
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Manager accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagerSeller'
+          description: ''
+  /api/v1/notifications/:
+    get:
+      operationId: v1_notifications_list
+      summary: Получить свои уведомления
+      parameters:
+      - in: query
+        name: category
+        schema:
+          enum:
+          - review
+          - availability
+          - outgoing
+          type: string
+          minLength: 1
+        description: |-
+          * `review` - Review
+          * `availability` - Availability
+          * `outgoing` - Outgoing
+      - in: query
+        name: is_read
+        schema:
+          type: boolean
+          nullable: true
+      - in: query
+        name: notification_type
+        schema:
+          enum:
+          - product_approved
+          - product_rejected
+          - product_confirmation
+          - image_processing_completed
+          - image_processing_failed
+          - message_received
+          - product_availability_reminder
+          - manager_message
+          - product_deactivated
+          - product_deactivation_requested
+          - product_submitted_for_review
+          - product_withdrawn_from_review
+          - product_change_requested
+          type: string
+          minLength: 1
+        description: |-
+          * `product_approved` - Product approved
+          * `product_rejected` - Product rejected
+          * `product_confirmation` - Product confirmation
+          * `image_processing_completed` - Image processing completed
+          * `image_processing_failed` - Image processing failed
+          * `message_received` - Message received
+          * `product_availability_reminder` - Product availability reminder
+          * `manager_message` - Manager message
+          * `product_deactivated` - Product deactivated
+          * `product_deactivation_requested` - Product deactivation requested
+          * `product_submitted_for_review` - Product submitted for review
+          * `product_withdrawn_from_review` - Product withdrawn from review
+          * `product_change_requested` - Product change requested
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+          maxLength: 200
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationsNotificationList'
+          description: ''
+  /api/v1/notifications/{notification_pk}/read/:
+    post:
+      operationId: v1_notifications_read_create
+      summary: Пометить уведомление прочитанным
+      parameters:
+      - in: path
+        name: notification_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsNotification'
+          description: ''
+  /api/v1/notifications/devices/:
+    post:
+      operationId: v1_notifications_devices_create
+      summary: Зарегистрировать FCM-устройство
+      tags:
+      - Notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceTokenRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsDeviceToken'
+          description: ''
+  /api/v1/notifications/devices/deactivate/:
+    post:
+      operationId: v1_notifications_devices_deactivate_create
+      summary: Отключить FCM-устройство
+      tags:
+      - Notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceDeactivateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceDeactivateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NotificationsDeviceDeactivateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/notifications/read-all/:
+    post:
+      operationId: v1_notifications_read_all_create
+      summary: Пометить все уведомления прочитанными
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/notifications/summary/:
+    get:
+      operationId: v1_notifications_summary_retrieve
+      summary: Сводка уведомлений по категориям
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsSummary'
+          description: ''
+  /api/v1/orchestrator/ai-content/generations/{generation_id}/:
+    get:
+      operationId: v1_orchestrator_ai_content_generations_retrieve
+      description: Returns the status and result of an AI content generation.
+      summary: Получить статус AI-генерации
+      parameters:
+      - in: path
+        name: generation_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - AI content
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceContentGeneration'
+          description: ''
+    patch:
+      operationId: v1_orchestrator_ai_content_generations_partial_update
+      description: Saves manager edits of a completed AI draft. The edited draft is
+        what gets copied into marketplace configurations on apply.
+      parameters:
+      - in: path
+        name: generation_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - AI content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMarketplaceContentGenerationEditRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMarketplaceContentGenerationEditRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMarketplaceContentGenerationEditRequestRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceContentGeneration'
+          description: ''
+  /api/v1/orchestrator/jobs/:
+    get:
+      operationId: v1_orchestrator_jobs_list
+      description: Manager list of marketplace jobs. Use in_progress=true for queued,
+        running and pending confirmation.
+      parameters:
+      - in: query
+        name: in_progress
+        schema:
+          type: boolean
+      - in: query
+        name: marketplace
+        schema:
+          enum:
+          - otto
+          - hood
+          - kaufland
+          type: string
+          minLength: 1
+        description: |-
+          * `otto` - OTTO
+          * `hood` - Hood
+          * `kaufland` - Kaufland
+      - in: query
+        name: operation
+        schema:
+          enum:
+          - search
+          - publish
+          - update
+          - delete
+          - deactivate
+          - activate
+          type: string
+          minLength: 1
+        description: |-
+          * `search` - Search
+          * `publish` - Publish
+          * `update` - Update
+          * `delete` - Delete
+          * `deactivate` - Deactivate
+          * `activate` - Activate
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: product_id
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: search
+        schema:
+          type: string
+          maxLength: 200
+      - in: query
+        name: status
+        schema:
+          enum:
+          - queued
+          - running
+          - pending_confirmation
+          - succeeded
+          - partial
+          - failed
+          type: string
+          minLength: 1
+        description: |-
+          * `queued` - Queued
+          * `running` - Running
+          * `pending_confirmation` - Pending confirmation
+          * `succeeded` - Succeeded
+          * `partial` - Partial
+          * `failed` - Failed
+      tags:
+      - Marketplace jobs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMarketplaceJobList'
+          description: ''
+  /api/v1/orchestrator/jobs/{job_id}/:
+    get:
+      operationId: v1_orchestrator_jobs_retrieve
+      summary: Получить статус операции
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Marketplace jobs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceJob'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/{operation}/:
+    post:
+      operationId: v1_orchestrator_products_create
+      description: Creates an asynchronous marketplace job. Use Idempotency-Key to
+        prevent duplicate marketplace operations.
+      summary: Запустить операцию маркетплейса
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique UUID generated by the client for one create request. Repeating
+          the same request with the same key returns the original response instead
+          of creating a duplicate product.
+      - in: path
+        name: operation
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Marketplace jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceJobRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MarketplaceJobRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MarketplaceJobRequestRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceJob'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/ai-content/generate/:
+    post:
+      operationId: v1_orchestrator_products_ai_content_generate_create
+      description: Starts one AI generation request for a product. The result is a
+        draft only and is not applied automatically.
+      summary: Запустить генерацию AI-контента
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique UUID generated by the client for one create request. Repeating
+          the same request with the same key returns the original response instead
+          of creating a duplicate product.
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - AI content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceContentGeneration'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/ai-content/generations/{generation_id}/apply/:
+    post:
+      operationId: v1_orchestrator_products_ai_content_generations_apply_create
+      description: Applies a completed AI draft to selected marketplace configurations.
+        Existing values remain unchanged unless overwrite=true.
+      summary: Применить AI-контент к конфигурациям
+      parameters:
+      - in: path
+        name: generation_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - AI content
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationApplyRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationApplyRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MarketplaceContentGenerationApplyRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/hood/{account}/configuration/:
+    get:
+      operationId: v1_orchestrator_products_hood_configuration_retrieve
+      description: Returns manager-editable Hood content for one account. It can be
+        prepared before publication.
+      summary: Получить конфигурацию Hood
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Hood
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoodListingConfigurationResponse'
+          description: ''
+    patch:
+      operationId: v1_orchestrator_products_hood_configuration_partial_update
+      description: Partially updates manager-owned Hood content. Use the payload preview
+        endpoint to validate the final request.
+      summary: Изменить конфигурацию Hood
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Hood
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedHoodListingConfigurationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedHoodListingConfigurationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedHoodListingConfigurationRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoodListingConfigurationResponse'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/hood/{account}/payload-preview/:
+    get:
+      operationId: v1_orchestrator_products_hood_payload_preview_retrieve
+      description: Builds and validates the final Hood create/update payload without
+        making an external request.
+      summary: Предпросмотр payload для Hood
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Hood
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/kaufland/{account}/configuration/:
+    get:
+      operationId: v1_orchestrator_products_kaufland_configuration_retrieve
+      description: Returns manager-editable Kaufland content for one account.
+      summary: Получить конфигурацию Kaufland
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Kaufland
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KauflandListingConfigurationResponse'
+          description: ''
+    patch:
+      operationId: v1_orchestrator_products_kaufland_configuration_partial_update
+      description: Partially updates manager-owned Kaufland listing content.
+      summary: Изменить конфигурацию Kaufland
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Kaufland
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedKauflandListingConfigurationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedKauflandListingConfigurationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedKauflandListingConfigurationRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KauflandListingConfigurationResponse'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/kaufland/{account}/create-payload-preview/:
+    get:
+      operationId: v1_orchestrator_products_kaufland_create_payload_preview_retrieve
+      description: Builds and validates PUT /api/products/upload/ payload without
+        making an external request.
+      summary: Предпросмотр создания в Kaufland
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Kaufland
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/kaufland/{account}/update-payload-preview/:
+    get:
+      operationId: v1_orchestrator_products_kaufland_update_payload_preview_retrieve
+      description: Builds and validates PATCH /api/products/{ean}/change/ payload
+        without making an external request.
+      summary: Предпросмотр обновления Kaufland
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Kaufland
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/listing-state/:
+    post:
+      operationId: v1_orchestrator_products_listing_state_create
+      description: Deactivates selected marketplace listings. Without targets it uses
+        every active listing of the product. Hood/Kaufland are deleted because their
+        APIs have no reversible deactivation; OTTO is deactivated and can later be
+        activated again.
+      summary: Изменить состояние публикаций
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique UUID generated by the client for one create request. Repeating
+          the same request with the same key returns the original response instead
+          of creating a duplicate product.
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Marketplace jobs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceListingStateRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MarketplaceListingStateRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MarketplaceListingStateRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceJob'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/otto/{account}/configuration/:
+    get:
+      operationId: v1_orchestrator_products_otto_configuration_retrieve
+      description: Returns manager-editable OTTO content for one account. This can
+        be prepared before the product is approved or assigned an EAN.
+      summary: Получить конфигурацию OTTO
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - OTTO
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OttoListingConfigurationResponse'
+          description: ''
+    patch:
+      operationId: v1_orchestrator_products_otto_configuration_partial_update
+      description: Partially updates manager-owned OTTO content. The final payload
+        is checked separately by the OTTO preview endpoint.
+      summary: Изменить конфигурацию OTTO
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - OTTO
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOttoListingConfigurationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOttoListingConfigurationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOttoListingConfigurationRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OttoListingConfigurationResponse'
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/otto/{account}/payload-preview/:
+    get:
+      operationId: v1_orchestrator_products_otto_payload_preview_retrieve
+      description: Validates and returns the OTTO create/update payload without making
+        an external marketplace request. MSRP/UVP is calculated from the configured
+        selling price.
+      summary: Предпросмотр payload для OTTO
+      parameters:
+      - in: path
+        name: account
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - OTTO
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orchestrator/products/{product_pk}/publications/:
+    get:
+      operationId: v1_orchestrator_products_publications_list
+      description: Returns publication states for every marketplace/account pair of
+        a product.
+      summary: Получить публикации товара
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Marketplace jobs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplacePublication'
+          description: ''
+  /api/v1/orchestrator/publications/:
+    get:
+      operationId: v1_orchestrator_publications_list
+      description: Manager list of marketplace publications. Supports filtering by
+        marketplace, account, status and product.
+      summary: Получить все публикации
+      parameters:
+      - in: query
+        name: account
+        schema:
+          enum:
+          - jv
+          - xl
+          type: string
+          minLength: 1
+        description: |-
+          * `jv` - JV
+          * `xl` - XL
+      - in: query
+        name: marketplace
+        schema:
+          enum:
+          - otto
+          - hood
+          - kaufland
+          type: string
+          minLength: 1
+        description: |-
+          * `otto` - OTTO
+          * `hood` - Hood
+          * `kaufland` - Kaufland
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: product_id
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: search
+        schema:
+          type: string
+          maxLength: 200
+      - in: query
+        name: status
+        schema:
+          enum:
+          - pending
+          - publishing
+          - active
+          - deactivating
+          - deactivated
+          - deleting
+          - deleted
+          - failed
+          type: string
+          minLength: 1
+        description: |-
+          * `pending` - Pending
+          * `publishing` - Publishing
+          * `active` - Active
+          * `deactivating` - Deactivating
+          * `deactivated` - Deactivated
+          * `deleting` - Deleting
+          * `deleted` - Deleted
+          * `failed` - Failed
+      tags:
+      - Marketplace jobs
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMarketplacePublicationList'
+          description: ''
+  /api/v1/products/:
+    get:
+      operationId: v1_products_list
+      description: Lists the seller's own non-archived products. Managers and admins
+        receive all non-archived products.
+      summary: Получить список своих товаров
+      parameters:
+      - in: query
+        name: color
+        schema:
+          type: string
+        description: Case-insensitive match on the seller colour name.
+      - in: query
+        name: is_available
+        schema:
+          type: boolean
+        description: 'Filter by current availability: true or false.'
+      - in: query
+        name: material
+        schema:
+          type: string
+        description: Exact material value within a product variant.
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: One of created_at, -created_at, updated_at, -updated_at, title,
+          -title.
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: product_type
+        schema:
+          type: string
+        description: Exact seller-entered product type.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive search in the product title or EAN.
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Product status, for example submitted or approved.
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductsProductList'
+          description: ''
+    post:
+      operationId: v1_products_create
+      description: Создаёт товар продавца с одним-десятью исходными фото и сразу отправляет
+        его на модерацию. Принимается только multipart/form-data, чтобы товар не попал
+        на модерацию без фото. Передайте Idempotency-Key для защиты от дублирующего
+        запроса мобильного клиента.
+      summary: Создать товар
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique UUID generated by the client for one create request. Repeating
+          the same request with the same key returns the original response instead
+          of creating a duplicate product.
+      tags:
+      - Products
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductsMultipartCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/products/{id}/:
+    get:
+      operationId: v1_products_retrieve
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Получить товар
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+    patch:
+      operationId: v1_products_partial_update
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Изменить черновик товара
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProductsProductRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProductsProductRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProductsProductRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+    delete:
+      operationId: v1_products_destroy
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Архивировать товар
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/{product_pk}/availability/:
+    post:
+      operationId: v1_products_availability_create
+      summary: Подтвердить наличие товара
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductsAvailabilityRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductsAvailabilityRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductsAvailabilityRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/products/{product_pk}/deactivate/:
+    post:
+      operationId: v1_products_deactivate_create
+      description: Seller submits a deactivation request; a manager confirms it later.
+      summary: Запросить отключение товара
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsProduct'
+          description: ''
+  /api/v1/products/{product_pk}/images/:
+    post:
+      operationId: v1_products_images_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Загрузить фото товара
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductsImageUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductsImageUploadRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsImage'
+          description: ''
+  /api/v1/products/{product_pk}/images/{image_pk}/:
+    delete:
+      operationId: v1_products_images_destroy
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Удалить фотографию
+      parameters:
+      - in: path
+        name: image_pk
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/{product_pk}/images/{image_pk}/generated/{generated_pk}/:
+    delete:
+      operationId: v1_products_images_generated_destroy
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Удалить сгенерированное AI-фото
+      parameters:
+      - in: path
+        name: generated_pk
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: image_pk
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/{product_pk}/images/{image_pk}/make-primary/:
+    post:
+      operationId: v1_products_images_make_primary_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Сделать фото главным
+      parameters:
+      - in: path
+        name: image_pk
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsImage'
+          description: ''
+  /api/v1/products/{product_pk}/images/{image_pk}/process/:
+    post:
+      operationId: v1_products_images_process_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Запустить AI-обработку фото
+      parameters:
+      - in: path
+        name: image_pk
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsImage'
+          description: ''
+  /api/v1/products/{product_pk}/images/reorder/:
+    post:
+      operationId: v1_products_images_reorder_create
+      description: Applies manager mutation rate limiting to write HTTP methods only.
+      summary: Изменить порядок фотографий
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Product images
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductsImageReorderRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductsImageReorderRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductsImageReorderRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/{product_pk}/moderation-history/:
+    get:
+      operationId: v1_products_moderation_history_list
+      summary: Получить историю модерации
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Moderation
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedModerationDecisionList'
+          description: ''
+  /api/v1/products/{product_pk}/withdraw/:
+    post:
+      operationId: v1_products_withdraw_create
+      summary: Отозвать товар с модерации
+      parameters:
+      - in: path
+        name: product_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+components:
+  schemas:
+    Account55eEnum:
+      enum:
+      - jv
+      - xl
+      type: string
+      description: |-
+        * `jv` - JV
+        * `xl` - XL
+    ActionEnum:
+      enum:
+      - deactivate
+      - activate
+      type: string
+      description: |-
+        * `deactivate` - deactivate
+        * `activate` - activate
+    AuthLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - email
+      - password
+    AuthLogoutRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    AuthPasswordChangeRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        new_password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - current_password
+      - new_password
+      - new_password_confirm
+    AuthPasswordResetCompleteRequest:
+      type: object
+      properties:
+        reset_token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        new_password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - new_password
+      - new_password_confirm
+      - reset_token
+    AuthPasswordResetRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+      required:
+      - email
+    AuthPasswordResetRequestResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          readOnly: true
+      required:
+      - detail
+    AuthPasswordResetVerifyRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+      - code
+      - email
+    AuthPasswordResetVerifyResponse:
+      type: object
+      properties:
+        reset_token:
+          type: string
+          readOnly: true
+      required:
+      - reset_token
+    AuthProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Display name. Not unique; authentication uses email.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        product_count:
+          type: integer
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - product_count
+      - role
+      - username
+    AuthRegister:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Display name. Not unique; authentication uses email.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+      required:
+      - email
+      - username
+    AuthRegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Display name. Not unique; authentication uses email.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+        email:
+          type: string
+          format: email
+          minLength: 1
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+      required:
+      - email
+      - password
+      - password_confirm
+      - username
+    ChannelsEnum:
+      enum:
+      - hood
+      - otto
+      - kaufland
+      type: string
+      description: |-
+        * `hood` - hood
+        * `otto` - otto
+        * `kaufland` - kaufland
+    CurrencyEnum:
+      enum:
+      - TRY
+      - EUR
+      - USD
+      type: string
+      description: |-
+        * `TRY` - Turkish lira
+        * `EUR` - Euro
+        * `USD` - US dollar
+    DecisionEnum:
+      enum:
+      - approved
+      - rejected
+      - returned_to_review
+      - withdrawn
+      type: string
+      description: |-
+        * `approved` - Approved
+        * `rejected` - Rejected
+        * `returned_to_review` - Returned to review
+        * `withdrawn` - Withdrawn
+    EanCode:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        code:
+          type: string
+          readOnly: true
+        account:
+          allOf:
+          - $ref: '#/components/schemas/Account55eEnum'
+          readOnly: true
+        product_id:
+          type: integer
+          readOnly: true
+        imported_at:
+          type: string
+          format: date-time
+          readOnly: true
+        assigned_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - account
+      - assigned_at
+      - code
+      - id
+      - imported_at
+      - product_id
+    EanImportRequest:
+      type: object
+      properties:
+        account:
+          $ref: '#/components/schemas/Account55eEnum'
+        codes:
+          type: string
+          minLength: 1
+      required:
+      - account
+      - codes
+    EmailVerificationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+      - code
+      - email
+    EmailVerificationResendRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+      required:
+      - email
+    HoodListingConfiguration:
+      type: object
+      description: |-
+        Настройки менеджера для одного Hood-объявления.
+        Финальный JSON для Hood строится автоматически из товара и этих полей.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        title:
+          type: string
+          description: Название товара для Hood.
+          maxLength: 255
+        description:
+          type: string
+          description: HTML-описание товара для Hood.
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Цена одного товара для Hood.
+        category_id:
+          type: string
+          description: Ignored. Hood listings always use category 2412.
+          maxLength: 100
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        property_overrides:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 1000
+          description: 'Дополнительные или исправленные свойства Hood. Формат: {"Farbe":
+            "Braun", "Stil": "Modern"}.'
+    HoodListingConfigurationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        product:
+          type: integer
+          readOnly: true
+        marketplace:
+          allOf:
+          - $ref: '#/components/schemas/Marketplace18eEnum'
+          readOnly: true
+        account:
+          allOf:
+          - $ref: '#/components/schemas/Account55eEnum'
+          readOnly: true
+        configuration:
+          allOf:
+          - $ref: '#/components/schemas/HoodListingConfiguration'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - account
+      - configuration
+      - created_at
+      - id
+      - marketplace
+      - product
+      - updated_at
+    KauflandListingConfiguration:
+      type: object
+      description: Настройки менеджера для одного Kaufland-объявления.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        title:
+          type: string
+          description: Название товара для Kaufland.
+          maxLength: 255
+        description:
+          type: string
+          description: Описание товара для Kaufland.
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Цена одного товара.
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        delivery:
+          type: integer
+          minimum: 0
+          description: Ignored. Kaufland listings use 32 delivery days by default.
+        storefronts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorefrontsEnum'
+          description: 'Страны публикации. По умолчанию — [''de'']. Допустимые: de,
+            cz, sk, pl, at, fr, it.'
+        storefront:
+          allOf:
+          - $ref: '#/components/schemas/StorefrontEnum'
+          description: |-
+            Одна страна для update. Если не указана, используется первая из storefronts или de.
+
+            * `de` - de
+            * `cz` - cz
+            * `sk` - sk
+            * `pl` - pl
+            * `at` - at
+            * `fr` - fr
+            * `it` - it
+        id_offer:
+          type: string
+          description: Необязательный внутренний ID предложения.
+          maxLength: 255
+        unit_id:
+          type: string
+          description: Необязательный unit ID для Kaufland update.
+          maxLength: 255
+    KauflandListingConfigurationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        product:
+          type: integer
+          readOnly: true
+        marketplace:
+          allOf:
+          - $ref: '#/components/schemas/Marketplace18eEnum'
+          readOnly: true
+        account:
+          allOf:
+          - $ref: '#/components/schemas/Account55eEnum'
+          readOnly: true
+        configuration:
+          allOf:
+          - $ref: '#/components/schemas/KauflandListingConfiguration'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - account
+      - configuration
+      - created_at
+      - id
+      - marketplace
+      - product
+      - updated_at
+    LanguageEnum:
+      enum:
+      - ru
+      - tr
+      - de
+      - en
+      type: string
+      description: |-
+        * `ru` - Русский
+        * `tr` - Türkçe
+        * `de` - Deutsch
+        * `en` - English
+    LastModerationDecisionEnum:
+      enum:
+      - approved
+      - rejected
+      - returned_to_review
+      - withdrawn
+      type: string
+      description: |-
+        * `approved` - approved
+        * `rejected` - rejected
+        * `returned_to_review` - returned_to_review
+        * `withdrawn` - withdrawn
+    ManagerDashboard:
+      type: object
+      properties:
+        awaiting_review:
+          type: integer
+        awaiting_review_today:
+          type: integer
+        published_today:
+          type: integer
+        published_today_marketplaces:
+          type: integer
+        active_sellers:
+          type: integer
+        sellers_joined_this_month:
+          type: integer
+        active_listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagerDashboardChannelCount'
+        free_eans:
+          $ref: '#/components/schemas/ManagerDashboardFreeEans'
+        queue:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagerDashboardQueueItem'
+      required:
+      - active_listings
+      - active_sellers
+      - awaiting_review
+      - awaiting_review_today
+      - free_eans
+      - published_today
+      - published_today_marketplaces
+      - queue
+      - sellers_joined_this_month
+    ManagerDashboardChannelCount:
+      type: object
+      properties:
+        marketplace:
+          type: string
+        account:
+          type: string
+        count:
+          type: integer
+      required:
+      - account
+      - count
+      - marketplace
+    ManagerDashboardFreeEans:
+      type: object
+      properties:
+        jv:
+          type: integer
+        xl:
+          type: integer
+        total:
+          type: integer
+      required:
+      - jv
+      - total
+      - xl
+    ManagerDashboardQueueItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        product_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        image:
+          type: string
+        seller_name:
+          type: string
+      required:
+      - created_at
+      - id
+      - image
+      - product_type
+      - seller_name
+      - title
+    ManagerProductStatusChangeRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/ManagerProductStatusChangeStatusEnum'
+        comment:
+          type: string
+          maxLength: 2000
+        expected_catalog_revision:
+          type: integer
+          minimum: 1
+      required:
+      - status
+    ManagerProductStatusChangeStatusEnum:
+      enum:
+      - submitted
+      - rejected
+      type: string
+      description: |-
+        * `submitted` - Submitted
+        * `rejected` - Rejected
+    ManagerSeller:
+      type: object
+      description: Seller directory row for managers, including activation state.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Display name. Not unique; authentication uses email.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        product_count:
+          type: integer
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        is_email_verified:
+          type: boolean
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - is_active
+      - is_email_verified
+      - product_count
+      - role
+      - username
+    Marketplace18eEnum:
+      enum:
+      - otto
+      - hood
+      - kaufland
+      type: string
+      description: |-
+        * `otto` - OTTO
+        * `hood` - Hood
+        * `kaufland` - Kaufland
+    MarketplaceAe7Enum:
+      enum:
+      - hood
+      - otto
+      - kaufland
+      type: string
+      description: |-
+        * `hood` - hood
+        * `otto` - otto
+        * `kaufland` - kaufland
+    MarketplaceContentGeneration:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        product_id:
+          type: integer
+          readOnly: true
+        requested_by_id:
+          type: integer
+          readOnly: true
+        targets:
+          readOnly: true
+        language:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/MarketplaceContentGenerationStatusEnum'
+          readOnly: true
+        input_snapshot:
+          readOnly: true
+        result:
+          readOnly: true
+        error:
+          readOnly: true
+        model:
+          type: string
+          readOnly: true
+        celery_task_id:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - celery_task_id
+      - created_at
+      - error
+      - finished_at
+      - id
+      - input_snapshot
+      - language
+      - model
+      - product_id
+      - requested_by_id
+      - result
+      - started_at
+      - status
+      - targets
+    MarketplaceContentGenerationApplyRequestRequest:
+      type: object
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceTargetRequest'
+          description: Marketplace/account pairs that will receive the generated draft.
+        overwrite:
+          type: boolean
+          default: false
+          description: If false, AI fills only empty fields. If true, it replaces
+            existing manager text.
+      required:
+      - targets
+    MarketplaceContentGenerationRequestRequest:
+      type: object
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceTargetRequest'
+          description: Marketplace/account pairs that will receive the generated draft.
+      required:
+      - targets
+    MarketplaceContentGenerationStatusEnum:
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - partial
+      type: string
+      description: |-
+        * `queued` - Queued
+        * `running` - Running
+        * `succeeded` - Succeeded
+        * `failed` - Failed
+        * `partial` - Partial
+    MarketplaceJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        product_id:
+          type: integer
+          readOnly: true
+        product_title:
+          type: string
+          readOnly: true
+        operation:
+          $ref: '#/components/schemas/OperationEnum'
+        status:
+          $ref: '#/components/schemas/MarketplaceJobStatusEnum'
+        in_progress:
+          type: boolean
+          readOnly: true
+        request_id:
+          type: string
+          format: uuid
+          readOnly: true
+        requested_channels: {}
+        requested_targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceTarget'
+          readOnly: true
+        results: {}
+        error: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - created_at
+      - id
+      - in_progress
+      - operation
+      - product_id
+      - product_title
+      - request_id
+      - requested_targets
+    MarketplaceJobRequestRequest:
+      type: object
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+        payloads:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: {}
+        accounts:
+          type: object
+          additionalProperties:
+            type: string
+            minLength: 1
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceTargetRequest'
+    MarketplaceJobStatusEnum:
+      enum:
+      - queued
+      - running
+      - pending_confirmation
+      - succeeded
+      - partial
+      - failed
+      type: string
+      description: |-
+        * `queued` - Queued
+        * `running` - Running
+        * `pending_confirmation` - Pending confirmation
+        * `succeeded` - Succeeded
+        * `partial` - Partial
+        * `failed` - Failed
+    MarketplaceListingStateRequestRequest:
+      type: object
+      description: Manager request to change state of selected marketplace listings.
+      properties:
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceTargetRequest'
+      required:
+      - action
+    MarketplacePublication:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        product_id:
+          type: integer
+          readOnly: true
+        product_title:
+          type: string
+          readOnly: true
+        owner_id:
+          type: integer
+          readOnly: true
+        marketplace:
+          allOf:
+          - $ref: '#/components/schemas/Marketplace18eEnum'
+          readOnly: true
+        account:
+          allOf:
+          - $ref: '#/components/schemas/Account55eEnum'
+          readOnly: true
+        ean:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/MarketplacePublicationStatusEnum'
+          readOnly: true
+        external_id:
+          type: string
+          readOnly: true
+        external_reference:
+          type: string
+          readOnly: true
+        last_job_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        attempt_count:
+          type: integer
+          readOnly: true
+        last_response:
+          readOnly: true
+        last_error:
+          readOnly: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        deactivated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_attempt_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - account
+      - attempt_count
+      - created_at
+      - deactivated_at
+      - deleted_at
+      - ean
+      - external_id
+      - external_reference
+      - id
+      - last_attempt_at
+      - last_error
+      - last_job_id
+      - last_response
+      - marketplace
+      - owner_id
+      - product_id
+      - product_title
+      - published_at
+      - status
+      - updated_at
+    MarketplacePublicationStatusEnum:
+      enum:
+      - pending
+      - publishing
+      - active
+      - deactivating
+      - deactivated
+      - deleting
+      - deleted
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `publishing` - Publishing
+        * `active` - Active
+        * `deactivating` - Deactivating
+        * `deactivated` - Deactivated
+        * `deleting` - Deleting
+        * `deleted` - Deleted
+        * `failed` - Failed
+    MarketplaceTarget:
+      type: object
+      properties:
+        marketplace:
+          $ref: '#/components/schemas/MarketplaceAe7Enum'
+        account:
+          $ref: '#/components/schemas/MarketplaceTargetAccountEnum'
+      required:
+      - account
+      - marketplace
+    MarketplaceTargetAccountEnum:
+      enum:
+      - jv
+      - xl
+      type: string
+      description: |-
+        * `jv` - jv
+        * `xl` - xl
+    MarketplaceTargetRequest:
+      type: object
+      properties:
+        marketplace:
+          $ref: '#/components/schemas/MarketplaceAe7Enum'
+        account:
+          $ref: '#/components/schemas/MarketplaceTargetAccountEnum'
+      required:
+      - account
+      - marketplace
+    ModeEnum:
+      enum:
+      - white
+      - interior
+      - human
+      type: string
+      description: |-
+        * `white` - White background
+        * `interior` - Interior
+        * `human` - Human
+    ModerationApproveRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          maxLength: 2000
+        expected_catalog_revision:
+          type: integer
+          minimum: 1
+    ModerationDecision:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        decision:
+          allOf:
+          - $ref: '#/components/schemas/DecisionEnum'
+          readOnly: true
+        comment:
+          type: string
+          readOnly: true
+        manager:
+          type: integer
+          readOnly: true
+        manager_username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - comment
+      - created_at
+      - decision
+      - id
+      - manager
+      - manager_username
+    ModerationRejectRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        expected_catalog_revision:
+          type: integer
+          minimum: 1
+      required:
+      - comment
+    NotificationTypeEnum:
+      enum:
+      - product_approved
+      - product_rejected
+      - product_confirmation
+      - image_processing_completed
+      - image_processing_failed
+      - message_received
+      - product_availability_reminder
+      - manager_message
+      - product_deactivated
+      - product_deactivation_requested
+      - product_submitted_for_review
+      - product_withdrawn_from_review
+      - product_change_requested
+      type: string
+      description: |-
+        * `product_approved` - Product approved
+        * `product_rejected` - Product rejected
+        * `product_confirmation` - Product confirmation
+        * `image_processing_completed` - Image processing completed
+        * `image_processing_failed` - Image processing failed
+        * `message_received` - Message received
+        * `product_availability_reminder` - Product availability reminder
+        * `manager_message` - Manager message
+        * `product_deactivated` - Product deactivated
+        * `product_deactivation_requested` - Product deactivation requested
+        * `product_submitted_for_review` - Product submitted for review
+        * `product_withdrawn_from_review` - Product withdrawn from review
+        * `product_change_requested` - Product change requested
+    NotificationsDeviceDeactivateRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+      required:
+      - token
+    NotificationsDeviceToken:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+        is_active:
+          type: boolean
+          readOnly: true
+        last_seen_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - id
+      - is_active
+      - last_seen_at
+      - platform
+    NotificationsDeviceTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          writeOnly: true
+          minLength: 1
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+      required:
+      - platform
+      - token
+    NotificationsNotification:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        notification_type:
+          allOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          readOnly: true
+        product_id:
+          type: integer
+          readOnly: true
+          nullable: true
+        product_title:
+          type: string
+          nullable: true
+          readOnly: true
+        product_status:
+          type: string
+          nullable: true
+          readOnly: true
+        seller_username:
+          type: string
+          nullable: true
+          readOnly: true
+        seller_email:
+          type: string
+          nullable: true
+          readOnly: true
+        seller_name:
+          type: string
+          nullable: true
+          readOnly: true
+        is_read:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        read_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        responded_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        sender_id:
+          type: integer
+          readOnly: true
+          nullable: true
+        sender_username:
+          type: string
+          nullable: true
+          readOnly: true
+        sender_email:
+          type: string
+          nullable: true
+          readOnly: true
+        sender_name:
+          type: string
+          nullable: true
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+      required:
+      - body
+      - created_at
+      - id
+      - is_read
+      - notification_type
+      - product_id
+      - product_status
+      - product_title
+      - read_at
+      - responded_at
+      - seller_email
+      - seller_name
+      - seller_username
+      - sender_email
+      - sender_id
+      - sender_name
+      - sender_username
+      - title
+    NotificationsSummary:
+      type: object
+      properties:
+        unread_total:
+          type: integer
+        all:
+          type: integer
+        review:
+          type: integer
+        availability:
+          type: integer
+        outgoing:
+          type: integer
+        unread_review:
+          type: integer
+        unread_availability:
+          type: integer
+        unread_outgoing:
+          type: integer
+      required:
+      - all
+      - availability
+      - outgoing
+      - review
+      - unread_availability
+      - unread_outgoing
+      - unread_review
+      - unread_total
+    NullEnum:
+      enum:
+      - null
+    OperationEnum:
+      enum:
+      - search
+      - publish
+      - update
+      - delete
+      - deactivate
+      - activate
+      type: string
+      description: |-
+        * `search` - Search
+        * `publish` - Publish
+        * `update` - Update
+        * `delete` - Delete
+        * `deactivate` - Deactivate
+        * `activate` - Activate
+    OttoCategory:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        category_group_id:
+          type: integer
+        category_group:
+          type: string
+        name:
+          type: string
+      required:
+      - category_group
+      - category_group_id
+      - category_id
+      - name
+    OttoCategoryAttribute:
+      type: object
+      properties:
+        attribute_id:
+          type: integer
+        attribute_key:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        attribute_group:
+          type: string
+        description:
+          type: string
+        relevance:
+          type: string
+        feature_relevance:
+          type: array
+          items:
+            type: string
+        multi_value:
+          type: boolean
+        unit:
+          type: string
+        unit_display_name:
+          type: string
+          nullable: true
+        allowed_values:
+          type: array
+          items: {}
+        allowed_value_labels:
+          type: string
+          readOnly: true
+      required:
+      - allowed_value_labels
+      - allowed_values
+      - attribute_group
+      - attribute_id
+      - attribute_key
+      - description
+      - feature_relevance
+      - multi_value
+      - name
+      - relevance
+      - type
+      - unit
+      - unit_display_name
+    OttoCategoryGroup:
+      type: object
+      properties:
+        category_group_id:
+          type: integer
+        category_group:
+          type: string
+        category_count:
+          type: integer
+      required:
+      - category_count
+      - category_group
+      - category_group_id
+    OttoListingConfiguration:
+      type: object
+      description: |-
+        Editable OTTO content shown in the manager web panel.
+
+        These names are API-stable; the web frontend should render human labels,
+        such as "OTTO selling price (€)" rather than the JSON key itself.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        product_line:
+          type: string
+          description: German product name / product line (max 70 characters, including
+            (BD)).
+          maxLength: 70
+        standard_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: OTTO selling price in EUR.
+        vat:
+          allOf:
+          - $ref: '#/components/schemas/VatEnum'
+          description: |-
+            VAT class for OTTO: FULL, REDUCED, or FREE.
+
+            * `FULL` - FULL
+            * `REDUCED` - REDUCED
+            * `FREE` - FREE
+        shipping_profile_id:
+          type: string
+          description: OTTO shipping profile ID for the selected account.
+          maxLength: 255
+        media_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        description:
+          type: string
+          description: German product description. It can later be suggested by AI
+            and edited by a manager.
+        bullet_points:
+          type: array
+          items:
+            type: string
+            maxLength: 1000
+          description: Up to five German product highlights.
+          maxItems: 5
+        brand_id:
+          type: string
+          description: Brand ID registered in the selected OTTO account.
+          maxLength: 255
+        manufacturer:
+          type: string
+          maxLength: 255
+        isbn:
+          type: string
+          description: 'Optional: ISBN, used for books.'
+          maxLength: 255
+        upc:
+          type: string
+          description: 'Optional: UPC barcode.'
+          maxLength: 255
+        pzn:
+          type: string
+          description: 'Optional: German pharmaceutical product number.'
+          maxLength: 255
+        mpn:
+          type: string
+          description: 'Optional: manufacturer part number.'
+          maxLength: 255
+        moin:
+          type: string
+          description: 'Optional: OTTO/internal product identifier.'
+          maxLength: 255
+        offering_start_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Optional: date and time when the offer becomes available.'
+        release_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Optional: product release date, for example for pre-orders.'
+        order_max_quantity:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: 'Optional: maximum number of units one customer may order.'
+        order_period_in_days:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: 'Optional: period in days for the purchase limit.'
+        product_url:
+          oneOf:
+          - type: string
+            format: uri
+          - type: string
+            maxLength: 0
+        bundle:
+          type: boolean
+          nullable: true
+        multi_pack:
+          type: boolean
+          nullable: true
+        fsc_certified:
+          type: boolean
+          nullable: true
+        disposal:
+          type: boolean
+          nullable: true
+    OttoListingConfigurationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        product:
+          type: integer
+          readOnly: true
+        marketplace:
+          allOf:
+          - $ref: '#/components/schemas/Marketplace18eEnum'
+          readOnly: true
+        account:
+          allOf:
+          - $ref: '#/components/schemas/Account55eEnum'
+          readOnly: true
+        configuration:
+          allOf:
+          - $ref: '#/components/schemas/OttoListingConfiguration'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - account
+      - configuration
+      - created_at
+      - id
+      - marketplace
+      - product
+      - updated_at
+    OttoShippingProfile:
+      type: object
+      properties:
+        shipping_profile_id:
+          type: string
+        shipping_profile_name:
+          type: string
+      required:
+      - shipping_profile_id
+      - shipping_profile_name
+    PaginatedAuthProfileList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthProfile'
+    PaginatedEanCodeList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EanCode'
+    PaginatedManagerSellerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagerSeller'
+    PaginatedMarketplaceJobList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceJob'
+    PaginatedMarketplacePublicationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplacePublication'
+    PaginatedModerationDecisionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModerationDecision'
+    PaginatedNotificationsNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationsNotification'
+    PaginatedProductsProductList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsProduct'
+    PatchedAuthProfileRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+    PatchedHoodListingConfigurationRequest:
+      type: object
+      description: |-
+        Настройки менеджера для одного Hood-объявления.
+        Финальный JSON для Hood строится автоматически из товара и этих полей.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        title:
+          type: string
+          description: Название товара для Hood.
+          maxLength: 255
+        description:
+          type: string
+          description: HTML-описание товара для Hood.
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Цена одного товара для Hood.
+        category_id:
+          type: string
+          description: Ignored. Hood listings always use category 2412.
+          maxLength: 100
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+            minLength: 1
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        property_overrides:
+          type: object
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 1000
+          description: 'Дополнительные или исправленные свойства Hood. Формат: {"Farbe":
+            "Braun", "Stil": "Modern"}.'
+    PatchedKauflandListingConfigurationRequest:
+      type: object
+      description: Настройки менеджера для одного Kaufland-объявления.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        title:
+          type: string
+          description: Название товара для Kaufland.
+          maxLength: 255
+        description:
+          type: string
+          description: Описание товара для Kaufland.
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Цена одного товара.
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+            minLength: 1
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        delivery:
+          type: integer
+          minimum: 0
+          description: Ignored. Kaufland listings use 32 delivery days by default.
+        storefronts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorefrontsEnum'
+          description: 'Страны публикации. По умолчанию — [''de'']. Допустимые: de,
+            cz, sk, pl, at, fr, it.'
+        storefront:
+          allOf:
+          - $ref: '#/components/schemas/StorefrontEnum'
+          description: |-
+            Одна страна для update. Если не указана, используется первая из storefronts или de.
+
+            * `de` - de
+            * `cz` - cz
+            * `sk` - sk
+            * `pl` - pl
+            * `at` - at
+            * `fr` - fr
+            * `it` - it
+        id_offer:
+          type: string
+          description: Необязательный внутренний ID предложения.
+          maxLength: 255
+        unit_id:
+          type: string
+          description: Необязательный unit ID для Kaufland update.
+          maxLength: 255
+    PatchedMarketplaceContentGenerationEditRequestRequest:
+      type: object
+      description: Manager edits of a completed AI draft before it is applied.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: German marketplace title, maximum 65 characters. (BD) is added
+            on publish.
+          maxLength: 65
+        description:
+          type: string
+          minLength: 1
+          description: German description consisting of two or three plain-text paragraphs
+            separated by an empty line.
+        bullet_points:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Three to five concise German product highlights.
+        materials:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: German material names copied into listing configurations.
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name copied into listing configurations.
+          maxLength: 80
+    PatchedOttoListingConfigurationRequest:
+      type: object
+      description: |-
+        Editable OTTO content shown in the manager web panel.
+
+        These names are API-stable; the web frontend should render human labels,
+        such as "OTTO selling price (€)" rather than the JSON key itself.
+      properties:
+        materials:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: German material names for the marketplace listing (max 2).
+          maxItems: 2
+        color:
+          type: string
+          description: German colour name for the marketplace listing.
+          maxLength: 80
+        product_line:
+          type: string
+          description: German product name / product line (max 70 characters, including
+            (BD)).
+          maxLength: 70
+        standard_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: OTTO selling price in EUR.
+        vat:
+          allOf:
+          - $ref: '#/components/schemas/VatEnum'
+          description: |-
+            VAT class for OTTO: FULL, REDUCED, or FREE.
+
+            * `FULL` - FULL
+            * `REDUCED` - REDUCED
+            * `FREE` - FREE
+        shipping_profile_id:
+          type: string
+          description: OTTO shipping profile ID for the selected account.
+          maxLength: 255
+        media_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+            minLength: 1
+          description: Ignored. Marketplace listings use AI images of the cover photo.
+        description:
+          type: string
+          description: German product description. It can later be suggested by AI
+            and edited by a manager.
+        bullet_points:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1000
+          description: Up to five German product highlights.
+          maxItems: 5
+        brand_id:
+          type: string
+          description: Brand ID registered in the selected OTTO account.
+          maxLength: 255
+        manufacturer:
+          type: string
+          maxLength: 255
+        isbn:
+          type: string
+          description: 'Optional: ISBN, used for books.'
+          maxLength: 255
+        upc:
+          type: string
+          description: 'Optional: UPC barcode.'
+          maxLength: 255
+        pzn:
+          type: string
+          description: 'Optional: German pharmaceutical product number.'
+          maxLength: 255
+        mpn:
+          type: string
+          description: 'Optional: manufacturer part number.'
+          maxLength: 255
+        moin:
+          type: string
+          description: 'Optional: OTTO/internal product identifier.'
+          maxLength: 255
+        offering_start_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Optional: date and time when the offer becomes available.'
+        release_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'Optional: product release date, for example for pre-orders.'
+        order_max_quantity:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: 'Optional: maximum number of units one customer may order.'
+        order_period_in_days:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: 'Optional: period in days for the purchase limit.'
+        product_url:
+          oneOf:
+          - type: string
+            format: uri
+          - type: string
+            maxLength: 0
+        bundle:
+          type: boolean
+          nullable: true
+        multi_pack:
+          type: boolean
+          nullable: true
+        fsc_certified:
+          type: boolean
+          nullable: true
+        disposal:
+          type: boolean
+          nullable: true
+    PatchedPreferredLanguageRequest:
+      type: object
+      properties:
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
+    PatchedProductsProductRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        product_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          default: TRY
+        warehouse_city:
+          $ref: '#/components/schemas/WarehouseCityEnum'
+        listing_price_eur_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        pricing_overrides: {}
+        otto_category_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_category_group_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_attributes:
+          type: object
+          additionalProperties: {}
+        resubmit_for_moderation:
+          type: boolean
+          writeOnly: true
+          default: false
+          description: Seller-only flag for a rejected product. Set true after all
+            corrections are complete to send it back to moderation.
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsVariantRequest'
+          description: Exactly one variant. One color per product listing.
+    PlatformEnum:
+      enum:
+      - android
+      - ios
+      type: string
+      description: |-
+        * `android` - Android
+        * `ios` - iOS
+    PreferredLanguageEnum:
+      enum:
+      - ru
+      - tr
+      - de
+      - en
+      type: string
+      description: |-
+        * `ru` - Русский
+        * `tr` - Türkçe
+        * `de` - Deutsch
+        * `en` - English
+    ProcessingStatusEnum:
+      enum:
+      - idle
+      - pending
+      - processing
+      - succeeded
+      - failed
+      - result_received
+      type: string
+      description: |-
+        * `idle` - Idle
+        * `pending` - Pending
+        * `processing` - Processing
+        * `succeeded` - Succeeded
+        * `failed` - Failed
+        * `result_received` - Result received
+    ProductsAvailabilityRequest:
+      type: object
+      properties:
+        is_available:
+          type: boolean
+      required:
+      - is_available
+    ProductsGeneratedImage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          readOnly: true
+        image:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - image
+      - mode
+    ProductsImage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        image:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        processed_image:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        position:
+          type: integer
+          readOnly: true
+        is_primary:
+          type: boolean
+          readOnly: true
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+        processing_error:
+          type: string
+          readOnly: true
+        processing_result:
+          readOnly: true
+        generated_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsGeneratedImage'
+          readOnly: true
+      required:
+      - generated_images
+      - id
+      - image
+      - is_primary
+      - position
+      - processed_image
+      - processing_error
+      - processing_result
+      - processing_status
+    ProductsImageReorderRequest:
+      type: object
+      properties:
+        image_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+      required:
+      - image_ids
+    ProductsImageUploadRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+        is_primary:
+          type: boolean
+          default: false
+      required:
+      - image
+    ProductsMultipartCreateRequest:
+      type: object
+      description: Product creation payload for ``multipart/form-data`` clients.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        product_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          default: TRY
+        warehouse_city:
+          $ref: '#/components/schemas/WarehouseCityEnum'
+        listing_price_eur_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        pricing_overrides: {}
+        otto_category_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_category_group_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_attributes:
+          type: object
+          additionalProperties: {}
+          description: Optional JSON object with OTTO attribute values.
+        resubmit_for_moderation:
+          type: boolean
+          writeOnly: true
+          default: false
+          description: Seller-only flag for a rejected product. Set true after all
+            corrections are complete to send it back to moderation.
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsVariantRequest'
+          description: JSON array with exactly one product variant.
+          maxItems: 1
+          minItems: 1
+        images:
+          type: array
+          items:
+            type: string
+            format: binary
+          writeOnly: true
+          description: One to ten image files. The first image becomes primary.
+          maxItems: 10
+          minItems: 1
+      required:
+      - images
+      - product_type
+      - title
+      - unit_price
+      - variants
+      - warehouse_city
+    ProductsOwner:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+      required:
+      - email
+      - first_name
+      - id
+      - phone
+      - username
+    ProductsProduct:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        owner:
+          type: integer
+          readOnly: true
+        seller:
+          allOf:
+          - $ref: '#/components/schemas/ProductsOwner'
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        product_type:
+          type: string
+          maxLength: 255
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          default: TRY
+        warehouse_city:
+          $ref: '#/components/schemas/WarehouseCityEnum'
+        listing_price_eur:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+          readOnly: true
+        listing_price_eur_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        pricing_overrides: {}
+        pricing_formula:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        otto_category_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_category_group_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        otto_category_name:
+          type: string
+          readOnly: true
+        otto_category_group_name:
+          type: string
+          readOnly: true
+        otto_attributes:
+          type: object
+          additionalProperties: {}
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ProductsProductStatusEnum'
+          readOnly: true
+        last_moderation_decision:
+          nullable: true
+          readOnly: true
+          oneOf:
+          - $ref: '#/components/schemas/LastModerationDecisionEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        ean_jv:
+          type: string
+          readOnly: true
+        ean_xl:
+          type: string
+          readOnly: true
+        is_available:
+          type: boolean
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        availability_reminder_sent_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        availability_confirmed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        deactivation_requested_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        deactivated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        catalog_revision:
+          type: integer
+          readOnly: true
+        pending_changes:
+          readOnly: true
+        pending_changes_submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsVariant'
+          description: Exactly one variant. One color per product listing.
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductsImage'
+          readOnly: true
+        total_quantity:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - approved_at
+      - availability_confirmed_at
+      - availability_reminder_sent_at
+      - catalog_revision
+      - created_at
+      - deactivated_at
+      - deactivation_requested_at
+      - ean_jv
+      - ean_xl
+      - id
+      - images
+      - is_available
+      - last_moderation_decision
+      - listing_price_eur
+      - otto_category_group_name
+      - otto_category_name
+      - owner
+      - pending_changes
+      - pending_changes_submitted_at
+      - pricing_formula
+      - product_type
+      - seller
+      - status
+      - title
+      - total_amount
+      - total_quantity
+      - unit_price
+      - updated_at
+      - warehouse_city
+    ProductsProductStatusEnum:
+      enum:
+      - draft
+      - submitted
+      - approved
+      - rejected
+      - withdrawn
+      - archived
+      - deactivated
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `submitted` - Submitted
+        * `approved` - Approved
+        * `rejected` - Rejected
+        * `withdrawn` - Withdrawn
+        * `archived` - Archived
+        * `deactivated` - Deactivated
+    ProductsVariant:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        color:
+          type: string
+          description: Seller colour name, for example beyaz or white.
+          maxLength: 80
+        materials:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+          description: Materials in priority order. The first item is the primary
+            material and is sent to Kaufland.
+          maxItems: 2
+          minItems: 1
+        width_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        height_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        length_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+      required:
+      - color
+      - height_cm
+      - id
+      - length_cm
+      - materials
+      - quantity
+      - width_cm
+    ProductsVariantRequest:
+      type: object
+      properties:
+        color:
+          type: string
+          minLength: 1
+          description: Seller colour name, for example beyaz or white.
+          maxLength: 80
+        materials:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Materials in priority order. The first item is the primary
+            material and is sent to Kaufland.
+          maxItems: 2
+          minItems: 1
+        width_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        height_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        length_cm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+      required:
+      - color
+      - height_cm
+      - length_cm
+      - materials
+      - quantity
+      - width_cm
+    RoleEnum:
+      enum:
+      - seller
+      - manager
+      - admin
+      type: string
+      description: |-
+        * `seller` - Seller
+        * `manager` - Manager
+        * `admin` - Admin
+    SellerChangesApproveRequest:
+      type: object
+      properties:
+        expected_catalog_revision:
+          type: integer
+          minimum: 1
+      required:
+      - expected_catalog_revision
+    SellerChangesRejectRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        expected_catalog_revision:
+          type: integer
+          minimum: 1
+      required:
+      - comment
+      - expected_catalog_revision
+    StorefrontEnum:
+      enum:
+      - de
+      - cz
+      - sk
+      - pl
+      - at
+      - fr
+      - it
+      type: string
+      description: |-
+        * `de` - de
+        * `cz` - cz
+        * `sk` - sk
+        * `pl` - pl
+        * `at` - at
+        * `fr` - fr
+        * `it` - it
+    StorefrontsEnum:
+      enum:
+      - de
+      - cz
+      - sk
+      - pl
+      - at
+      - fr
+      - it
+      type: string
+      description: |-
+        * `de` - de
+        * `cz` - cz
+        * `sk` - sk
+        * `pl` - pl
+        * `at` - at
+        * `fr` - fr
+        * `it` - it
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    VatEnum:
+      enum:
+      - FULL
+      - REDUCED
+      - FREE
+      type: string
+      description: |-
+        * `FULL` - FULL
+        * `REDUCED` - REDUCED
+        * `FREE` - FREE
+    WarehouseCityEnum:
+      enum:
+      - IST
+      - ANK
+      - IZM
+      - BUR
+      - KSY
+      - INE
+      type: string
+      description: |-
+        * `IST` - Istanbul
+        * `ANK` - Ankara
+        * `IZM` - Izmir
+        * `BUR` - Bursa
+        * `KSY` - Kars
+        * `INE` - Inegol
+    WebManagerCreate:
+      type: object
+      description: Manager-only user creation. This serializer never accepts a role.
+      properties:
+        username:
+          type: string
+          description: Display name. Not unique; authentication uses email.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+      required:
+      - email
+      - username
+    WebManagerCreateRequest:
+      type: object
+      description: Manager-only user creation. This serializer never accepts a role.
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Display name. Not unique; authentication uses email.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          maxLength: 32
+        preferred_language:
+          $ref: '#/components/schemas/PreferredLanguageEnum'
+      required:
+      - email
+      - password
+      - password_confirm
+      - username
+    WebManagerProductNotificationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1500
+      required:
+      - body
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+tags:
+- name: Auth - Seller
+  description: Регистрация продавца, подтверждение email и профиль.
+- name: Auth - Shared
+  description: Общий JWT-вход, обновление и выход для web и mobile.
+- name: Manager accounts
+  description: Создание менеджеров из защищённой web-панели.
+- name: Products
+  description: Товары, варианты, цены и жизненный цикл продавца.
+- name: Product images
+  description: Загрузка, сортировка, главное фото и AI-обработка.
+- name: Moderation
+  description: Отправка товара продавцом и история решений.
+- name: Manager moderation
+  description: Проверка, одобрение, отклонение и сообщения менеджера.
+- name: EAN pool
+  description: Импорт, остаток и просмотр EAN-пула JV/XL.
+- name: Notifications
+  description: Уведомления в приложении и регистрация FCM-устройств.
+- name: OTTO - Catalog
+  description: Локальный каталог групп, категорий и атрибутов OTTO.
+- name: OTTO - Delivery
+  description: Доступные для менеджера профили доставки JV и XL.
+- name: AI content
+  description: Асинхронная генерация и применение контента для маркетплейсов.
+- name: OTTO
+  description: Конфигурация и предпросмотр payload для OTTO.
+- name: Hood
+  description: Конфигурация и предпросмотр payload для Hood.
+- name: Kaufland
+  description: Конфигурация и предпросмотр payload для Kaufland.
+- name: Marketplace jobs
+  description: Очереди публикации, обновления, поиска и смены состояния листингов.

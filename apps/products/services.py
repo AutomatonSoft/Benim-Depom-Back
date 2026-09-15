@@ -115,12 +115,95 @@ _PENDING_PRODUCT_FIELDS = {
 }
 
 
+SELLER_PENDING_COMMENT_KEY = "seller_comment"
+SELLER_REVIEW_KIND_KEY = "review_kind"
+SELLER_REVIEW_BASELINE_KEY = "baseline"
+SELLER_REVIEW_MANAGER_COMMENT_KEY = "manager_comment"
+SELLER_REVIEW_AT_KEY = "reviewed_at"
+SELLER_REVIEW_META_KEYS = frozenset(
+    {
+        SELLER_PENDING_COMMENT_KEY,
+        SELLER_REVIEW_KIND_KEY,
+        SELLER_REVIEW_BASELINE_KEY,
+        SELLER_REVIEW_MANAGER_COMMENT_KEY,
+        SELLER_REVIEW_AT_KEY,
+    }
+)
+SELLER_REVIEW_KIND_REJECTED_PENDING = "rejected_pending"
+SELLER_REVIEW_KIND_RESUBMISSION = "resubmission"
+
+
+def _current_variants_payload(product: Product) -> list[dict[str, Any]]:
+    return [
+        {
+            "color": variant.color,
+            "materials": list(variant.materials or []),
+            "width_cm": variant.width_cm,
+            "height_cm": variant.height_cm,
+            "length_cm": variant.length_cm,
+            "quantity": variant.quantity,
+        }
+        for variant in product.variants.all().order_by("id")
+    ]
+
+
+def _baseline_for_pending(product: Product, pending: dict[str, Any]) -> dict[str, Any]:
+    baseline: dict[str, Any] = {}
+    for field in pending:
+        if field in SELLER_REVIEW_META_KEYS:
+            continue
+        if field == "variants":
+            baseline[field] = _json_ready(_current_variants_payload(product))
+        elif field in _PENDING_PRODUCT_FIELDS:
+            baseline[field] = _json_ready(getattr(product, field))
+    return baseline
+
+
+def build_seller_resubmission_review(
+    *,
+    product: Product,
+    data: dict[str, Any],
+    variants_data: list[dict[str, Any]] | None,
+    comment: str = "",
+) -> dict[str, Any]:
+    baseline: dict[str, Any] = {}
+    changes: dict[str, Any] = {}
+    for field in _PENDING_PRODUCT_FIELDS:
+        if field not in data:
+            continue
+        old = _json_ready(getattr(product, field))
+        new = _json_ready(data[field])
+        if old != new:
+            baseline[field] = old
+            changes[field] = new
+
+    if variants_data is not None:
+        old_variants = _json_ready(_current_variants_payload(product))
+        new_variants = _json_ready(variants_data)
+        if old_variants != new_variants:
+            baseline["variants"] = old_variants
+            changes["variants"] = new_variants
+
+    review: dict[str, Any] = {
+        SELLER_REVIEW_KIND_KEY: SELLER_REVIEW_KIND_RESUBMISSION,
+        SELLER_REVIEW_AT_KEY: timezone.now().isoformat(),
+        **changes,
+    }
+    cleaned = str(comment or "").strip()
+    if cleaned:
+        review[SELLER_PENDING_COMMENT_KEY] = cleaned
+    if baseline:
+        review[SELLER_REVIEW_BASELINE_KEY] = baseline
+    return review
+
+
 @transaction.atomic
 def save_seller_pending_changes(
     *,
     product: Product,
     data: dict[str, Any],
     variants_data: list[dict[str, Any]] | None,
+    comment: str | None = None,
 ) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     if locked_product.status != Product.Status.APPROVED:
@@ -134,21 +217,33 @@ def save_seller_pending_changes(
         for field, value in data.items()
         if field in _PENDING_PRODUCT_FIELDS
     }
-    if not updates and variants_data is None:
+    comment_provided = comment is not None
+    if not updates and variants_data is None and not comment_provided:
+        return locked_product
+    if not updates and variants_data is None and not pending:
+        # A comment alone cannot open a change request.
         return locked_product
 
     was_empty = not pending
     pending.update(updates)
     if variants_data is not None:
         pending["variants"] = _json_ready(variants_data)
+    if comment_provided:
+        cleaned = str(comment or "").strip()
+        if cleaned:
+            pending[SELLER_PENDING_COMMENT_KEY] = cleaned
+        else:
+            pending.pop(SELLER_PENDING_COMMENT_KEY, None)
 
     locked_product.pending_changes = pending
     locked_product.pending_changes_submitted_at = timezone.now()
+    locked_product.seller_change_review = {}
     locked_product.catalog_revision += 1
     locked_product.save(
         update_fields=(
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
             "catalog_revision",
             "updated_at",
         )
@@ -159,12 +254,14 @@ def save_seller_pending_changes(
         from apps.notifications.services import create_notification, manager_inbox_users
 
         seller = locked_product.owner
+        seller_comment = str(pending.get(SELLER_PENDING_COMMENT_KEY) or "").strip()
         for manager in manager_inbox_users(exclude_user=seller):
             create_notification(
                 user=manager,
                 sender=seller,
                 product=locked_product,
                 notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+                comment=seller_comment,
             )
 
     return locked_product
@@ -190,11 +287,13 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
     )
     locked_product.pending_changes = {}
     locked_product.pending_changes_submitted_at = None
+    locked_product.seller_change_review = {}
     locked_product.catalog_revision += 1
     locked_product.save(
         update_fields=(
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
             "catalog_revision",
             "updated_at",
         )
@@ -203,20 +302,35 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
 
 
 @transaction.atomic
-def discard_pending_seller_changes(*, product: Product) -> Product:
+def discard_pending_seller_changes(
+    *,
+    product: Product,
+    archive: bool = False,
+    manager_comment: str = "",
+) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     if not locked_product.pending_changes:
         raise ValidationError({"detail": "This product has no pending seller changes."})
 
+    pending = dict(locked_product.pending_changes or {})
+    update_fields = [
+        "pending_changes",
+        "pending_changes_submitted_at",
+        "updated_at",
+    ]
+    if archive and pending:
+        locked_product.seller_change_review = {
+            **pending,
+            SELLER_REVIEW_KIND_KEY: SELLER_REVIEW_KIND_REJECTED_PENDING,
+            SELLER_REVIEW_AT_KEY: timezone.now().isoformat(),
+            SELLER_REVIEW_MANAGER_COMMENT_KEY: str(manager_comment or "").strip(),
+            SELLER_REVIEW_BASELINE_KEY: _baseline_for_pending(locked_product, pending),
+        }
+        update_fields.append("seller_change_review")
+
     locked_product.pending_changes = {}
     locked_product.pending_changes_submitted_at = None
-    locked_product.save(
-        update_fields=(
-            "pending_changes",
-            "pending_changes_submitted_at",
-            "updated_at",
-        )
-    )
+    locked_product.save(update_fields=update_fields)
     return locked_product
 
 

@@ -81,6 +81,23 @@ def notify_managers_of_availability_confirmation(
         )
 
 
+SELLER_COMMENT_MARKER = "\n\n__SELLER_COMMENT__\n"
+
+
+def attach_seller_comment(body: str, comment: str) -> str:
+    text = (comment or "").strip()
+    if not text:
+        return body
+    base = body.split(SELLER_COMMENT_MARKER, 1)[0].rstrip()
+    return f"{base}{SELLER_COMMENT_MARKER}{text}"
+
+
+def extract_seller_comment(body: str) -> str:
+    if SELLER_COMMENT_MARKER not in (body or ""):
+        return ""
+    return body.split(SELLER_COMMENT_MARKER, 1)[1].strip()
+
+
 def create_notification(
     *,
     user: User,
@@ -90,6 +107,7 @@ def create_notification(
     title: str = "",
     body: str = "",
     copy_key: str = "",
+    comment: str = "",
 ) -> Notification:
     key = copy_key_for_type(notification_type, copy_key=copy_key)
     if key and (not title or not body):
@@ -106,6 +124,8 @@ def create_notification(
         )
         title = title or generated_title
         body = body or generated_body
+
+    body = attach_seller_comment(body, comment)
 
     notification = Notification.objects.create(
         user=user,

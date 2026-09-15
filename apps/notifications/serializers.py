@@ -2,6 +2,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from .models import DeviceToken, Notification
+from .services import extract_seller_comment
 
 NOTIFICATION_CATEGORY_CHOICES = (
     ("review", "Review"),
@@ -89,6 +90,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     sender_username = serializers.SerializerMethodField()
     sender_email = serializers.SerializerMethodField()
     sender_name = serializers.SerializerMethodField()
+    seller_comment = serializers.SerializerMethodField()
 
     sender_id = serializers.IntegerField(
         source="sender.id",
@@ -117,6 +119,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "sender_name",
             "title",
             "body",
+            "seller_comment",
         )
         read_only_fields = fields
 
@@ -173,6 +176,10 @@ class NotificationSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sender_name(self, notification) -> str | None:
         return self._person_name(notification.sender)
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_seller_comment(self, notification) -> str:
+        return extract_seller_comment(notification.body or "")
 
 
 @extend_schema_serializer(component_name="NotificationsSummary")
