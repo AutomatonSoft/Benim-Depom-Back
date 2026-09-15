@@ -18,6 +18,7 @@ from apps.catalog.otto_catalog import (
 from apps.common.permissions import is_manager
 
 from .models import (
+    PriceNegotiation,
     Product,
     ProductGeneratedImage,
     ProductImage,
@@ -38,6 +39,59 @@ class ProductOwnerSerializer(serializers.Serializer):
     first_name = serializers.CharField(read_only=True)
     email = serializers.CharField(read_only=True)
     phone = serializers.CharField(read_only=True)
+    preferred_language = serializers.CharField(read_only=True)
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiation")
+class PriceNegotiationSerializer(serializers.ModelSerializer):
+    manager_username = serializers.CharField(
+        source="manager.username",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PriceNegotiation
+        fields = (
+            "id",
+            "manager_username",
+            "proposed_unit_price",
+            "current_unit_price",
+            "currency",
+            "message",
+            "status",
+            "seller_comment",
+            "responded_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiationCreate")
+class PriceNegotiationCreateSerializer(serializers.Serializer):
+    proposed_unit_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
+    message = serializers.CharField(max_length=4000, trim_whitespace=True)
+
+    def validate_message(self, value):
+        if not value:
+            raise serializers.ValidationError("Enter a message for the seller.")
+        return value
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiationRespond")
+class PriceNegotiationRespondSerializer(serializers.Serializer):
+    accepted = serializers.BooleanField()
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        trim_whitespace=True,
+        default="",
+    )
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
@@ -225,6 +279,8 @@ class ProductSerializer(serializers.ModelSerializer):
     total_quantity = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
     last_moderation_decision = serializers.SerializerMethodField()
+    active_price_negotiation = serializers.SerializerMethodField()
+    latest_price_negotiation = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -263,6 +319,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "pending_changes",
             "pending_changes_submitted_at",
             "seller_change_review",
+            "active_price_negotiation",
+            "latest_price_negotiation",
             "variants",
             "images",
             "total_quantity",
@@ -293,6 +351,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "pending_changes",
             "pending_changes_submitted_at",
             "seller_change_review",
+            "active_price_negotiation",
+            "latest_price_negotiation",
             "listing_price_eur",
             "pricing_formula",
         )
@@ -340,6 +400,35 @@ class ProductSerializer(serializers.ModelSerializer):
     )
     def get_last_moderation_decision(self, product) -> str | None:
         return getattr(product, "last_moderation_decision", None)
+
+    def _serialize_price_negotiation(self, negotiation):
+        if negotiation is None:
+            return None
+        return PriceNegotiationSerializer(negotiation).data
+
+    @extend_schema_field(PriceNegotiationSerializer(allow_null=True))
+    def get_active_price_negotiation(self, product):
+        prefetched = getattr(product, "_prefetched_objects_cache", {})
+        if "price_negotiations" in prefetched:
+            for item in product.price_negotiations.all():
+                if item.status == PriceNegotiation.Status.PENDING:
+                    return self._serialize_price_negotiation(item)
+            return None
+        negotiation = (
+            product.price_negotiations.filter(status=PriceNegotiation.Status.PENDING)
+            .order_by("-created_at")
+            .first()
+        )
+        return self._serialize_price_negotiation(negotiation)
+
+    @extend_schema_field(PriceNegotiationSerializer(allow_null=True))
+    def get_latest_price_negotiation(self, product):
+        prefetched = getattr(product, "_prefetched_objects_cache", {})
+        if "price_negotiations" in prefetched:
+            items = list(product.price_negotiations.all())
+            return self._serialize_price_negotiation(items[0] if items else None)
+        negotiation = product.price_negotiations.order_by("-created_at").first()
+        return self._serialize_price_negotiation(negotiation)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
