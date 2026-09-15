@@ -1,4 +1,4 @@
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -129,6 +129,10 @@ class ProductListCreateView(
             "variants",
             "images",
             "images__generated_images",
+            Prefetch(
+                "price_negotiations",
+                queryset=PriceNegotiation.objects.order_by("-created_at"),
+            ),
         )
 
         if not is_manager(self.request.user):
@@ -289,6 +293,10 @@ class ProductDetailView(
             "variants",
             "images",
             "images__generated_images",
+            Prefetch(
+                "price_negotiations",
+                queryset=PriceNegotiation.objects.order_by("-created_at"),
+            ),
         )
 
         if not is_manager(self.request.user):
