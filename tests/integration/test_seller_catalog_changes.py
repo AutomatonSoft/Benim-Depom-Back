@@ -357,7 +357,10 @@ def test_rejected_resubmit_can_include_optional_comment(
     assert product.seller_change_review["seller_comment"] == "Updated photos and title"
     assert product.seller_change_review["title"] == "Corrected chair"
     assert "title" in product.seller_change_review["baseline"]
-    assert response.data["seller_change_review"]["seller_comment"] == "Updated photos and title"
+    assert (
+        response.data["seller_change_review"]["seller_comment"]
+        == "Updated photos and title"
+    )
     notification = Notification.objects.get(
         notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
         product=product,
