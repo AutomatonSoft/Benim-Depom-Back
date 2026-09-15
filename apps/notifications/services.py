@@ -108,6 +108,10 @@ def create_notification(
     body: str = "",
     copy_key: str = "",
     comment: str = "",
+    message: str = "",
+    price: str = "",
+    currency: str = "",
+    price_negotiation=None,
 ) -> Notification:
     key = copy_key_for_type(notification_type, copy_key=copy_key)
     if key and (not title or not body):
@@ -121,6 +125,9 @@ def create_notification(
             language=language,
             name=product_display_name(product, language=language),
             seller_name=seller_name,
+            message=message,
+            price=price,
+            currency=currency,
         )
         title = title or generated_title
         body = body or generated_body
@@ -134,6 +141,7 @@ def create_notification(
         notification_type=notification_type,
         title=title,
         body=body,
+        price_negotiation=price_negotiation,
     )
 
     transaction.on_commit(lambda: send_notification_push.delay(notification.id))

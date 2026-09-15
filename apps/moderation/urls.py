@@ -4,6 +4,7 @@ from .views import (
     ManagerApproveProductView,
     ManagerApproveSellerChangesView,
     ManagerChangeProductStatusView,
+    ManagerCreatePriceNegotiationView,
     ManagerDashboardView,
     ManagerDeactivateProductView,
     ManagerProductListView,
@@ -66,6 +67,11 @@ urlpatterns = [
         "manager/products/<int:product_pk>/availability-request/",
         ManagerRequestProductAvailabilityView.as_view(),
         name="manager-product-availability-request",
+    ),
+    path(
+        "manager/products/<int:product_pk>/price-negotiation/",
+        ManagerCreatePriceNegotiationView.as_view(),
+        name="manager-product-price-negotiation",
     ),
     path(
         "manager/products/<int:product_pk>/deactivate/",

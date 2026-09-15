@@ -1,13 +1,20 @@
 import json
+from decimal import Decimal
 from typing import Any
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import F, Max, Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Product, ProductGeneratedImage, ProductImage, ProductVariant
+from .models import (
+    PriceNegotiation,
+    Product,
+    ProductGeneratedImage,
+    ProductImage,
+    ProductVariant,
+)
 
 
 def _json_ready(value: Any) -> Any:
@@ -197,6 +204,46 @@ def build_seller_resubmission_review(
     return review
 
 
+def _normalize_variants_payload(
+    variants_data: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "color": item.get("color"),
+            "materials": list(item.get("materials") or []),
+            "width_cm": item.get("width_cm"),
+            "height_cm": item.get("height_cm"),
+            "length_cm": item.get("length_cm"),
+            "quantity": item.get("quantity"),
+        }
+        for item in variants_data
+    ]
+
+
+def _pending_field_diffs(product: Product, data: dict[str, Any]) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    for field, value in data.items():
+        if field not in _PENDING_PRODUCT_FIELDS:
+            continue
+        new = _json_ready(value)
+        old = _json_ready(getattr(product, field))
+        if old != new:
+            updates[field] = new
+    return updates
+
+
+def _pending_variants_diff(
+    product: Product, variants_data: list[dict[str, Any]] | None
+) -> list[dict[str, Any]] | None:
+    if variants_data is None:
+        return None
+    old = _json_ready(_current_variants_payload(product))
+    new = _json_ready(_normalize_variants_payload(variants_data))
+    if old == new:
+        return None
+    return new
+
+
 @transaction.atomic
 def save_seller_pending_changes(
     *,
@@ -212,22 +259,27 @@ def save_seller_pending_changes(
         )
 
     pending = dict(locked_product.pending_changes or {})
-    updates = {
-        field: _json_ready(value)
-        for field, value in data.items()
-        if field in _PENDING_PRODUCT_FIELDS
-    }
+    updates = _pending_field_diffs(locked_product, data)
+    variants_update = _pending_variants_diff(locked_product, variants_data)
     comment_provided = comment is not None
-    if not updates and variants_data is None and not comment_provided:
+
+    if not updates and variants_update is None and not comment_provided:
         return locked_product
-    if not updates and variants_data is None and not pending:
-        # A comment alone cannot open a change request.
-        return locked_product
+
+    if not updates and variants_update is None:
+        raise ValidationError(
+            {
+                "detail": (
+                    "Send at least one changed product field. "
+                    "A comment alone is not enough."
+                )
+            }
+        )
 
     was_empty = not pending
     pending.update(updates)
-    if variants_data is not None:
-        pending["variants"] = _json_ready(variants_data)
+    if variants_update is not None:
+        pending["variants"] = variants_update
     if comment_provided:
         cleaned = str(comment or "").strip()
         if cleaned:
@@ -707,6 +759,182 @@ def request_product_availability(*, product: Product, manager) -> Product:
         )
     )
     return locked_product
+
+
+PRICE_NEGOTIATION_STATUSES = {
+    Product.Status.SUBMITTED,
+    Product.Status.APPROVED,
+}
+
+
+@transaction.atomic
+def create_price_negotiation(
+    *,
+    product: Product,
+    manager,
+    proposed_unit_price: Decimal,
+    message: str,
+) -> PriceNegotiation:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.status not in PRICE_NEGOTIATION_STATUSES:
+        raise ValidationError(
+            {
+                "detail": (
+                    "Price negotiation is only available for submitted or "
+                    "approved products."
+                )
+            }
+        )
+
+    price = Decimal(str(proposed_unit_price))
+    if price < Decimal("0.01"):
+        raise ValidationError(
+            {"proposed_unit_price": "Enter a price of at least 0.01."}
+        )
+
+    cleaned_message = str(message or "").strip()
+    if not cleaned_message:
+        raise ValidationError({"message": "Enter a message for the seller."})
+
+    PriceNegotiation.objects.filter(
+        product=locked_product,
+        status=PriceNegotiation.Status.PENDING,
+    ).update(
+        status=PriceNegotiation.Status.SUPERSEDED,
+        updated_at=timezone.now(),
+    )
+
+    negotiation = PriceNegotiation.objects.create(
+        product=locked_product,
+        manager=manager,
+        currency=locked_product.currency,
+        current_unit_price=locked_product.unit_price,
+        proposed_unit_price=price,
+        message=cleaned_message,
+        status=PriceNegotiation.Status.PENDING,
+    )
+
+    from apps.notifications.models import Notification
+    from apps.notifications.services import create_notification
+
+    owner = locked_product.owner
+    transaction.on_commit(
+        lambda owner=owner, negotiation=negotiation, manager=manager: (
+            create_notification(
+                user=owner,
+                sender=manager,
+                product=negotiation.product,
+                notification_type=Notification.Type.PRICE_NEGOTIATION_OFFER,
+                copy_key="price_negotiation_offer",
+                message=negotiation.message,
+                price=f"{negotiation.proposed_unit_price:.2f}",
+                currency=negotiation.currency,
+                price_negotiation=negotiation,
+            )
+        )
+    )
+    return negotiation
+
+
+@transaction.atomic
+def respond_to_price_negotiation(
+    *,
+    product: Product,
+    seller,
+    accepted: bool,
+    comment: str = "",
+) -> PriceNegotiation:
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+
+    if locked_product.owner_id != seller.id:
+        raise ValidationError(
+            {"detail": "Only the product seller can respond to a price offer."}
+        )
+
+    if locked_product.status not in PRICE_NEGOTIATION_STATUSES:
+        raise ValidationError(
+            {
+                "detail": (
+                    "Price negotiation responses are only accepted for submitted "
+                    "or approved products."
+                )
+            }
+        )
+
+    negotiation = (
+        PriceNegotiation.objects.select_for_update()
+        .filter(
+            product=locked_product,
+            status=PriceNegotiation.Status.PENDING,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if negotiation is None:
+        raise ValidationError(
+            {"detail": "This product has no pending price negotiation."}
+        )
+
+    negotiation.status = (
+        PriceNegotiation.Status.ACCEPTED
+        if accepted
+        else PriceNegotiation.Status.REJECTED
+    )
+    negotiation.seller_comment = str(comment or "").strip()
+    negotiation.responded_at = timezone.now()
+    negotiation.save(
+        update_fields=(
+            "status",
+            "seller_comment",
+            "responded_at",
+            "updated_at",
+        )
+    )
+
+    if accepted:
+        # Catalog price only — do not enqueue marketplace listing updates.
+        locked_product.unit_price = negotiation.proposed_unit_price
+        locked_product.save(update_fields=("unit_price", "updated_at"))
+
+    from apps.notifications.models import Notification
+    from apps.notifications.services import create_notification, manager_inbox_users
+
+    Notification.objects.filter(
+        product=locked_product,
+        notification_type=Notification.Type.PRICE_NEGOTIATION_OFFER,
+    ).filter(
+        Q(price_negotiation=negotiation) | Q(price_negotiation_id__isnull=True)
+    ).update(
+        is_read=True,
+        read_at=negotiation.responded_at,
+        responded_at=negotiation.responded_at,
+    )
+
+    copy_key = (
+        "price_negotiation_accepted" if accepted else "price_negotiation_rejected"
+    )
+    price_text = f"{negotiation.proposed_unit_price:.2f}"
+    currency = negotiation.currency
+    seller_comment = negotiation.seller_comment
+    for manager in manager_inbox_users(exclude_user=seller):
+        transaction.on_commit(
+            lambda manager=manager, negotiation=negotiation, copy_key=copy_key, price_text=price_text, currency=currency, seller_comment=seller_comment, seller=seller: (
+                create_notification(
+                    user=manager,
+                    sender=seller,
+                    product=negotiation.product,
+                    notification_type=Notification.Type.PRICE_NEGOTIATION_RESPONSE,
+                    copy_key=copy_key,
+                    price=price_text,
+                    currency=currency,
+                    comment=seller_comment,
+                    price_negotiation=negotiation,
+                )
+            )
+        )
+
+    return negotiation
 
 
 @transaction.atomic

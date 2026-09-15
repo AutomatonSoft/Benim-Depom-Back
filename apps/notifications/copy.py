@@ -170,6 +170,48 @@ _TEMPLATES: dict[str, dict[str, tuple[str, str]]] = {
             "Satıcı '{name}' ürününün devre dışı bırakılmasını istedi.",
         ),
     },
+    "price_negotiation_offer": {
+        "en": ("Price proposal", "{message}"),
+        "ru": ("Предложение цены", "{message}"),
+        "de": ("Preisvorschlag", "{message}"),
+        "tr": ("Fiyat teklifi", "{message}"),
+    },
+    "price_negotiation_accepted": {
+        "en": (
+            "Price accepted",
+            "{seller_name} accepted {price} {currency} for '{name}'.",
+        ),
+        "ru": (
+            "Цена принята",
+            "{seller_name} принял цену {price} {currency} для «{name}».",
+        ),
+        "de": (
+            "Preis akzeptiert",
+            "{seller_name} hat {price} {currency} für '{name}' akzeptiert.",
+        ),
+        "tr": (
+            "Fiyat kabul edildi",
+            "{seller_name}, '{name}' için {price} {currency} fiyatını kabul etti.",
+        ),
+    },
+    "price_negotiation_rejected": {
+        "en": (
+            "Price declined",
+            "{seller_name} declined {price} {currency} for '{name}'.",
+        ),
+        "ru": (
+            "Цена отклонена",
+            "{seller_name} отклонил цену {price} {currency} для «{name}».",
+        ),
+        "de": (
+            "Preis abgelehnt",
+            "{seller_name} hat {price} {currency} für '{name}' abgelehnt.",
+        ),
+        "tr": (
+            "Fiyat reddedildi",
+            "{seller_name}, '{name}' için {price} {currency} fiyatını reddetti.",
+        ),
+    },
     "push_fallback": {
         "en": ("Marketplace", "You have a new notification."),
         "ru": ("Marketplace", "У вас новое уведомление."),
@@ -187,6 +229,8 @@ _TYPE_KEYS = {
     "product_withdrawn_from_review": "product_withdrawn_from_review",
     "product_change_requested": "product_change_requested",
     "product_deactivation_requested": "product_deactivation_requested",
+    "price_negotiation_offer": "price_negotiation_offer",
+    "price_negotiation_response": "price_negotiation_accepted",
 }
 
 
@@ -203,6 +247,9 @@ def render_notification_copy(
     language: str | None,
     name: str = "",
     seller_name: str = "",
+    message: str = "",
+    price: str = "",
+    currency: str = "",
 ) -> tuple[str, str]:
     lang = normalize_language(language)
     pack = _TEMPLATES.get(key) or _TEMPLATES["push_fallback"]
@@ -210,6 +257,9 @@ def render_notification_copy(
     values = {
         "name": name or "",
         "seller_name": seller_name or "",
+        "message": message or "",
+        "price": price or "",
+        "currency": currency or "",
     }
     return title.format(**values), body.format(**values)
 
