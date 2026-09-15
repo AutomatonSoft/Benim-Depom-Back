@@ -125,7 +125,7 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
 
 
 @transaction.atomic
-def submit_product_for_moderation(*, product: Product) -> Product:
+def submit_product_for_moderation(*, product: Product, comment: str = "") -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
     if product.status not in {
@@ -158,11 +158,12 @@ def submit_product_for_moderation(*, product: Product) -> Product:
     ).distinct()
     for manager in managers:
         transaction.on_commit(
-            lambda manager=manager: create_notification(
+            lambda manager=manager, comment=comment: create_notification(
                 user=manager,
                 sender=product.owner,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
+                comment=comment,
             )
         )
 
@@ -195,12 +196,14 @@ def approve_product(
     product.approved_at = timezone.now()
     product.is_available = True
     product.availability_reminder_sent_at = None
+    product.seller_change_review = {}
     product.save(
         update_fields=(
             "status",
             "approved_at",
             "is_available",
             "availability_reminder_sent_at",
+            "seller_change_review",
             "updated_at",
         )
     )
@@ -417,7 +420,11 @@ def reject_seller_changes(
     if not reason:
         raise ValidationError({"comment": "A rejection reason is required."})
 
-    product = discard_pending_seller_changes(product=product)
+    product = discard_pending_seller_changes(
+        product=product,
+        archive=True,
+        manager_comment=reason,
+    )
     owner = product.owner
     transaction.on_commit(
         lambda owner=owner, product=product, reason=reason: create_notification(
