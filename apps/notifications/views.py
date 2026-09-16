@@ -1,4 +1,4 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -10,6 +10,8 @@ from rest_framework.views import APIView
 from .models import DeviceToken, Notification
 from .serializers import (
     AVAILABILITY_TYPES,
+    MANAGER_SENT_TYPES,
+    PRICE_TYPES,
     REVIEW_TYPES,
     DeviceTokenDeactivateSerializer,
     DeviceTokenSerializer,
@@ -49,6 +51,8 @@ def _apply_notification_filters(queryset, filters: dict):
         queryset = queryset.filter(notification_type__in=REVIEW_TYPES)
     elif category == "availability":
         queryset = queryset.filter(notification_type__in=AVAILABILITY_TYPES)
+    elif category == "price":
+        queryset = queryset.filter(notification_type__in=PRICE_TYPES)
 
     notification_type = filters.get("notification_type")
     if notification_type:
@@ -100,17 +104,40 @@ class NotificationListView(generics.ListAPIView):
     def get_queryset(self):
         filters = getattr(self, "filters", None)
         validated = filters.validated_data if filters is not None else {}
-        related = ("product", "product__owner", "sender", "user")
+        related = (
+            "product",
+            "product__owner",
+            "sender",
+            "user",
+            "price_negotiation",
+            "price_negotiation__manager",
+        )
+        prefetch = (
+            "product__price_negotiations",
+            Prefetch(
+                "product__notifications",
+                queryset=(
+                    Notification.objects.filter(
+                        notification_type__in=MANAGER_SENT_TYPES,
+                    )
+                    .select_related("sender")
+                    .order_by("-created_at")
+                ),
+                to_attr="manager_sent_notifications",
+            ),
+        )
         if validated.get("category") == "outgoing":
             queryset = (
                 Notification.objects.filter(sender=self.request.user)
                 .select_related(*related)
+                .prefetch_related(*prefetch)
                 .order_by("-created_at")
             )
         else:
             queryset = (
                 Notification.objects.filter(user=self.request.user)
                 .select_related(*related)
+                .prefetch_related(*prefetch)
                 .order_by("-created_at")
             )
         return _apply_notification_filters(queryset, validated)
@@ -125,14 +152,17 @@ class NotificationSummaryView(APIView):
         outgoing = Notification.objects.filter(sender=request.user)
         review_q = Q(notification_type__in=REVIEW_TYPES)
         availability_q = Q(notification_type__in=AVAILABILITY_TYPES)
+        price_q = Q(notification_type__in=PRICE_TYPES)
 
         inbox_counts = inbox.aggregate(
             all=Count("id"),
             unread_total=Count("id", filter=Q(is_read=False)),
             review=Count("id", filter=review_q),
             availability=Count("id", filter=availability_q),
+            price=Count("id", filter=price_q),
             unread_review=Count("id", filter=review_q & Q(is_read=False)),
             unread_availability=Count("id", filter=availability_q & Q(is_read=False)),
+            unread_price=Count("id", filter=price_q & Q(is_read=False)),
         )
         outgoing_counts = outgoing.aggregate(
             outgoing=Count("id"),
@@ -149,7 +179,13 @@ class NotificationReadView(APIView):
     @extend_schema(request=None, responses={200: NotificationSerializer})
     def post(self, request, notification_pk: int):
         notification = get_object_or_404(
-            Notification.objects.select_related("product", "product__owner", "sender"),
+            Notification.objects.select_related(
+                "product",
+                "product__owner",
+                "sender",
+                "price_negotiation",
+                "price_negotiation__manager",
+            ).prefetch_related("product__price_negotiations"),
             pk=notification_pk,
             user=request.user,
         )
