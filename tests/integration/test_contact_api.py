@@ -40,6 +40,27 @@ def test_manager_can_update_whatsapp_contact(api_client, manager, contact_file):
 
 
 @pytest.mark.django_db
+def test_unwritable_contact_file_returns_json_error(
+    api_client, manager, contact_file, monkeypatch
+):
+    api_client.force_authenticate(manager)
+
+    def boom(_raw):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr("apps.common.contact_views.save_contact_phone", boom)
+
+    response = api_client.patch(
+        "/api/v1/contact/whatsapp/",
+        {"phone": "+4917643450100"},
+        format="json",
+    )
+
+    assert response.status_code == 500
+    assert "could not be saved" in response.data["detail"]
+
+
+@pytest.mark.django_db
 def test_seller_cannot_update_whatsapp_contact(api_client, seller, contact_file):
     api_client.force_authenticate(seller)
 
