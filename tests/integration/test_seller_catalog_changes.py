@@ -6,7 +6,7 @@ from apps.ean.models import EanCode
 from apps.moderation.models import ModerationDecision
 from apps.notifications.models import Notification
 from apps.orchestrator.models import MarketplaceJob
-from apps.products.models import Product
+from apps.products.models import PriceNegotiation, Product
 
 
 def authenticate(client, user):
@@ -422,3 +422,108 @@ def test_rejected_resubmit_can_include_optional_comment(
         user=manager,
     )
     assert "Updated photos and title" in notification.body
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_comment_alias_alone_is_rejected_for_approved_product(
+    api_client, seller, product_factory
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    authenticate(api_client, seller)
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {"comment": "Just a note"},
+        format="json",
+    )
+    assert response.status_code == 400
+    product.refresh_from_db()
+    assert product.pending_changes == {}
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_accepted_offer_price_is_not_stored_as_seller_edit(
+    api_client, seller, manager, product_factory
+):
+    product = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        unit_price="30.00",
+    )
+    PriceNegotiation.objects.create(
+        product=product,
+        manager=manager,
+        currency=product.currency,
+        current_unit_price="30.00",
+        proposed_unit_price="50.00",
+        message="Offer",
+        status=PriceNegotiation.Status.ACCEPTED,
+    )
+    variant = product.variants.get()
+    authenticate(api_client, seller)
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "unit_price": "50.00",
+            "variants": [
+                {
+                    "color": variant.color,
+                    "materials": variant.materials,
+                    "width_cm": str(variant.width_cm),
+                    "height_cm": str(variant.height_cm),
+                    "length_cm": str(variant.length_cm),
+                    "quantity": 55,
+                }
+            ],
+            "change_comment": "qty only",
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    product.refresh_from_db()
+    assert "unit_price" not in product.pending_changes
+    assert product.pending_changes["variants"][0]["quantity"] == 55
+    assert Notification.objects.filter(
+        notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+        product=product,
+        user=manager,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_later_seller_edit_still_notifies_managers(
+    api_client, seller, manager, product_factory
+):
+    product = product_factory(
+        owner=seller, status=Product.Status.APPROVED, title="Old"
+    )
+    authenticate(api_client, seller)
+    assert (
+        api_client.patch(
+            f"/api/v1/products/{product.id}/",
+            {"title": "First"},
+            format="json",
+        ).status_code
+        == 200
+    )
+    first_count = Notification.objects.filter(
+        notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+        product=product,
+    ).count()
+    assert (
+        api_client.patch(
+            f"/api/v1/products/{product.id}/",
+            {"title": "Second"},
+            format="json",
+        ).status_code
+        == 200
+    )
+    assert (
+        Notification.objects.filter(
+            notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+            product=product,
+        ).count()
+        == first_count + 1
+    )

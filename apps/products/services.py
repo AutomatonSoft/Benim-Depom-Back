@@ -220,15 +220,35 @@ def _normalize_variants_payload(
     ]
 
 
+def _latest_accepted_unit_price(product: Product):
+    negotiation = (
+        PriceNegotiation.objects.filter(
+            product=product,
+            status=PriceNegotiation.Status.ACCEPTED,
+        )
+        .order_by("-responded_at", "-created_at")
+        .first()
+    )
+    if negotiation is None:
+        return None
+    return _json_ready(negotiation.proposed_unit_price)
+
+
 def _pending_field_diffs(product: Product, data: dict[str, Any]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
+    accepted_price = None
+    if "unit_price" in data:
+        accepted_price = _latest_accepted_unit_price(product)
     for field, value in data.items():
         if field not in _PENDING_PRODUCT_FIELDS:
             continue
         new = _json_ready(value)
         old = _json_ready(getattr(product, field))
-        if old != new:
-            updates[field] = new
+        if old == new:
+            continue
+        if field == "unit_price" and accepted_price is not None and new == accepted_price:
+            continue
+        updates[field] = new
     return updates
 
 
@@ -276,7 +296,6 @@ def save_seller_pending_changes(
             }
         )
 
-    was_empty = not pending
     pending.update(updates)
     if variants_update is not None:
         pending["variants"] = variants_update
@@ -301,7 +320,7 @@ def save_seller_pending_changes(
         )
     )
 
-    if was_empty:
+    if updates or variants_update is not None:
         from apps.notifications.models import Notification
         from apps.notifications.services import create_notification, manager_inbox_users
 
