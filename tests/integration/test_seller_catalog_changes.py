@@ -496,9 +496,7 @@ def test_accepted_offer_price_is_not_stored_as_seller_edit(
 def test_later_seller_edit_still_notifies_managers(
     api_client, seller, manager, product_factory
 ):
-    product = product_factory(
-        owner=seller, status=Product.Status.APPROVED, title="Old"
-    )
+    product = product_factory(owner=seller, status=Product.Status.APPROVED, title="Old")
     authenticate(api_client, seller)
     assert (
         api_client.patch(
