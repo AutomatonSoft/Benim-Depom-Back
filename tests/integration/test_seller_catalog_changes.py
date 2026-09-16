@@ -310,6 +310,61 @@ def test_seller_change_comment_is_stored_and_sent_to_managers(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_change_comment_alone_is_rejected_for_approved_product(
+    api_client,
+    seller,
+    product_factory,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED, title="Old")
+    authenticate(api_client, seller)
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {"change_comment": "Just a note"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "detail" in response.data
+    product.refresh_from_db()
+    assert product.pending_changes == {}
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_unchanged_approved_fields_are_not_stored_in_pending(
+    api_client,
+    seller,
+    product_factory,
+):
+    product = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        title="Old",
+        unit_price="200.00",
+        currency=Product.Currency.TRY,
+    )
+    authenticate(api_client, seller)
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "title": "New title",
+            "unit_price": "200.00",
+            "currency": "TRY",
+            "product_type": product.product_type,
+            "change_comment": "Only title changed",
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    product.refresh_from_db()
+    assert product.pending_changes["title"] == "New title"
+    assert product.pending_changes["seller_comment"] == "Only title changed"
+    assert "unit_price" not in product.pending_changes
+    assert "currency" not in product.pending_changes
+    assert "product_type" not in product.pending_changes
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_change_comment_rejected_on_submitted_product(
     api_client,
     seller,

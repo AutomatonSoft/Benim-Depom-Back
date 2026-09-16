@@ -11,6 +11,8 @@ from .views import (
     ProductImageReorderView,
     ProductImageUploadView,
     ProductListCreateView,
+    ProductPriceNegotiationHistoryView,
+    ProductPriceNegotiationRespondView,
     ProductWithdrawView,
 )
 
@@ -48,6 +50,16 @@ urlpatterns = [
         "<int:product_pk>/availability/",
         ProductAvailabilityView.as_view(),
         name="product-availability",
+    ),
+    path(
+        "<int:product_pk>/price-negotiation/respond/",
+        ProductPriceNegotiationRespondView.as_view(),
+        name="product-price-negotiation-respond",
+    ),
+    path(
+        "<int:product_pk>/price-negotiations/",
+        ProductPriceNegotiationHistoryView.as_view(),
+        name="product-price-negotiation-history",
     ),
     path(
         "<int:product_pk>/images/<int:image_pk>/process/",

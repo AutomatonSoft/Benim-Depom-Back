@@ -64,6 +64,14 @@ class Notification(models.Model):
             "product_change_requested",
             "Product change requested",
         )
+        PRICE_NEGOTIATION_OFFER = (
+            "price_negotiation_offer",
+            "Price negotiation offer",
+        )
+        PRICE_NEGOTIATION_RESPONSE = (
+            "price_negotiation_response",
+            "Price negotiation response",
+        )
 
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -96,6 +104,13 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     read_at = models.DateTimeField(null=True, blank=True)
     responded_at = models.DateTimeField(null=True, blank=True)
+    price_negotiation = models.ForeignKey(
+        "products.PriceNegotiation",
+        on_delete=models.SET_NULL,
+        related_name="notifications",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ("-created_at",)

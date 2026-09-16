@@ -167,6 +167,62 @@ class Product(models.Model):
         return f"{self.title} ({self.owner.username})"
 
 
+class PriceNegotiation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+        SUPERSEDED = "superseded", "Superseded"
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="price_negotiations",
+    )
+    manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="price_negotiations",
+    )
+    currency = models.CharField(max_length=3, choices=Product.Currency.choices)
+    current_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    proposed_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    message = models.TextField()
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    seller_comment = models.TextField(blank=True, default="")
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(
+                fields=("product", "status", "-created_at"),
+                name="price_neg_product_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Price negotiation #{self.pk} for product {self.product_id} "
+            f"({self.status})"
+        )
+
+
 class ProductVariant(models.Model):
     product = models.ForeignKey(
         Product,

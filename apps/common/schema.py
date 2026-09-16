@@ -75,6 +75,14 @@ class MarketplaceAutoSchema(AutoSchema):
             "/api/v1/products/{product_pk}/availability/",
         ): "Подтвердить наличие товара",
         (
+            "GET",
+            "/api/v1/products/{product_pk}/price-negotiations/",
+        ): "Получить историю торгов по цене",
+        (
+            "POST",
+            "/api/v1/products/{product_pk}/price-negotiation/respond/",
+        ): "Ответить на предложение цены",
+        (
             "POST",
             "/api/v1/products/{product_pk}/withdraw/",
         ): "Отозвать товар с модерации",
@@ -114,6 +122,10 @@ class MarketplaceAutoSchema(AutoSchema):
             "POST",
             "/api/v1/manager/products/{product_pk}/availability-request/",
         ): "Запросить подтверждение наличия",
+        (
+            "POST",
+            "/api/v1/manager/products/{product_pk}/price-negotiation/",
+        ): "Предложить продавцу новую цену",
         (
             "POST",
             "/api/v1/manager/products/{product_pk}/deactivate/",
