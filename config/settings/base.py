@@ -116,6 +116,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+CONTACT_JSON_PATH = Path(
+    env("CONTACT_JSON_PATH", default=str(BASE_DIR / "data" / "contact.json"))
+)
+
 FTP_MEDIA_HOST = env("FTP_MEDIA_HOST")
 FTP_MEDIA_PORT = env.int("FTP_MEDIA_PORT", default=21)
 FTP_MEDIA_USERNAME = env("FTP_MEDIA_USERNAME")
@@ -273,6 +277,10 @@ SPECTACULAR_SETTINGS["TAGS"] = [
     {
         "name": "Notifications",
         "description": "Уведомления в приложении и регистрация FCM-устройств.",
+    },
+    {
+        "name": "Contact",
+        "description": "Публичный номер WhatsApp для связи из мобильного приложения.",
     },
     {
         "name": "OTTO - Catalog",

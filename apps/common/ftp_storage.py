@@ -1,6 +1,7 @@
 import ftplib
 import posixpath
 from contextlib import contextmanager
+from contextvars import ContextVar
 from tempfile import SpooledTemporaryFile
 from urllib.parse import quote
 from uuid import uuid4
@@ -10,6 +11,11 @@ from django.core.exceptions import SuspiciousFileOperation
 from django.core.files import File
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
+
+_reused_ftp: ContextVar[object | None] = ContextVar(
+    "ftp_media_reused_connection",
+    default=None,
+)
 
 
 @deconstructible
@@ -46,7 +52,21 @@ class FTPMediaStorage(Storage):
         )
 
     @contextmanager
-    def _connection(self):
+    def reuse_connection(self):
+        """Keep one FTP login for nested save/exists/delete in this request."""
+        if _reused_ftp.get() is not None:
+            yield
+            return
+
+        with self._open_connection() as ftp:
+            token = _reused_ftp.set(ftp)
+            try:
+                yield
+            finally:
+                _reused_ftp.reset(token)
+
+    @contextmanager
+    def _open_connection(self):
         ftp_class = ftplib.FTP_TLS if self.use_tls else ftplib.FTP
         ftp = ftp_class(timeout=self.timeout)
 
@@ -70,6 +90,16 @@ class FTPMediaStorage(Storage):
                     ftp.close()
                 except ftplib.all_errors:
                     pass
+
+    @contextmanager
+    def _connection(self):
+        reused = _reused_ftp.get()
+        if reused is not None:
+            yield reused
+            return
+
+        with self._open_connection() as ftp:
+            yield ftp
 
     def _ensure_remote_directory(self, ftp, remote_path: str) -> None:
         directory = posixpath.dirname(remote_path)
