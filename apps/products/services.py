@@ -1,7 +1,9 @@
 import json
+from contextlib import nullcontext
 from decimal import Decimal
 from typing import Any
 
+from django.core.files.storage import default_storage
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import F, Max, Q
@@ -37,6 +39,13 @@ def create_product(
     return product
 
 
+def _reuse_media_connection():
+    reuse = getattr(default_storage, "reuse_connection", None)
+    if reuse is None:
+        return nullcontext()
+    return reuse()
+
+
 def create_product_with_images(
     *,
     owner,
@@ -51,33 +60,34 @@ def create_product_with_images(
     """
     saved_image_files = []
 
-    try:
-        with transaction.atomic():
-            product = create_product(
-                owner=owner,
-                data=data,
-                variants_data=variants_data,
-            )
-
-            for position, image_file in enumerate(image_files):
-                image = upload_product_image(
-                    product=product,
-                    image_file=image_file,
-                    is_primary=position == 0,
+    with _reuse_media_connection():
+        try:
+            with transaction.atomic():
+                product = create_product(
+                    owner=owner,
+                    data=data,
+                    variants_data=variants_data,
                 )
-                saved_image_files.append(image.image)
 
-            # Lazy import avoids a products <-> moderation import cycle.
-            from apps.moderation.services import submit_product_for_moderation
+                for position, image_file in enumerate(image_files):
+                    image = upload_product_image(
+                        product=product,
+                        image_file=image_file,
+                        is_primary=position == 0,
+                    )
+                    saved_image_files.append(image.image)
 
-            return submit_product_for_moderation(product=product)
-    except Exception:
-        # Database changes are rolled back by the transaction, while FTP/media
-        # storage is external to that transaction. Remove any already uploaded
-        # files on a best-effort basis to avoid orphaned media.
-        for saved_image in saved_image_files:
-            saved_image.delete(save=False)
-        raise
+                # Lazy import avoids a products <-> moderation import cycle.
+                from apps.moderation.services import submit_product_for_moderation
+
+                return submit_product_for_moderation(product=product)
+        except Exception:
+            # Database changes are rolled back by the transaction, while FTP/media
+            # storage is external to that transaction. Remove any already uploaded
+            # files on a best-effort basis to avoid orphaned media.
+            for saved_image in saved_image_files:
+                saved_image.delete(save=False)
+            raise
 
 
 @transaction.atomic
@@ -220,15 +230,39 @@ def _normalize_variants_payload(
     ]
 
 
+def _latest_accepted_unit_price(product: Product):
+    negotiation = (
+        PriceNegotiation.objects.filter(
+            product=product,
+            status=PriceNegotiation.Status.ACCEPTED,
+        )
+        .order_by("-responded_at", "-created_at")
+        .first()
+    )
+    if negotiation is None:
+        return None
+    return _json_ready(negotiation.proposed_unit_price)
+
+
 def _pending_field_diffs(product: Product, data: dict[str, Any]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
+    accepted_price = None
+    if "unit_price" in data:
+        accepted_price = _latest_accepted_unit_price(product)
     for field, value in data.items():
         if field not in _PENDING_PRODUCT_FIELDS:
             continue
         new = _json_ready(value)
         old = _json_ready(getattr(product, field))
-        if old != new:
-            updates[field] = new
+        if old == new:
+            continue
+        if (
+            field == "unit_price"
+            and accepted_price is not None
+            and new == accepted_price
+        ):
+            continue
+        updates[field] = new
     return updates
 
 
@@ -276,7 +310,6 @@ def save_seller_pending_changes(
             }
         )
 
-    was_empty = not pending
     pending.update(updates)
     if variants_update is not None:
         pending["variants"] = variants_update
@@ -301,7 +334,7 @@ def save_seller_pending_changes(
         )
     )
 
-    if was_empty:
+    if updates or variants_update is not None:
         from apps.notifications.models import Notification
         from apps.notifications.services import create_notification, manager_inbox_users
 
