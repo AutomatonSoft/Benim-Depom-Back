@@ -53,4 +53,14 @@ class WhatsAppContactView(ManagerMutationThrottleMixin, APIView):
                 {"phone": [str(exc)]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except OSError:
+            return Response(
+                {
+                    "detail": (
+                        "WhatsApp contact number could not be saved. "
+                        "The server cannot write the contact file."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return Response(contact_payload(phone))
