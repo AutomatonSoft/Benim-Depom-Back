@@ -6,6 +6,11 @@ class MarketplaceAutoSchema(AutoSchema):
 
     OPERATION_SUMMARIES = {
         ("GET", "/api/v1/health/"): "Проверить состояние API",
+        ("GET", "/api/v1/contact/whatsapp/"): "Получить номер WhatsApp для связи",
+        (
+            "PATCH",
+            "/api/v1/contact/whatsapp/",
+        ): "Обновить номер WhatsApp для связи",
         # Authentication
         ("POST", "/api/v1/auth/register/"): "Зарегистрировать продавца",
         ("POST", "/api/v1/auth/email/verify/"): "Подтвердить email кодом",
@@ -260,6 +265,8 @@ class MarketplaceAutoSchema(AutoSchema):
     def get_tags(self) -> list[str]:
         path = self.path
 
+        if path.startswith("/api/v1/contact/"):
+            return ["Contact"]
         if path.startswith("/api/v1/auth/"):
             if any(fragment in path for fragment in ("register/", "email/", "me/")):
                 return ["Auth - Seller"]

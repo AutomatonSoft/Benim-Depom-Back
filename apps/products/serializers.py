@@ -610,7 +610,13 @@ class ProductSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        if "change_comment" in getattr(self, "initial_data", {}):
+        initial = getattr(self, "initial_data", {}) or {}
+        if "change_comment" not in initial and "comment" in initial:
+            raw_comment = initial.get("comment")
+            if raw_comment is not None and "change_comment" not in attrs:
+                attrs["change_comment"] = raw_comment
+
+        if "change_comment" in initial or "comment" in initial:
             if self.instance is None:
                 raise serializers.ValidationError(
                     {
