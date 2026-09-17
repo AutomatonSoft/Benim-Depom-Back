@@ -112,6 +112,13 @@ class Notification(models.Model):
         null=True,
         blank=True,
     )
+    afterbuy_order_item = models.ForeignKey(
+        "afterbuy.AfterbuyOrderItem",
+        on_delete=models.SET_NULL,
+        related_name="notifications",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ("-created_at",)

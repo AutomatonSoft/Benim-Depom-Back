@@ -214,44 +214,62 @@ _TEMPLATES: dict[str, dict[str, tuple[str, str]]] = {
     },
     "product_sold": {
         "en": (
+            "Product sold in Afterbuy",
+            "'{name}' was sold in Afterbuy ({marketplace}).\n"
+            "Quantity: {qty_sold} pcs.\n"
+            "Time: {sold_at}\n\n"
+            "Update the warehouse quantity on the product card and notify the seller.",
+        ),
+        "ru": (
+            "Товар купили в Afterbuy",
+            "«{name}» купили в Afterbuy ({marketplace}).\n"
+            "Количество: {qty_sold} шт.\n"
+            "Время: {sold_at}\n\n"
+            "Измените количество на складе в карточке товара и уведомите продавца.",
+        ),
+        "de": (
+            "Produkt in Afterbuy verkauft",
+            "'{name}' wurde in Afterbuy ({marketplace}) gekauft.\n"
+            "Menge: {qty_sold} Stk.\n"
+            "Zeit: {sold_at}\n\n"
+            "Ändern Sie die Lagermenge in der Produktkarte und benachrichtigen Sie den Verkäufer.",
+        ),
+        "tr": (
+            "Ürün Afterbuy'da satıldı",
+            "'{name}' Afterbuy'da ({marketplace}) satıldı.\n"
+            "Adet: {qty_sold}\n"
+            "Zaman: {sold_at}\n\n"
+            "Ürün kartında depo miktarını güncelleyin ve satıcıyı bilgilendirin.",
+        ),
+    },
+    "product_sold_seller": {
+        "en": (
             "Your product was sold",
             "Your product was sold.\n\n"
             "Product: {name}\n"
-            "Time: {sold_at}\n\n"
-            "Card price: {card_price} {currency}\n"
-            "Sold: {qty_sold} pcs.\n\n"
-            "Stock before: {qty_before} pcs.\n"
-            "Left: {qty_after} pcs.",
+            "Time: {sold_at}\n"
+            "Sold: {qty_sold} pcs.",
         ),
         "ru": (
             "Ваш товар купили",
             "Ваш товар купили.\n\n"
             "Товар: {name}\n"
-            "Время: {sold_at}\n\n"
-            "Цена на карточке: {card_price} {currency}\n"
-            "Купили: {qty_sold} шт.\n\n"
-            "Склад было: {qty_before} шт.\n"
-            "Осталось: {qty_after} шт.",
+            "Время: {sold_at}\n"
+            "Купили: {qty_sold} шт.",
         ),
         "de": (
             "Ihr Produkt wurde gekauft",
             "Ihr Produkt wurde gekauft.\n\n"
             "Produkt: {name}\n"
-            "Zeit: {sold_at}\n\n"
-            "Kartenpreis: {card_price} {currency}\n"
-            "Gekauft: {qty_sold} Stk.\n\n"
-            "Bestand vorher: {qty_before} Stk.\n"
-            "Übrig: {qty_after} Stk.",
+            "Zeit: {sold_at}\n"
+            "Gekauft: {qty_sold} Stk.",
         ),
         "tr": (
             "Ürününüz satıldı",
             "Ürününüz satıldı.\n\n"
             "Ürün: {name}\n"
-            "Zaman: {sold_at}\n\n"
-            "Kart fiyatı: {card_price} {currency}\n"
-            "Satılan: {qty_sold} adet\n\n"
-            "Önceki stok: {qty_before} adet\n"
-            "Kalan: {qty_after} adet",
+            "Zaman: {sold_at}\n"
+            "Satılan: {qty_sold} adet",
         ),
     },
     "push_fallback": {
@@ -296,8 +314,7 @@ def render_notification_copy(
     sold_at: str = "",
     card_price: str = "",
     qty_sold: str = "",
-    qty_before: str = "",
-    qty_after: str = "",
+    marketplace: str = "",
 ) -> tuple[str, str]:
     lang = normalize_language(language)
     pack = _TEMPLATES.get(key) or _TEMPLATES["push_fallback"]
@@ -311,8 +328,7 @@ def render_notification_copy(
         "sold_at": sold_at or "",
         "card_price": card_price or "",
         "qty_sold": qty_sold or "",
-        "qty_before": qty_before or "",
-        "qty_after": qty_after or "",
+        "marketplace": marketplace or "",
     }
     return title.format(**values), body.format(**values)
 

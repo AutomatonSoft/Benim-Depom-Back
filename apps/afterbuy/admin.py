@@ -1,11 +1,6 @@
 from django.contrib import admin
 
-from .models import (
-    AfterbuyChannelStock,
-    AfterbuyOrder,
-    AfterbuyOrderItem,
-    AfterbuySaleNotification,
-)
+from .models import AfterbuyOrder, AfterbuyOrderItem, AfterbuySaleNotification
 
 
 class AfterbuyOrderItemInline(admin.TabularInline):
@@ -42,10 +37,3 @@ class AfterbuyOrderAdmin(admin.ModelAdmin):
 class AfterbuySaleNotificationAdmin(admin.ModelAdmin):
     list_display = ("id", "order_item", "status", "sent_at")
     list_filter = ("status",)
-
-
-@admin.register(AfterbuyChannelStock)
-class AfterbuyChannelStockAdmin(admin.ModelAdmin):
-    list_display = ("product", "account", "marketplace", "quantity", "observed_at")
-    list_filter = ("account", "marketplace")
-    search_fields = ("product__title",)
