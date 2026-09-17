@@ -177,9 +177,7 @@ def test_detect_marketplace_kaufland_and_hood():
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_upsert_matches_jv_ean_and_notifies_managers(
-    seller, manager, product_factory
-):
+def test_upsert_matches_jv_ean_and_notifies_managers(seller, manager, product_factory):
     from apps.afterbuy.models import AfterbuySaleNotification
     from apps.afterbuy.sync import upsert_sold_order
     from apps.notifications.models import Notification
@@ -372,9 +370,7 @@ def test_manager_syncs_afterbuy_stock_and_notifies_seller(
     )
     assert sync_response.status_code == 202, sync_response.data
     assert sync_response.data["qty_after"] == 18
-    pairs = {
-        (item["marketplace"], item["account"]) for item in captured["targets"]
-    }
+    pairs = {(item["marketplace"], item["account"]) for item in captured["targets"]}
     assert ("otto", "jv") not in pairs
     assert pairs == {("hood", "jv"), ("otto", "xl"), ("kaufland", "xl")}
     product.variants.get().refresh_from_db()
@@ -390,9 +386,7 @@ def test_manager_syncs_afterbuy_stock_and_notifies_seller(
     )
     assert "Ваш товар купили" in seller_note.title
     assert "Afterbuy" not in seller_note.body
-    repeat = api_client.post(
-        f"/api/v1/notifications/{note.id}/afterbuy-notify-seller/"
-    )
+    repeat = api_client.post(f"/api/v1/notifications/{note.id}/afterbuy-notify-seller/")
     assert repeat.status_code == 200
     assert (
         Notification.objects.filter(
