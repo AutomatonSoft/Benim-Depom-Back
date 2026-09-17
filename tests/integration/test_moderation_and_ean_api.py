@@ -318,6 +318,30 @@ def test_manager_reject_and_manual_availability_request(
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
+def test_manager_can_send_test_sold_notification_without_changing_stock(
+    api_client, seller, manager, product_factory
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    stock_before = product.variants.get().quantity
+    authenticate(api_client, manager)
+
+    response = api_client.post(
+        f"/api/v1/manager/products/{product.id}/test-sold-notification/"
+    )
+
+    assert response.status_code == 201
+    sold = Notification.objects.get(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_SOLD,
+    )
+    assert "OTTO" not in sold.body.upper()
+    product.variants.get().refresh_from_db()
+    assert product.variants.get().quantity == stock_before
+
+
+@pytest.mark.integration
 @pytest.mark.django_db
 def test_manager_dashboard_returns_live_counts(
     api_client, seller, manager, user_factory, product_factory
