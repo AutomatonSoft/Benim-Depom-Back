@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
+from apps.afterbuy.notify import send_test_product_sold_notification
 from apps.common.permissions import IsManager, is_manager
 from apps.common.throttles import ManagerMutationThrottleMixin
 from apps.ean.models import EanCode
@@ -468,6 +469,32 @@ class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIVie
             manager=request.user,
         )
         return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class ManagerSendTestProductSoldView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=None,
+        responses={201: NotificationSerializer},
+        description=(
+            "Sends the seller a product_sold notification with sample stock "
+            "numbers. Does not change warehouse quantity or marketplace listings."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("owner").prefetch_related("variants"),
+            pk=product_pk,
+        )
+        notification = send_test_product_sold_notification(product=product)
+        return Response(
+            NotificationSerializer(
+                notification,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ManagerCreatePriceNegotiationView(ManagerMutationThrottleMixin, APIView):

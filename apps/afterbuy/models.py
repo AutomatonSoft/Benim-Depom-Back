@@ -84,6 +84,7 @@ class AfterbuyOrderItem(models.Model):
         blank=True,
         related_name="afterbuy_order_items",
     )
+    followup_reconciled_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -122,3 +123,31 @@ class AfterbuySaleNotification(models.Model):
 
     def __str__(self) -> str:
         return f"{self.order_item_id} {self.status}"
+
+
+class AfterbuyChannelStock(models.Model):
+    """Последний увиденный остаток на одной площадке для EAN/аккаунта."""
+
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.CASCADE,
+        related_name="afterbuy_channel_stocks",
+    )
+    account = models.CharField(max_length=2, choices=AfterbuyOrder.Account.choices)
+    marketplace = models.CharField(
+        max_length=16,
+        choices=AfterbuyOrder.Marketplace.choices,
+    )
+    quantity = models.PositiveIntegerField()
+    observed_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("product", "account", "marketplace"),
+                name="afterbuy_channel_stock_uniq",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account} {self.marketplace} {self.quantity}"

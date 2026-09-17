@@ -249,7 +249,7 @@ class ProductVariant(models.Model):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     quantity = models.PositiveIntegerField(
-        validators=[MinValueValidator(1)],
+        validators=[MinValueValidator(0)],
     )
 
     class Meta:
