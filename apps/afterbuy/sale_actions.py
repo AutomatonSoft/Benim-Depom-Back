@@ -5,7 +5,6 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.notifications.copy import render_notification_copy
-
 from apps.notifications.models import Notification
 from apps.notifications.services import (
     create_notification,
