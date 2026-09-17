@@ -114,9 +114,9 @@ def create_notification(
     sold_at: str = "",
     card_price: str = "",
     qty_sold: str = "",
-    qty_before: str = "",
-    qty_after: str = "",
+    marketplace: str = "",
     price_negotiation=None,
+    afterbuy_order_item=None,
 ) -> Notification:
     key = copy_key_for_type(notification_type, copy_key=copy_key)
     if key and (not title or not body):
@@ -136,8 +136,7 @@ def create_notification(
             sold_at=sold_at,
             card_price=card_price,
             qty_sold=qty_sold,
-            qty_before=qty_before,
-            qty_after=qty_after,
+            marketplace=marketplace,
         )
         title = title or generated_title
         body = body or generated_body
@@ -152,6 +151,7 @@ def create_notification(
         title=title,
         body=body,
         price_negotiation=price_negotiation,
+        afterbuy_order_item=afterbuy_order_item,
     )
 
     transaction.on_commit(lambda: send_notification_push.delay(notification.id))

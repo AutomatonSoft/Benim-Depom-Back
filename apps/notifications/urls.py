@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.afterbuy.views import AfterbuyNotifySellerView, AfterbuySyncStockView
+
 from .views import (
     DeviceTokenDeactivateView,
     DeviceTokenRegisterView,
@@ -36,6 +38,16 @@ urlpatterns = [
         "read-all/",
         NotificationReadAllView.as_view(),
         name="notification-read-all",
+    ),
+    path(
+        "<int:notification_pk>/afterbuy-sync-stock/",
+        AfterbuySyncStockView.as_view(),
+        name="notification-afterbuy-sync-stock",
+    ),
+    path(
+        "<int:notification_pk>/afterbuy-notify-seller/",
+        AfterbuyNotifySellerView.as_view(),
+        name="notification-afterbuy-notify-seller",
     ),
     path(
         "<int:notification_pk>/read/",
