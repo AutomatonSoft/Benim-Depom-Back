@@ -17,6 +17,25 @@ def test_notification_copy_uses_requested_language():
     assert "approved" not in body
 
 
+@pytest.mark.unit
+def test_product_sold_copy_has_no_marketplace():
+    title, body = render_notification_copy(
+        key="product_sold",
+        language="ru",
+        name="Стул",
+        sold_at="16.09.2026 12:00",
+        card_price="100.00",
+        currency="TRY",
+        qty_sold="2",
+        qty_before="20",
+        qty_after="20",
+    )
+    assert title == "Ваш товар купили"
+    assert "Стул" in body
+    assert "OTTO" not in body
+    assert "Hood" not in body
+
+
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_preferred_language_endpoint_updates_profile(api_client, seller):

@@ -72,6 +72,7 @@ class Notification(models.Model):
             "price_negotiation_response",
             "Price negotiation response",
         )
+        PRODUCT_SOLD = "product_sold", "Product sold"
 
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,

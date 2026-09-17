@@ -111,6 +111,11 @@ def create_notification(
     message: str = "",
     price: str = "",
     currency: str = "",
+    sold_at: str = "",
+    card_price: str = "",
+    qty_sold: str = "",
+    qty_before: str = "",
+    qty_after: str = "",
     price_negotiation=None,
 ) -> Notification:
     key = copy_key_for_type(notification_type, copy_key=copy_key)
@@ -128,6 +133,11 @@ def create_notification(
             message=message,
             price=price,
             currency=currency,
+            sold_at=sold_at,
+            card_price=card_price,
+            qty_sold=qty_sold,
+            qty_before=qty_before,
+            qty_after=qty_after,
         )
         title = title or generated_title
         body = body or generated_body

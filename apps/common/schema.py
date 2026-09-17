@@ -129,6 +129,10 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Запросить подтверждение наличия",
         (
             "POST",
+            "/api/v1/manager/products/{product_pk}/test-sold-notification/",
+        ): "Отправить продавцу тестовое уведомление о продаже",
+        (
+            "POST",
             "/api/v1/manager/products/{product_pk}/price-negotiation/",
         ): "Предложить продавцу новую цену",
         (

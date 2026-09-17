@@ -30,6 +30,14 @@ def test_variant_normalizes_color_and_materials():
 
 
 @pytest.mark.unit
+def test_variant_allows_zero_quantity():
+    serializer = ProductVariantSerializer(data=valid_variant(quantity=0))
+
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["quantity"] == 0
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "overrides, field",
     [
@@ -37,7 +45,6 @@ def test_variant_normalizes_color_and_materials():
         ({"materials": []}, "materials"),
         ({"materials": ["Wood", "wood"]}, "materials"),
         ({"materials": [" "]}, "materials"),
-        ({"quantity": 0}, "quantity"),
     ],
 )
 def test_variant_rejects_invalid_business_data(overrides, field):
