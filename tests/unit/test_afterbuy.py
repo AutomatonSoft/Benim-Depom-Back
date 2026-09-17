@@ -395,4 +395,3 @@ def test_manager_syncs_afterbuy_stock_and_notifies_seller(
         ).count()
         == 1
     )
-
