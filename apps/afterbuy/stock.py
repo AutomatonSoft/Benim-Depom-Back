@@ -263,7 +263,9 @@ def apply_canonical_qty_to_product(product, quantity: int) -> None:
     variant.save(update_fields=["quantity"])
 
 
-def record_channel_quantities(*, product, account: str, quantities: dict[str, int | None]) -> None:
+def record_channel_quantities(
+    *, product, account: str, quantities: dict[str, int | None]
+) -> None:
     """Пишет снимок по каналам. None не затирает прошлый остаток."""
     now = timezone.now()
     for marketplace, quantity in quantities.items():
@@ -319,7 +321,9 @@ def read_quantities_for_sale(order_item: AfterbuyOrderItem) -> SaleStockSnapshot
     )
 
 
-def sync_stock_after_sale(order_item: AfterbuyOrderItem, snapshot: SaleStockSnapshot) -> None:
+def sync_stock_after_sale(
+    order_item: AfterbuyOrderItem, snapshot: SaleStockSnapshot
+) -> None:
     """
     Выравнивает два других канала и карточку, только если остаток снят с площадки.
 
@@ -345,7 +349,5 @@ def sync_stock_after_sale(order_item: AfterbuyOrderItem, snapshot: SaleStockSnap
     record_channel_quantities(
         product=product,
         account=account,
-        quantities={
-            channel: snapshot.qty_after for channel in TRACKED_CHANNEL_ORDER
-        },
+        quantities={channel: snapshot.qty_after for channel in TRACKED_CHANNEL_ORDER},
     )

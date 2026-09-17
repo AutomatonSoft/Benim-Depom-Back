@@ -258,4 +258,3 @@ def test_canonical_qty_can_be_zero(seller, product_factory):
     product = product_factory(owner=seller, status=Product.Status.APPROVED)
     apply_canonical_qty_to_product(product, 0)
     assert product.variants.get().quantity == 0
-

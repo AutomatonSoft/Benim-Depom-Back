@@ -210,7 +210,6 @@ def test_upsert_matches_jv_ean_and_queues_pending_notification(seller, product_f
     )
 
 
-
 def _item(**overrides) -> NormalizedSoldItem:
     payload = {
         "item_id": "",
@@ -241,7 +240,6 @@ def test_catalog_ean_prefers_sku_when_ean_field_is_empty():
 def test_catalog_ean_ignores_title_and_short_codes():
     item = _item(sku="AB-12", ean="", anr="99", title="4062292574733")
     assert catalog_ean_candidates(item) == []
-
 
 
 @pytest.mark.integration

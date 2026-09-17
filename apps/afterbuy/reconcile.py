@@ -74,7 +74,9 @@ def last_sold_qty_by_channel(*, product, account: str) -> dict[str, int]:
     return result
 
 
-def fetch_live_quantities(*, ean: str, account: str, request_id: str) -> dict[str, int | None]:
+def fetch_live_quantities(
+    *, ean: str, account: str, request_id: str
+) -> dict[str, int | None]:
     live: dict[str, int | None] = {}
     for channel in TRACKED_CHANNEL_ORDER:
         live[channel] = fetch_selling_channel_quantity(
@@ -145,7 +147,9 @@ def reconcile_hot_stock() -> dict:
     from apps.products.models import Product
 
     seen = 0
-    for product_id, account in _hot_product_accounts()[: settings.AFTERBUY_STOCK_RECONCILE_BATCH]:
+    for product_id, account in _hot_product_accounts()[
+        : settings.AFTERBUY_STOCK_RECONCILE_BATCH
+    ]:
         product = Product.objects.filter(pk=product_id).first()
         if product is None:
             continue
