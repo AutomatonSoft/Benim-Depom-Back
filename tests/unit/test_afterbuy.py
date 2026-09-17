@@ -1,8 +1,7 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
-from apps.afterbuy.matching import catalog_ean_candidates
-from apps.afterbuy.types import NormalizedSoldItem
 from decimal import Decimal
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from apps.afterbuy.client import (
@@ -10,11 +9,13 @@ from apps.afterbuy.client import (
     build_get_sold_items_xml,
     format_afterbuy_datetime,
 )
+from apps.afterbuy.matching import catalog_ean_candidates
 from apps.afterbuy.parser import (
     detect_marketplace,
     parse_afterbuy_datetime,
     parse_sold_items_xml,
 )
+from apps.afterbuy.types import NormalizedSoldItem
 
 SAMPLE_XML = """
 <Result>
@@ -246,11 +247,12 @@ def test_catalog_ean_ignores_title_and_short_codes():
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_upsert_matches_jv_sku_when_afterbuy_ean_is_empty(seller, product_factory):
-    from apps.afterbuy.sync import upsert_sold_order
-    from apps.products.models import Product
-    from decimal import Decimal
-    from apps.afterbuy.types import NormalizedSoldItem, NormalizedSoldOrder
     from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from apps.afterbuy.sync import upsert_sold_order
+    from apps.afterbuy.types import NormalizedSoldItem, NormalizedSoldOrder
+    from apps.products.models import Product
 
     product = product_factory(
         owner=seller,

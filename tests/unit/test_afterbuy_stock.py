@@ -195,7 +195,11 @@ def test_dirty_increase_without_matching_sale_is_skipped():
 def test_reconcile_restores_siblings_on_cancel(seller, product_factory, monkeypatch):
     from datetime import UTC, datetime
 
-    from apps.afterbuy.models import AfterbuyChannelStock, AfterbuyOrder, AfterbuyOrderItem
+    from apps.afterbuy.models import (
+        AfterbuyChannelStock,
+        AfterbuyOrder,
+        AfterbuyOrderItem,
+    )
     from apps.afterbuy.reconcile import reconcile_product_account
     from apps.products.models import Product
 
