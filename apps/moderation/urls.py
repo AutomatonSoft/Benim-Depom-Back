@@ -12,7 +12,6 @@ from .views import (
     ManagerRejectSellerChangesView,
     ManagerRequestProductAvailabilityView,
     ManagerSendProductNotificationView,
-    ManagerSendTestProductSoldView,
     ProductModerationHistoryView,
 )
 
@@ -68,11 +67,6 @@ urlpatterns = [
         "manager/products/<int:product_pk>/availability-request/",
         ManagerRequestProductAvailabilityView.as_view(),
         name="manager-product-availability-request",
-    ),
-    path(
-        "manager/products/<int:product_pk>/test-sold-notification/",
-        ManagerSendTestProductSoldView.as_view(),
-        name="manager-product-test-sold-notification",
     ),
     path(
         "manager/products/<int:product_pk>/price-negotiation/",

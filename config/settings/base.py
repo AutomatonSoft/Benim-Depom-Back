@@ -392,7 +392,6 @@ CELERY_TASK_ROUTES = {
         "queue": "maintenance",
     },
     "apps.afterbuy.tasks.sync_afterbuy_sales": {"queue": "maintenance"},
-    "apps.afterbuy.tasks.reconcile_afterbuy_stock": {"queue": "maintenance"},
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
@@ -416,10 +415,6 @@ CELERY_TASK_ANNOTATIONS = {
         "time_limit": 90,
     },
     "apps.afterbuy.tasks.sync_afterbuy_sales": {
-        "soft_time_limit": 240,
-        "time_limit": 270,
-    },
-    "apps.afterbuy.tasks.reconcile_afterbuy_stock": {
         "soft_time_limit": 240,
         "time_limit": 270,
     },
@@ -658,10 +653,6 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.afterbuy.tasks.sync_afterbuy_sales",
         "schedule": crontab(minute="*/15"),
     },
-    "reconcile-afterbuy-stock": {
-        "task": "apps.afterbuy.tasks.reconcile_afterbuy_stock",
-        "schedule": crontab(minute="7-59/15"),
-    },
 }
 
 PUSH_NOTIFICATION_MAX_ATTEMPTS = env.int(
@@ -778,9 +769,6 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
 
 AFTERBUY_SYNC_ENABLED = env.bool("AFTERBUY_SYNC_ENABLED", default=True)
 AFTERBUY_LOOKBACK_HOURS = env.int("AFTERBUY_LOOKBACK_HOURS", default=12)
-AFTERBUY_STOCK_HOT_DAYS = env.int("AFTERBUY_STOCK_HOT_DAYS", default=21)
-AFTERBUY_STOCK_FOLLOWUP_DAYS = env.int("AFTERBUY_STOCK_FOLLOWUP_DAYS", default=15)
-AFTERBUY_STOCK_RECONCILE_BATCH = env.int("AFTERBUY_STOCK_RECONCILE_BATCH", default=40)
 AFTERBUY_MAX_SOLD_ITEMS = env.int("AFTERBUY_MAX_SOLD_ITEMS", default=100)
 AFTERBUY_HTTP_TIMEOUT_SECONDS = env.int("AFTERBUY_HTTP_TIMEOUT_SECONDS", default=60)
 AFTERBUY_HTTP_RETRIES = env.int("AFTERBUY_HTTP_RETRIES", default=3)

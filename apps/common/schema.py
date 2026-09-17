@@ -129,10 +129,6 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Запросить подтверждение наличия",
         (
             "POST",
-            "/api/v1/manager/products/{product_pk}/test-sold-notification/",
-        ): "Отправить продавцу тестовое уведомление о продаже",
-        (
-            "POST",
             "/api/v1/manager/products/{product_pk}/price-negotiation/",
         ): "Предложить продавцу новую цену",
         (
@@ -154,6 +150,14 @@ class MarketplaceAutoSchema(AutoSchema):
             "POST",
             "/api/v1/notifications/{notification_pk}/read/",
         ): "Пометить уведомление прочитанным",
+        (
+            "POST",
+            "/api/v1/notifications/{notification_pk}/afterbuy-sync-stock/",
+        ): "Синхронизировать остаток по продаже Afterbuy",
+        (
+            "POST",
+            "/api/v1/notifications/{notification_pk}/afterbuy-notify-seller/",
+        ): "Уведомить продавца о продаже Afterbuy",
         (
             "POST",
             "/api/v1/notifications/read-all/",
