@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -8,11 +9,13 @@ from apps.afterbuy.client import (
     build_get_sold_items_xml,
     format_afterbuy_datetime,
 )
+from apps.afterbuy.matching import catalog_ean_candidates
 from apps.afterbuy.parser import (
     detect_marketplace,
     parse_afterbuy_datetime,
     parse_sold_items_xml,
 )
+from apps.afterbuy.types import NormalizedSoldItem
 
 SAMPLE_XML = """
 <Result>
@@ -177,6 +180,7 @@ def test_detect_marketplace_kaufland_and_hood():
 def test_upsert_matches_jv_ean_and_queues_pending_notification(seller, product_factory):
     from apps.afterbuy.models import AfterbuySaleNotification
     from apps.afterbuy.sync import upsert_sold_order
+    from apps.notifications.models import Notification
     from apps.products.models import Product
 
     product = product_factory(
@@ -188,4 +192,97 @@ def test_upsert_matches_jv_ean_and_queues_pending_notification(seller, product_f
     stored = upsert_sold_order(account="jv", order=orders[0])
     item = stored.items.get()
     assert item.matched_product_id == product.id
-    assert item.sale_notification.status == AfterbuySaleNotification.Status.PENDING
+    assert item.sale_notification.status == AfterbuySaleNotification.Status.SENT
+    sold = Notification.objects.get(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_SOLD,
+    )
+    assert "OTTO" not in sold.body.upper()
+    assert "Hood" not in sold.body
+    assert "2" in sold.body
+    upsert_sold_order(account="jv", order=orders[0])
+    assert (
+        Notification.objects.filter(
+            notification_type=Notification.Type.PRODUCT_SOLD
+        ).count()
+        == 1
+    )
+
+
+def _item(**overrides) -> NormalizedSoldItem:
+    payload = {
+        "item_id": "",
+        "anr": "",
+        "product_id": "",
+        "sku": "",
+        "alternative_item_number": "",
+        "ean": "",
+        "title": "Stuhl",
+        "quantity": 1,
+        "unit_price": Decimal("9.95"),
+        "platform_name": "OTTO Market",
+        "marketplace": "otto",
+        "platform_order_number": "",
+        "extra_tags": {},
+    }
+    payload.update(overrides)
+    return NormalizedSoldItem(**payload)
+
+
+@pytest.mark.unit
+def test_catalog_ean_prefers_sku_when_ean_field_is_empty():
+    item = _item(sku="4062292574733", ean="", title="Другое название")
+    assert catalog_ean_candidates(item) == ["4062292574733"]
+
+
+@pytest.mark.unit
+def test_catalog_ean_ignores_title_and_short_codes():
+    item = _item(sku="AB-12", ean="", anr="99", title="4062292574733")
+    assert catalog_ean_candidates(item) == []
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_upsert_matches_jv_sku_when_afterbuy_ean_is_empty(seller, product_factory):
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from apps.afterbuy.sync import upsert_sold_order
+    from apps.afterbuy.types import NormalizedSoldItem, NormalizedSoldOrder
+    from apps.products.models import Product
+
+    product = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4062292574733",
+    )
+    item = NormalizedSoldItem(
+        item_id="1",
+        anr="",
+        product_id="",
+        sku="4062292574733",
+        alternative_item_number="",
+        ean="",
+        title="Любое имя с площадки",
+        quantity=2,
+        unit_price=Decimal("10.00"),
+        platform_name="OTTO Market",
+        marketplace="otto",
+        platform_order_number="",
+    )
+    order = NormalizedSoldOrder(
+        afterbuy_order_id="9003",
+        paid_at=datetime(2026, 9, 16, 12, 0, tzinfo=UTC),
+        total_amount=Decimal("20.00"),
+        currency="EUR",
+        payment_method="OTTO Payments",
+        platform_order_number="",
+        marketplace="otto",
+        buyer_name="Ada",
+        buyer_email="ada@example.com",
+        buyer_platform_user_id="Otto-1",
+        items=(item,),
+    )
+    stored = upsert_sold_order(account="jv", order=order)
+    assert stored.items.get().matched_product_id == product.id
