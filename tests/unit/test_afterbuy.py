@@ -177,7 +177,7 @@ def test_detect_marketplace_kaufland_and_hood():
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_upsert_matches_jv_ean_and_queues_pending_notification(seller, product_factory):
+def test_upsert_matches_jv_ean_and_notifies_managers(seller, manager, product_factory):
     from apps.afterbuy.models import AfterbuySaleNotification
     from apps.afterbuy.sync import upsert_sold_order
     from apps.notifications.models import Notification
@@ -194,13 +194,18 @@ def test_upsert_matches_jv_ean_and_queues_pending_notification(seller, product_f
     assert item.matched_product_id == product.id
     assert item.sale_notification.status == AfterbuySaleNotification.Status.SENT
     sold = Notification.objects.get(
-        user=seller,
+        user=manager,
         product=product,
         notification_type=Notification.Type.PRODUCT_SOLD,
     )
-    assert "OTTO" not in sold.body.upper()
-    assert "Hood" not in sold.body
+    assert not Notification.objects.filter(
+        user=seller,
+        notification_type=Notification.Type.PRODUCT_SOLD,
+    ).exists()
+    assert "Afterbuy" in sold.body
+    assert "уведомите продавца" in sold.body
     assert "2" in sold.body
+    assert sold.afterbuy_order_item_id == item.id
     upsert_sold_order(account="jv", order=orders[0])
     assert (
         Notification.objects.filter(
@@ -286,3 +291,107 @@ def test_upsert_matches_jv_sku_when_afterbuy_ean_is_empty(seller, product_factor
     )
     stored = upsert_sold_order(account="jv", order=order)
     assert stored.items.get().matched_product_id == product.id
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_syncs_afterbuy_stock_and_notifies_seller(
+    api_client, seller, manager, product_factory, monkeypatch
+):
+    from apps.afterbuy.sync import upsert_sold_order
+    from apps.notifications.models import Notification
+    from apps.orchestrator.models import MarketplaceJob, MarketplacePublication
+    from apps.products.models import Product
+
+    product = product_factory(
+        owner=seller,
+        status=Product.Status.APPROVED,
+        ean_jv="4006381333931",
+        ean_xl="4006381333932",
+    )
+    for marketplace, account, ean in (
+        ("otto", "jv", product.ean_jv),
+        ("hood", "jv", product.ean_jv),
+        ("otto", "xl", product.ean_xl),
+        ("kaufland", "xl", product.ean_xl),
+    ):
+        MarketplacePublication.objects.create(
+            product=product,
+            marketplace=marketplace,
+            account=account,
+            ean=ean,
+            status=MarketplacePublication.Status.ACTIVE,
+        )
+
+    orders, _, _ = parse_sold_items_xml(SAMPLE_XML)
+    upsert_sold_order(account="jv", order=orders[0])
+    note = Notification.objects.get(
+        user=manager,
+        notification_type=Notification.Type.PRODUCT_SOLD,
+    )
+
+    monkeypatch.setattr(
+        "apps.afterbuy.sale_actions.fetch_selling_channel_quantity",
+        lambda **_kwargs: 18,
+    )
+    captured: dict = {}
+
+    def fake_create_marketplace_job(*, product, requested_by, operation, targets):
+        captured["targets"] = targets
+        return MarketplaceJob.objects.create(
+            product=product,
+            requested_by=requested_by,
+            operation=operation,
+            requested_channels=[item["marketplace"] for item in targets],
+            request_payload={
+                "targets": targets,
+                "target_payloads": {},
+                "payloads": {},
+                "accounts": {},
+            },
+        )
+
+    monkeypatch.setattr(
+        "apps.afterbuy.sale_actions.create_marketplace_job",
+        fake_create_marketplace_job,
+    )
+    monkeypatch.setattr(
+        "apps.afterbuy.views.execute_marketplace_job.delay",
+        lambda *_args, **_kwargs: None,
+    )
+
+    api_client.force_authenticate(user=manager)
+    list_response = api_client.get("/api/v1/notifications/?category=afterbuy")
+    assert list_response.status_code == 200
+    assert list_response.data["results"][0]["id"] == note.id
+
+    sync_response = api_client.post(
+        f"/api/v1/notifications/{note.id}/afterbuy-sync-stock/"
+    )
+    assert sync_response.status_code == 202, sync_response.data
+    assert sync_response.data["qty_after"] == 18
+    pairs = {(item["marketplace"], item["account"]) for item in captured["targets"]}
+    assert ("otto", "jv") not in pairs
+    assert pairs == {("hood", "jv"), ("otto", "xl"), ("kaufland", "xl")}
+    product.variants.get().refresh_from_db()
+    assert product.variants.get().quantity == 18
+
+    notify_response = api_client.post(
+        f"/api/v1/notifications/{note.id}/afterbuy-notify-seller/"
+    )
+    assert notify_response.status_code == 201
+    seller_note = Notification.objects.get(
+        user=seller,
+        notification_type=Notification.Type.PRODUCT_SOLD,
+    )
+    assert "Ваш товар купили" in seller_note.title
+    assert "Afterbuy" not in seller_note.body
+    repeat = api_client.post(f"/api/v1/notifications/{note.id}/afterbuy-notify-seller/")
+    assert repeat.status_code == 200
+    assert (
+        Notification.objects.filter(
+            user=seller,
+            notification_type=Notification.Type.PRODUCT_SOLD,
+        ).count()
+        == 1
+    )

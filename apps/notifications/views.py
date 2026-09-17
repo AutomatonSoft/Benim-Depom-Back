@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from .models import DeviceToken, Notification
 from .serializers import (
+    AFTERBUY_TYPES,
     AVAILABILITY_TYPES,
     MANAGER_SENT_TYPES,
     PRICE_TYPES,
@@ -53,6 +54,8 @@ def _apply_notification_filters(queryset, filters: dict):
         queryset = queryset.filter(notification_type__in=AVAILABILITY_TYPES)
     elif category == "price":
         queryset = queryset.filter(notification_type__in=PRICE_TYPES)
+    elif category == "afterbuy":
+        queryset = queryset.filter(notification_type__in=AFTERBUY_TYPES)
 
     notification_type = filters.get("notification_type")
     if notification_type:
@@ -111,6 +114,9 @@ class NotificationListView(generics.ListAPIView):
             "user",
             "price_negotiation",
             "price_negotiation__manager",
+            "afterbuy_order_item",
+            "afterbuy_order_item__order",
+            "afterbuy_order_item__sale_notification",
         )
         prefetch = (
             "product__price_negotiations",
@@ -153,6 +159,7 @@ class NotificationSummaryView(APIView):
         review_q = Q(notification_type__in=REVIEW_TYPES)
         availability_q = Q(notification_type__in=AVAILABILITY_TYPES)
         price_q = Q(notification_type__in=PRICE_TYPES)
+        afterbuy_q = Q(notification_type__in=AFTERBUY_TYPES)
 
         inbox_counts = inbox.aggregate(
             all=Count("id"),
@@ -160,9 +167,11 @@ class NotificationSummaryView(APIView):
             review=Count("id", filter=review_q),
             availability=Count("id", filter=availability_q),
             price=Count("id", filter=price_q),
+            afterbuy=Count("id", filter=afterbuy_q),
             unread_review=Count("id", filter=review_q & Q(is_read=False)),
             unread_availability=Count("id", filter=availability_q & Q(is_read=False)),
             unread_price=Count("id", filter=price_q & Q(is_read=False)),
+            unread_afterbuy=Count("id", filter=afterbuy_q & Q(is_read=False)),
         )
         outgoing_counts = outgoing.aggregate(
             outgoing=Count("id"),

@@ -18,22 +18,21 @@ def test_notification_copy_uses_requested_language():
 
 
 @pytest.mark.unit
-def test_product_sold_copy_has_no_marketplace():
+def test_product_sold_copy_asks_manager_to_update_stock():
     title, body = render_notification_copy(
         key="product_sold",
         language="ru",
         name="Стул",
         sold_at="16.09.2026 12:00",
-        card_price="100.00",
-        currency="TRY",
         qty_sold="2",
-        qty_before="20",
-        qty_after="20",
+        marketplace="OTTO",
     )
-    assert title == "Ваш товар купили"
+    assert title == "Товар купили в Afterbuy"
     assert "Стул" in body
-    assert "OTTO" not in body
-    assert "Hood" not in body
+    assert "Afterbuy" in body
+    assert "OTTO" in body
+    assert "уведомите продавца" in body
+    assert "складе" in body
 
 
 @pytest.mark.integration
