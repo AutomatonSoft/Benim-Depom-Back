@@ -46,6 +46,13 @@ def test_manager_deactivates_all_active_listings_without_changing_product_status
         MarketplaceJob.Operation.DELETE,
     }
     assert delay.call_count == 2
+    deactivate_job = next(
+        job for job in jobs if job.operation == MarketplaceJob.Operation.DEACTIVATE
+    )
+    marketplaces = {
+        target["marketplace"] for target in deactivate_job.request_payload["targets"]
+    }
+    assert marketplaces == {"otto", "kaufland"}
     product.refresh_from_db()
     assert product.status == Product.Status.APPROVED
 

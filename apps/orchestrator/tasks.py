@@ -17,6 +17,12 @@ from apps.common.openai_text_service import (
 )
 from apps.ean.services import consume_ean_code
 from apps.marketplace.hood.services import execute as execute_hood
+from apps.marketplace.kaufland.status import (
+    classify_kaufland_status_outcome,
+    extract_kaufland_external_id,
+    extract_kaufland_status,
+    kaufland_status_failure_payload,
+)
 from apps.marketplace.otto.constants import OttoMarketplaceStatus
 
 from .ai_content import (
@@ -246,14 +252,52 @@ def get_expected_otto_marketplace_statuses(
     return ()
 
 
-OTTO_MARKETPLACE_CONFIRM_OPERATIONS = frozenset(
-    {
-        MarketplaceJob.Operation.PUBLISH,
-        MarketplaceJob.Operation.UPDATE,
-        MarketplaceJob.Operation.ACTIVATE,
-        MarketplaceJob.Operation.DEACTIVATE,
-    }
-)
+def is_otto_operation_confirmed(
+    *,
+    operation: str,
+    marketplace_status: str,
+    active_flag: bool | None,
+) -> bool:
+    """
+    Decide whether OTTO has confirmed the operation.
+
+    Activate/deactivate follow active-status (Search ``active``). Marketplace
+    ONLINE/INACTIVE remains a valid confirmation signal as well.
+    Publish/update still require marketplace ONLINE.
+    """
+
+    expected_statuses = get_expected_otto_marketplace_statuses(operation)
+
+    if operation == MarketplaceJob.Operation.ACTIVATE:
+        if active_flag is True:
+            return True
+        return marketplace_status in expected_statuses
+
+    if operation == MarketplaceJob.Operation.DEACTIVATE:
+        if active_flag is False:
+            return True
+        return marketplace_status in expected_statuses
+
+    return marketplace_status in expected_statuses
+
+
+def get_kaufland_product_status(
+    client: MarketplaceClient,
+    *,
+    ean: str,
+    account: str,
+) -> dict[str, Any]:
+    params: dict[str, str] = {"controller": account}
+    storefront = str(settings.KAUFLAND_STATUS_STOREFRONT or "").strip()
+    if storefront:
+        params["storefront"] = storefront
+
+    return client.request(
+        settings.KAUFLAND_API_BASE_URL,
+        "GET",
+        path_with_ean(settings.KAUFLAND_API_STATUS_ENDPOINT, ean),
+        params=params,
+    )
 
 
 def _set_job_target_result(
@@ -407,6 +451,20 @@ def request_for_non_hood_channel(
                 },
             )
 
+        if operation == MarketplaceJob.Operation.ACTIVATE:
+            body = payload if isinstance(payload, dict) else {}
+            return client.request(
+                settings.KAUFLAND_API_BASE_URL,
+                "PUT",
+                settings.KAUFLAND_API_CREATE_ENDPOINT,
+                params={"controller": account},
+                payload={
+                    "ean": ean,
+                    "controller": account,
+                    **body,
+                },
+            )
+
         if operation == MarketplaceJob.Operation.UPDATE:
             return client.request(
                 settings.KAUFLAND_API_BASE_URL,
@@ -436,14 +494,13 @@ def request_for_non_hood_channel(
             )
 
         if operation == MarketplaceJob.Operation.DEACTIVATE:
-            return {
-                "ok": False,
-                "status_code": 400,
-                "details": {
-                    "code": "kaufland_deactivate_not_supported",
-                    "detail": "Use delete for Kaufland publications.",
-                },
-            }
+            return client.request(
+                settings.KAUFLAND_API_BASE_URL,
+                "POST",
+                path_with_ean(settings.KAUFLAND_API_DEACTIVATE_ENDPOINT, ean),
+                params={"controller": account},
+                payload={"controller": account},
+            )
 
     if marketplace == "otto":
         if operation == MarketplaceJob.Operation.SEARCH:
@@ -662,69 +719,11 @@ def execute_marketplace_job(self, job_id: str) -> None:
 
         response_payload = normalize_payload(result.get("details", {}))
         awaiting_marketplace_confirmation = False
-        otto_process_id = ""
 
         if publication is not None:
-            otto_async_request_accepted = (
-                marketplace == "otto" and is_otto_process_pending(result)
-            )
-
-            if otto_async_request_accepted:
-                otto_process_id = extract_otto_process_id(response_payload)
-                if not otto_process_id:
-                    result = {
-                        "ok": False,
-                        "status_code": result["status_code"],
-                        "details": {
-                            "code": "otto_process_id_missing",
-                            "response": response_payload,
-                        },
-                    }
-                    response_payload = normalize_payload(result["details"])
-                    publication = mark_publication_failed(
-                        publication=publication,
-                        job=job,
-                        error_payload={
-                            "status_code": result["status_code"],
-                            "details": response_payload,
-                        },
-                        response_payload=response_payload,
-                    )
-                    first_successful_publication = False
-                else:
-                    publication = mark_publication_awaiting_confirmation(
-                        publication=publication,
-                        job=job,
-                        response_payload=response_payload,
-                        external_reference=otto_process_id,
-                    )
-                    first_successful_publication = False
-                    awaiting_marketplace_confirmation = True
-                    check_otto_publication_process.apply_async(
-                        args=(publication.pk, 1),
-                        eta=_next_otto_poll_time(response_payload),
-                    )
-
-            elif (
-                marketplace == "otto"
-                and result["ok"]
-                and job.operation in OTTO_MARKETPLACE_CONFIRM_OPERATIONS
-            ):
-                # Wrapper accepted the command, but "снято"/"активен" must wait
-                # for the real OTTO marketplace status (INACTIVE/ONLINE).
-                publication = mark_publication_awaiting_confirmation(
-                    publication=publication,
-                    job=job,
-                    response_payload=response_payload,
-                )
-                first_successful_publication = False
-                awaiting_marketplace_confirmation = True
-                check_otto_marketplace_status.apply_async(
-                    args=(publication.pk, 1),
-                    countdown=settings.OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS,
-                )
-
-            elif result["ok"]:
+            # OTTO/Kaufland wrappers are eventual-consistency: HTTP 2xx
+            # finishes the job. Do not poll catalog status on the hot path.
+            if result["ok"]:
                 with transaction.atomic():
                     publication, first_successful_publication = (
                         mark_publication_succeeded(
@@ -1093,6 +1092,264 @@ def check_otto_marketplace_status(
     check_otto_marketplace_status.apply_async(
         args=(publication.pk, attempt + 1),
         countdown=settings.OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS,
+    )
+
+
+@shared_task
+def refresh_otto_marketplace_statuses() -> dict[str, int]:
+    """Background storefront probe. Does not complete or fail jobs."""
+
+    refreshed = 0
+    failed = 0
+
+    publications = MarketplacePublication.objects.filter(
+        marketplace=MarketplacePublication.Marketplace.OTTO,
+        status=MarketplacePublication.Status.ACTIVE,
+    ).iterator()
+
+    for publication in publications:
+        client = MarketplaceClient(f"otto-status-refresh-{publication.pk}")
+        result = get_otto_marketplace_status(
+            client,
+            sku=publication.ean,
+            account=publication.account,
+        )
+        response_payload = normalize_payload(result.get("details", {}))
+        last_response = publication.last_response
+        if not isinstance(last_response, dict):
+            last_response = {}
+
+        last_response = {
+            **last_response,
+            "marketplace_status": response_payload,
+            "marketplace_status_checked_at": timezone.now().isoformat(),
+        }
+        publication.last_response = compact_external_json(last_response)
+
+        marketplace_item = get_otto_marketplace_item(
+            response_payload,
+            sku=publication.ean,
+        )
+        update_fields = ["last_response", "updated_at"]
+        if marketplace_item is not None:
+            moin = str(marketplace_item.get("moin") or "").strip()
+            if moin and publication.external_id != moin:
+                publication.external_id = moin
+                update_fields.append("external_id")
+
+        publication.save(update_fields=update_fields)
+        if result.get("ok"):
+            refreshed += 1
+        else:
+            failed += 1
+
+    return {"refreshed": refreshed, "failed": failed}
+
+
+@shared_task
+def refresh_kaufland_product_statuses() -> dict[str, int]:
+    """Background catalog probe. Does not complete or fail jobs."""
+
+    refreshed = 0
+    failed = 0
+
+    publications = MarketplacePublication.objects.filter(
+        marketplace=MarketplacePublication.Marketplace.KAUFLAND,
+        status=MarketplacePublication.Status.ACTIVE,
+    ).iterator()
+
+    for publication in publications:
+        client = MarketplaceClient(f"kaufland-status-refresh-{publication.pk}")
+        result = get_kaufland_product_status(
+            client,
+            ean=publication.ean,
+            account=publication.account,
+        )
+        response_payload = normalize_payload(result.get("details", {}))
+        last_response = publication.last_response
+        if not isinstance(last_response, dict):
+            last_response = {}
+
+        last_response = {
+            **last_response,
+            "product_status": response_payload,
+            "is_live": response_payload.get("is_live"),
+            "issues_detected": response_payload.get("issues_detected") or [],
+            "product_status_checked_at": timezone.now().isoformat(),
+        }
+        publication.last_response = compact_external_json(last_response)
+
+        update_fields = ["last_response", "updated_at"]
+        external_id = extract_kaufland_external_id(response_payload)
+        if external_id and publication.external_id != external_id:
+            publication.external_id = external_id
+            update_fields.append("external_id")
+
+        publication.save(update_fields=update_fields)
+        if result.get("ok"):
+            refreshed += 1
+        else:
+            failed += 1
+
+    return {"refreshed": refreshed, "failed": failed}
+
+
+@shared_task(bind=True)
+def check_kaufland_product_status(
+    self,
+    publication_id: int,
+    attempt: int = 1,
+) -> None:
+    """Poll Kaufland until catalog status matches the expected operation outcome."""
+
+    publication = MarketplacePublication.objects.select_related(
+        "product",
+        "last_job",
+    ).get(pk=publication_id)
+
+    if publication.marketplace != MarketplacePublication.Marketplace.KAUFLAND:
+        return
+
+    if publication.status not in {
+        MarketplacePublication.Status.PUBLISHING,
+        MarketplacePublication.Status.DELETING,
+    }:
+        return
+
+    job = publication.last_job
+    if job is None:
+        return
+
+    client = MarketplaceClient(str(job.request_id))
+    result = get_kaufland_product_status(
+        client,
+        ean=publication.ean,
+        account=publication.account,
+    )
+    response_payload = normalize_payload(result.get("details", {}))
+    outcome = classify_kaufland_status_outcome(
+        operation=job.operation,
+        payload=response_payload,
+    )
+
+    combined_response = {
+        "operation_response": publication.last_response,
+        "product_status": response_payload,
+    }
+
+    if outcome == "success":
+        with transaction.atomic():
+            publication, first_successful_publication = mark_publication_succeeded(
+                publication=publication,
+                job=job,
+                response_payload=combined_response,
+                external_id=extract_kaufland_external_id(response_payload),
+            )
+
+            ean_consumed = False
+            if (
+                job.operation == MarketplaceJob.Operation.PUBLISH
+                and first_successful_publication
+            ):
+                ean_consumed = consume_ean_code(
+                    product=publication.product,
+                    account=publication.account,
+                )
+
+        target_result = {
+            "marketplace": "kaufland",
+            "account": publication.account,
+            "ean": publication.ean,
+            "publication_id": publication.pk,
+            "ok": True,
+            "status_code": result.get("status_code", 200),
+            "details": response_payload,
+            "product_status": extract_kaufland_status(response_payload),
+            "is_live": response_payload.get("is_live"),
+            "product_url": response_payload.get("product_url", ""),
+            "awaiting_marketplace_confirmation": False,
+            "ean_consumed": ean_consumed,
+        }
+        _set_job_target_result(
+            job=job,
+            marketplace="kaufland",
+            account=publication.account,
+            replacement=target_result,
+        )
+        _refresh_job_status(job)
+        return
+
+    if outcome == "failure":
+        error_payload = kaufland_status_failure_payload(
+            payload=response_payload,
+            attempts=attempt,
+        )
+        publication = mark_publication_failed(
+            publication=publication,
+            job=job,
+            error_payload=error_payload,
+            response_payload=error_payload,
+        )
+        _set_job_target_result(
+            job=job,
+            marketplace="kaufland",
+            account=publication.account,
+            replacement={
+                "marketplace": "kaufland",
+                "account": publication.account,
+                "ean": publication.ean,
+                "publication_id": publication.pk,
+                "ok": False,
+                "status_code": result.get("status_code", 422),
+                "details": error_payload,
+                "awaiting_marketplace_confirmation": False,
+                "ean_consumed": False,
+            },
+        )
+        _refresh_job_status(job)
+        return
+
+    publication.last_response = compact_external_json(combined_response)
+    publication.save(update_fields=("last_response", "updated_at"))
+
+    if attempt >= settings.KAUFLAND_STATUS_MAX_POLL_ATTEMPTS:
+        error_payload = {
+            "code": "kaufland_product_status_timeout",
+            "detail": (
+                "Kaufland did not reach the expected product status "
+                "within the configured waiting period."
+            ),
+            "attempts": attempt,
+            "last_product_status": response_payload,
+        }
+        publication = mark_publication_failed(
+            publication=publication,
+            job=job,
+            error_payload=error_payload,
+            response_payload=error_payload,
+        )
+        _set_job_target_result(
+            job=job,
+            marketplace="kaufland",
+            account=publication.account,
+            replacement={
+                "marketplace": "kaufland",
+                "account": publication.account,
+                "ean": publication.ean,
+                "publication_id": publication.pk,
+                "ok": False,
+                "status_code": 504,
+                "details": error_payload,
+                "awaiting_marketplace_confirmation": False,
+                "ean_consumed": False,
+            },
+        )
+        _refresh_job_status(job)
+        return
+
+    check_kaufland_product_status.apply_async(
+        args=(publication.pk, attempt + 1),
+        countdown=settings.KAUFLAND_STATUS_POLL_INTERVAL_SECONDS,
     )
 
 

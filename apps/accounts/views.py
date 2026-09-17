@@ -252,7 +252,7 @@ class ManagerSellerDeleteView(ManagerMutationThrottleMixin, APIView):
         responses={202: None, 204: None},
         description=(
             "Hard-deletes a seller. Active marketplace listings are removed "
-            "first (OTTO deactivate, Hood/Kaufland delete). The account is "
+            "first (OTTO/Kaufland deactivate, Hood delete). The account is "
             "disabled immediately and fully deleted after those jobs finish."
         ),
     )

@@ -28,7 +28,7 @@ def test_calculate_uvp_uses_all_price_bands_without_gap(price, expected):
     assert calculate_uvp(Decimal(price)) == Decimal(expected)
 
 
-def make_product(*, ean="4071489789744", variant_count=1):
+def make_product(*, ean="4071489789744", variant_count=1, quantity=20):
     catalog = get_otto_catalog()
     category = next(
         item
@@ -46,7 +46,10 @@ def make_product(*, ean="4071489789744", variant_count=1):
         otto_category_name=category["name"],
         otto_category_group_id=group_id,
         otto_attributes={str(attribute["attributeId"]): "Test value"},
-        variants=SimpleNamespace(count=lambda: variant_count),
+        variants=SimpleNamespace(
+            count=lambda: variant_count,
+            all=lambda: [SimpleNamespace(quantity=quantity)] * variant_count,
+        ),
         images=cover_listing_images(),
     )
 
@@ -92,6 +95,7 @@ def test_build_otto_payload_maps_category_attributes_and_msrp():
     assert item["productReference"] == "4071489789744"
     assert item["sku"] == "4071489789744"
     assert item["ean"] == "4071489789744"
+    assert item["quantity"] == 20
     assert item["pricing"]["standardPrice"] == {
         "amount": 1000.0,
         "currency": "EUR",
@@ -186,6 +190,15 @@ def test_build_otto_payload_includes_filled_optional_ottt_fields():
     assert item["offeringStartDate"] == "2026-09-01T10:00:00+00:00"
     assert item["releaseDate"] == "2026-08-25T10:00:00+00:00"
     assert item["order"] == {"maxOrderQuantity": {"quantity": 2, "periodInDays": 30}}
+
+
+def test_build_otto_payload_sends_variant_quantity_including_zero():
+    item = build_otto_payload(
+        product=make_product(quantity=0),
+        account="jv",
+        configuration=valid_configuration(),
+    )[0]
+    assert item["quantity"] == 0
 
 
 def test_otto_configuration_serializer_returns_dates_from_json_storage():

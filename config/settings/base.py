@@ -364,6 +364,13 @@ CELERY_TASK_ROUTES = {
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.refresh_otto_marketplace_statuses": {
+        "queue": "maintenance"
+    },
+    "apps.orchestrator.tasks.check_kaufland_product_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.refresh_kaufland_product_statuses": {
+        "queue": "maintenance"
+    },
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
@@ -459,6 +466,26 @@ KAUFLAND_API_UPDATE_ENDPOINT = env(
 KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
     default="/api/products/delete/{ean}",
+)
+KAUFLAND_API_DEACTIVATE_ENDPOINT = env(
+    "KAUFLAND_API_DEACTIVATE_ENDPOINT",
+    default="/api/products/deactivate/{ean}/",
+)
+KAUFLAND_API_STATUS_ENDPOINT = env(
+    "KAUFLAND_API_STATUS_ENDPOINT",
+    default="/api/products/status/{ean}/",
+)
+KAUFLAND_STATUS_STOREFRONT = env(
+    "KAUFLAND_STATUS_STOREFRONT",
+    default="de",
+)
+KAUFLAND_STATUS_POLL_INTERVAL_SECONDS = env.int(
+    "KAUFLAND_STATUS_POLL_INTERVAL_SECONDS",
+    default=120,
+)
+KAUFLAND_STATUS_MAX_POLL_ATTEMPTS = env.int(
+    "KAUFLAND_STATUS_MAX_POLL_ATTEMPTS",
+    default=90,
 )
 
 OTTO_API_BASE_URL = env(
@@ -604,6 +631,14 @@ CELERY_BEAT_SCHEDULE = {
     "recover-stale-push-deliveries": {
         "task": "apps.notifications.tasks.recover_stale_push_deliveries",
         "schedule": crontab(minute="*/5"),
+    },
+    "refresh-otto-marketplace-statuses": {
+        "task": "apps.orchestrator.tasks.refresh_otto_marketplace_statuses",
+        "schedule": crontab(minute=20, hour="*/3"),
+    },
+    "refresh-kaufland-product-statuses": {
+        "task": "apps.orchestrator.tasks.refresh_kaufland_product_statuses",
+        "schedule": crontab(minute=40, hour="*/2"),
     },
 }
 

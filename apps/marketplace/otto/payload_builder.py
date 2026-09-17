@@ -364,10 +364,15 @@ def build_otto_payload(
     if errors:
         raise OttoPayloadValidationError(errors)
 
+    # Wrapper ProductVariationRequest.quantity defaults to 20 if omitted.
+    # OTTO cannot go ONLINE with quantity 0; send the warehouse remainder.
+    quantity = int(product.variants.all()[0].quantity)
+
     variation = {
         "productReference": ean,
         "sku": ean,
         "ean": ean,
+        "quantity": quantity,
         "shippingProfileId": shipping_profile_id,
         "productDescription": product_description,
         "mediaAssets": [{"type": "IMAGE", "location": url} for url in media_urls],
