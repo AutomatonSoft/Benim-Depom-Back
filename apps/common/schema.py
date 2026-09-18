@@ -50,6 +50,7 @@ class MarketplaceAutoSchema(AutoSchema):
         # Product lifecycle
         ("GET", "/api/v1/products/"): "Получить список своих товаров",
         ("POST", "/api/v1/products/"): "Создать товар",
+        ("GET", "/api/v1/products/sales-stats/"): "Получить статистику продаж продавца",
         ("GET", "/api/v1/products/{id}/"): "Получить товар",
         ("PATCH", "/api/v1/products/{id}/"): "Изменить черновик товара",
         ("PUT", "/api/v1/products/{id}/"): "Заменить данные товара",
@@ -101,6 +102,7 @@ class MarketplaceAutoSchema(AutoSchema):
             "/api/v1/products/{product_pk}/moderation-history/",
         ): "Получить историю модерации",
         ("GET", "/api/v1/manager/dashboard/"): "Получить сводку панели менеджера",
+        ("GET", "/api/v1/manager/sales-stats/"): "Получить статистику продаж",
         ("GET", "/api/v1/manager/products/"): "Получить товары для менеджера",
         (
             "POST",
@@ -288,6 +290,8 @@ class MarketplaceAutoSchema(AutoSchema):
         if path.startswith("/api/v1/manager/eans/"):
             return ["EAN pool"]
         if path.startswith("/api/v1/manager/dashboard/"):
+            return ["Manager moderation"]
+        if path.startswith("/api/v1/manager/sales-stats/"):
             return ["Manager moderation"]
         if path.startswith("/api/v1/manager/products/"):
             return ["Manager moderation"]

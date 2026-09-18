@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,8 +11,10 @@ from apps.notifications.models import Notification
 from apps.notifications.serializers import NotificationSerializer
 from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
+from apps.products.serializers import ManagerSalesStatsSerializer
 
 from .sale_actions import notify_seller_of_afterbuy_sale, sync_stock_from_afterbuy_sale
+from .stats import manager_sales_stats_from_query
 
 
 def _manager_sale_notification(request, notification_pk: int) -> Notification:
@@ -95,3 +97,44 @@ class AfterbuyNotifySellerView(ManagerMutationThrottleMixin, APIView):
             ).data,
             status=status.HTTP_200_OK if already else status.HTTP_201_CREATED,
         )
+
+
+class ManagerSalesStatsView(APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="from",
+                type=OpenApiTypes.DATE,
+                required=False,
+                description="Inclusive start date (YYYY-MM-DD, Europe/Berlin).",
+            ),
+            OpenApiParameter(
+                name="to",
+                type=OpenApiTypes.DATE,
+                required=False,
+                description="Inclusive end date (YYYY-MM-DD, Europe/Berlin).",
+            ),
+            OpenApiParameter(
+                name="ean",
+                type=OpenApiTypes.STR,
+                required=False,
+                description="Product EAN (JV or XL).",
+            ),
+            OpenApiParameter(
+                name="seller_email",
+                type=OpenApiTypes.STR,
+                required=False,
+                description="Seller account email.",
+            ),
+        ],
+        responses={200: ManagerSalesStatsSerializer},
+        description=(
+            "Company-wide Afterbuy sales totals using frozen card prices. "
+            "Filter by period, seller email, or product EAN."
+        ),
+    )
+    def get(self, request):
+        payload = manager_sales_stats_from_query(query_params=request.query_params)
+        return Response(ManagerSalesStatsSerializer(payload).data)

@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.afterbuy.views import ManagerSalesStatsView
+
 from .views import (
     ManagerApproveProductView,
     ManagerApproveSellerChangesView,
@@ -27,6 +29,11 @@ urlpatterns = [
         "manager/dashboard/",
         ManagerDashboardView.as_view(),
         name="manager-dashboard",
+    ),
+    path(
+        "manager/sales-stats/",
+        ManagerSalesStatsView.as_view(),
+        name="manager-sales-stats",
     ),
     path(
         "manager/products/",

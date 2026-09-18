@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import defaultdict
 
 from django.db import transaction
+from django.utils import timezone
 
 from .job_services import create_marketplace_job
 from .models import MarketplaceJob, MarketplacePublication
+from .publication_services import _status_during_operation
 
 
 def _operation_for(*, marketplace: str, action: str) -> str | None:
@@ -96,6 +98,32 @@ def create_listing_state_jobs(
                     operation=operation,
                     targets=targets,
                     extra_payload={"listing_state_action": action},
+                )
+            )
+
+        jobs_by_operation = {job.operation: job for job in jobs}
+        now = timezone.now()
+        for publication in selected:
+            operation = _operation_for(
+                marketplace=publication.marketplace,
+                action=action,
+            )
+            job = jobs_by_operation.get(operation or "")
+            if operation is None or job is None:
+                continue
+            publication.status_before_operation = publication.status
+            publication.status = _status_during_operation(operation)
+            publication.last_job = job
+            publication.last_error = {}
+            publication.last_attempt_at = now
+            publication.save(
+                update_fields=(
+                    "status",
+                    "status_before_operation",
+                    "last_job",
+                    "last_error",
+                    "last_attempt_at",
+                    "updated_at",
                 )
             )
 
