@@ -4,20 +4,23 @@ from collections import defaultdict
 
 from django.db import transaction
 
-from apps.common.external_json import compact_external_json
-
+from .job_services import create_marketplace_job
 from .models import MarketplaceJob, MarketplacePublication
 
 
 def _operation_for(*, marketplace: str, action: str) -> str | None:
     """Translate a business action to the API operation of each marketplace."""
+    reversible = {
+        MarketplacePublication.Marketplace.OTTO,
+        MarketplacePublication.Marketplace.KAUFLAND,
+    }
     if action == "deactivate":
         return (
             MarketplaceJob.Operation.DEACTIVATE
-            if marketplace == MarketplacePublication.Marketplace.OTTO
+            if marketplace in reversible
             else MarketplaceJob.Operation.DELETE
         )
-    if action == "activate" and marketplace == MarketplacePublication.Marketplace.OTTO:
+    if action == "activate" and marketplace in reversible:
         return MarketplaceJob.Operation.ACTIVATE
     return None
 
@@ -31,10 +34,9 @@ def create_listing_state_jobs(
 ) -> tuple[list[MarketplaceJob], list[dict[str, str]]]:
     """Create one job per external operation required by a business action.
 
-    Hood and Kaufland do not offer a reversible deactivate API.  Their
-    deactivation is therefore a delete; only a deactivated OTTO listing can be
-    activated later.  Returned ``unavailable`` targets let the web UI explain
-    this distinction instead of silently doing the wrong thing.
+    Hood has no reversible hide: deactivation deletes the offer. OTTO and
+    Kaufland keep the card (deactivate / amount 0) so stock can bring it
+    back without a new catalog review.
     """
     requested_targets = requested_targets or []
     desired_status = (
@@ -88,22 +90,12 @@ def create_listing_state_jobs(
         jobs: list[MarketplaceJob] = []
         for operation, targets in targets_by_operation.items():
             jobs.append(
-                MarketplaceJob.objects.create(
+                create_marketplace_job(
                     product=product,
                     requested_by=requested_by,
                     operation=operation,
-                    requested_channels=list(
-                        dict.fromkeys(target["marketplace"] for target in targets)
-                    ),
-                    request_payload=compact_external_json(
-                        {
-                            "payloads": {},
-                            "target_payloads": {},
-                            "accounts": {},
-                            "targets": targets,
-                            "listing_state_action": action,
-                        }
-                    ),
+                    targets=targets,
+                    extra_payload={"listing_state_action": action},
                 )
             )
 

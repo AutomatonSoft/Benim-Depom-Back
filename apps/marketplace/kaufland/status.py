@@ -45,8 +45,10 @@ def classify_kaufland_status_outcome(
     """Map Kaufland status-check payload to a terminal or pending outcome.
 
     Upload/update can return HTTP success while catalog validation still
-    fails later (``BLOCKED`` / ``is_valid: false``). Delete is confirmed
-    only when the product is gone (``NOT_FOUND``).
+    fails later (``BLOCKED`` / ``is_valid: false``). New jobs do not wait
+    for this on the hot path; the background refresh stores ``is_live``
+    and ``issues_detected``. Delete is confirmed by HTTP 200; leftover
+    pollers still treat ``NOT_FOUND`` as success.
     """
 
     status = extract_kaufland_status(payload)

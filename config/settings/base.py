@@ -373,7 +373,13 @@ CELERY_TASK_ROUTES = {
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_publication_process": {"queue": "marketplace"},
     "apps.orchestrator.tasks.check_otto_marketplace_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.refresh_otto_marketplace_statuses": {
+        "queue": "maintenance"
+    },
     "apps.orchestrator.tasks.check_kaufland_product_status": {"queue": "marketplace"},
+    "apps.orchestrator.tasks.refresh_kaufland_product_statuses": {
+        "queue": "maintenance"
+    },
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
@@ -475,6 +481,10 @@ KAUFLAND_API_DELETE_ENDPOINT = env(
     "KAUFLAND_API_DELETE_ENDPOINT",
     default="/api/products/delete/{ean}",
 )
+KAUFLAND_API_DEACTIVATE_ENDPOINT = env(
+    "KAUFLAND_API_DEACTIVATE_ENDPOINT",
+    default="/api/products/deactivate/{ean}/",
+)
 KAUFLAND_API_STATUS_ENDPOINT = env(
     "KAUFLAND_API_STATUS_ENDPOINT",
     default="/api/products/status/{ean}/",
@@ -483,8 +493,6 @@ KAUFLAND_STATUS_STOREFRONT = env(
     "KAUFLAND_STATUS_STOREFRONT",
     default="de",
 )
-# Upload/update can look successful while Kaufland still validates.
-# Poll every 2 minutes, up to ~3 hours.
 KAUFLAND_STATUS_POLL_INTERVAL_SECONDS = env.int(
     "KAUFLAND_STATUS_POLL_INTERVAL_SECONDS",
     default=120,
@@ -652,6 +660,14 @@ CELERY_BEAT_SCHEDULE = {
     "sync-afterbuy-sales": {
         "task": "apps.afterbuy.tasks.sync_afterbuy_sales",
         "schedule": crontab(minute="*/15"),
+    },
+    "refresh-otto-marketplace-statuses": {
+        "task": "apps.orchestrator.tasks.refresh_otto_marketplace_statuses",
+        "schedule": crontab(minute=20, hour="*/3"),
+    },
+    "refresh-kaufland-product-statuses": {
+        "task": "apps.orchestrator.tasks.refresh_kaufland_product_statuses",
+        "schedule": crontab(minute=40, hour="*/2"),
     },
 }
 

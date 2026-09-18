@@ -319,9 +319,9 @@ class ProductMarketplaceListingStateView(ManagerMutationThrottleMixin, APIView):
         parameters=[IDEMPOTENCY_KEY_HEADER],
         description=(
             "Deactivates selected marketplace listings. Without targets it "
-            "uses every active listing of the product. Hood/Kaufland are "
-            "deleted because their APIs have no reversible deactivation; "
-            "OTTO is deactivated and can later be activated again."
+            "uses every active listing of the product. Hood is deleted "
+            "(no reversible hide). OTTO and Kaufland are deactivated so the "
+            "card can return when stock is back."
         ),
     )
     def post(self, request, product_pk: int):
