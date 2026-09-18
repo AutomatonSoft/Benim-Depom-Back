@@ -688,4 +688,3 @@ class SellerSalesStatsView(APIView):
             query_params=request.query_params,
         )
         return Response(SellerSalesStatsSerializer(payload).data)
-

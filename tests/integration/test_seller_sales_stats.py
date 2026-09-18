@@ -123,7 +123,9 @@ def test_seller_sales_stats_uses_frozen_card_prices(
     assert "seller_name" not in response.data
     assert "by_channel" not in response.data
 
-    period = api_client.get("/api/v1/products/sales-stats/?from=2026-09-10&to=2026-09-11")
+    period = api_client.get(
+        "/api/v1/products/sales-stats/?from=2026-09-10&to=2026-09-11"
+    )
     assert period.status_code == 200
     assert period.data["quantity_sold"] == 3
     assert period.data["orders_count"] == 2
@@ -212,4 +214,3 @@ def test_manager_sales_stats_filters_by_ean_and_seller_email(
 
     missing = api_client.get("/api/v1/manager/sales-stats/?ean=0000000000000")
     assert missing.status_code == 400
-

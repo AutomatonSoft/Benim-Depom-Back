@@ -52,7 +52,9 @@ def _digits(value: str) -> str:
     return "".join(character for character in value if character.isdigit())
 
 
-def _period(*, date_from: date | None, date_to: date | None) -> tuple[date | None, date | None]:
+def _period(
+    *, date_from: date | None, date_to: date | None
+) -> tuple[date | None, date | None]:
     if date_from and date_to and date_from > date_to:
         raise ValidationError({"from": "Must be on or before to."})
     return date_from, date_to
@@ -108,9 +110,9 @@ def _aggregate_sales(queryset) -> dict:
     amount_usd = None
     rate = latest_rate()
     if rate is not None and amount_eur is not None:
-        amount_usd = (Decimal(str(amount_eur)) * Decimal(str(rate.eur_to_usd))).quantize(
-            Decimal("0.01"), ROUND_HALF_UP
-        )
+        amount_usd = (
+            Decimal(str(amount_eur)) * Decimal(str(rate.eur_to_usd))
+        ).quantize(Decimal("0.01"), ROUND_HALF_UP)
     return {
         "quantity_sold": int(aggregated["quantity_sold"] or 0),
         "orders_count": int(aggregated["orders_count"] or 0),

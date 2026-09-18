@@ -55,15 +55,20 @@ def test_manager_deactivates_all_active_listings_without_changing_product_status
     assert marketplaces == {"otto", "kaufland"}
     product.refresh_from_db()
     assert product.status == Product.Status.APPROVED
-    assert MarketplacePublication.objects.get(
-        product=product, marketplace="otto"
-    ).status == MarketplacePublication.Status.DEACTIVATING
-    assert MarketplacePublication.objects.get(
-        product=product, marketplace="kaufland"
-    ).status == MarketplacePublication.Status.DEACTIVATING
-    assert MarketplacePublication.objects.get(
-        product=product, marketplace="hood"
-    ).status == MarketplacePublication.Status.DELETING
+    assert (
+        MarketplacePublication.objects.get(product=product, marketplace="otto").status
+        == MarketplacePublication.Status.DEACTIVATING
+    )
+    assert (
+        MarketplacePublication.objects.get(
+            product=product, marketplace="kaufland"
+        ).status
+        == MarketplacePublication.Status.DEACTIVATING
+    )
+    assert (
+        MarketplacePublication.objects.get(product=product, marketplace="hood").status
+        == MarketplacePublication.Status.DELETING
+    )
 
 
 @pytest.mark.integration

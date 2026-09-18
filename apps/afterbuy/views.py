@@ -138,4 +138,3 @@ class ManagerSalesStatsView(APIView):
     def get(self, request):
         payload = manager_sales_stats_from_query(query_params=request.query_params)
         return Response(ManagerSalesStatsSerializer(payload).data)
-

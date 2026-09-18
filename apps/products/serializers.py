@@ -92,7 +92,6 @@ class ManagerSalesStatsSerializer(SellerSalesStatsSerializer):
         return super().to_representation(payload)
 
 
-
 @extend_schema_serializer(component_name="ProductsOwner")
 class ProductOwnerSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
