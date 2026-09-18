@@ -192,7 +192,7 @@ def test_upsert_matches_jv_ean_and_notifies_managers(seller, manager, product_fa
     stored = upsert_sold_order(account="jv", order=orders[0])
     item = stored.items.get()
     assert item.matched_product_id == product.id
-    assert item.settled_unit_price == product.unit_price
+    assert item.settled_unit_price == Decimal("100.00")
     assert item.settled_currency == product.currency
     assert item.sale_notification.status == AfterbuySaleNotification.Status.SENT
     sold = Notification.objects.get(
