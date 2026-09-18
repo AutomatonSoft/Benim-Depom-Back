@@ -14,12 +14,14 @@ from .views import (
     ProductPriceNegotiationHistoryView,
     ProductPriceNegotiationRespondView,
     ProductWithdrawView,
+    SellerSalesStatsView,
 )
 
 app_name = "products"
 
 urlpatterns = [
     path("", ProductListCreateView.as_view(), name="product-list-create"),
+    path("sales-stats/", SellerSalesStatsView.as_view(), name="seller-sales-stats"),
     path("<int:pk>/", ProductDetailView.as_view(), name="product-detail"),
     path(
         "<int:product_pk>/images/",
