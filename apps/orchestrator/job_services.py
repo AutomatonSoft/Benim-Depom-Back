@@ -85,29 +85,46 @@ def build_target_payloads(
 
         try:
             if marketplace == "otto":
+                if operation not in {
+                    MarketplaceJob.Operation.PUBLISH,
+                    MarketplaceJob.Operation.UPDATE,
+                }:
+                    continue
                 payload = build_otto_payload(
                     product=product,
                     account=account,
                     configuration=configuration_data,
                 )
             elif marketplace == "hood":
+                if operation not in {
+                    MarketplaceJob.Operation.PUBLISH,
+                    MarketplaceJob.Operation.UPDATE,
+                }:
+                    continue
                 payload = build_hood_payload(
                     product=product,
                     account=account,
                     configuration=configuration_data,
                 )
+            elif operation == MarketplaceJob.Operation.ACTIVATE:
+                variant = product.variants.first()
+                payload = {
+                    "amount": int(variant.quantity) if variant is not None else 0,
+                }
             elif operation == MarketplaceJob.Operation.PUBLISH:
                 payload = build_kaufland_create_payload(
                     product=product,
                     account=account,
                     configuration=configuration_data,
                 )
-            else:
+            elif operation == MarketplaceJob.Operation.UPDATE:
                 payload = build_kaufland_update_payload(
                     product=product,
                     account=account,
                     configuration=configuration_data,
                 )
+            else:
+                continue
         except OttoPayloadValidationError as exc:
             raise MarketplacePayloadBuildError(
                 {
@@ -168,6 +185,7 @@ def create_marketplace_job(
     if target_payloads is None and operation in {
         MarketplaceJob.Operation.PUBLISH,
         MarketplaceJob.Operation.UPDATE,
+        MarketplaceJob.Operation.ACTIVATE,
     }:
         target_payloads = build_target_payloads(
             product=product,

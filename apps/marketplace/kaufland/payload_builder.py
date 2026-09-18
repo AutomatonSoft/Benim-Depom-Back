@@ -200,6 +200,7 @@ def build_kaufland_create_payload(
         ),
         "color": color,
         "material": primary_material,
+        "material_composition": ", ".join(materials),
         "delivery": delivery,
         "height": float(variant.height_cm),
         "length": float(variant.length_cm),
@@ -241,11 +242,16 @@ def build_kaufland_update_payload(
     if not storefront:
         errors["storefront"] = "Select the Kaufland storefront to update."
 
+    variant = product.variants.get() if product.variants.count() == 1 else None
+
     payload: dict[str, Any] = {
         "ean": ean,
         "controller": account,
         "storefront": storefront,
     }
+
+    if variant is not None:
+        payload["amount"] = int(variant.quantity)
 
     title = str(configuration.get("title", "")).strip()
     if title:
@@ -282,7 +288,7 @@ def build_kaufland_update_payload(
             {
                 "detail": (
                     "Select at least one field to update: title, "
-                    "description, price, images, or unit_id."
+                    "description, price, images, amount, or unit_id."
                 )
             }
         )

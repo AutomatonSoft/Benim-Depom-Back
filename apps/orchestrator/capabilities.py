@@ -10,6 +10,8 @@ MARKETPLACE_OPERATIONS = {
         "publish",
         "update",
         "delete",
+        "activate",
+        "deactivate",
     },
     "otto": {
         "search",
