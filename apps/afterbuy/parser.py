@@ -53,7 +53,7 @@ def _first_text(
             return value
     return ""
 
-
+    
 def parse_afterbuy_datetime(value: str) -> datetime | None:
     raw = (value or "").strip()
     if not raw:

@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.afterbuy.stats import seller_sales_stats_from_query
 from apps.common.permissions import IsManager, IsSeller, is_manager
 from apps.common.throttles import (
     ImageUploadRateThrottle,
@@ -40,6 +41,7 @@ from .serializers import (
     ProductImageUploadSerializer,
     ProductMultipartCreateSerializer,
     ProductSerializer,
+    SellerSalesStatsSerializer,
 )
 from .services import (
     confirm_product_availability,
@@ -647,3 +649,43 @@ class ProductWithdrawView(APIView):
         )
         withdraw_product_submission(product=product)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SellerSalesStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="product_id",
+                type=OpenApiTypes.INT,
+                required=False,
+                description="Limit stats to one of the seller's products.",
+            ),
+            OpenApiParameter(
+                name="from",
+                type=OpenApiTypes.DATE,
+                required=False,
+                description="Inclusive start date (YYYY-MM-DD, Europe/Berlin).",
+            ),
+            OpenApiParameter(
+                name="to",
+                type=OpenApiTypes.DATE,
+                required=False,
+                description="Inclusive end date (YYYY-MM-DD, Europe/Berlin).",
+            ),
+        ],
+        responses={200: SellerSalesStatsSerializer},
+        description=(
+            "Sales stats for the authenticated seller only. "
+            "amount_eur is Afterbuy listing total, amount_try is frozen "
+            "card price, amount_usd is EUR converted by the latest FX rate."
+        ),
+    )
+    def get(self, request):
+        payload = seller_sales_stats_from_query(
+            seller=request.user,
+            query_params=request.query_params,
+        )
+        return Response(SellerSalesStatsSerializer(payload).data)
+

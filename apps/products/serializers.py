@@ -32,6 +32,67 @@ EXACTLY_ONE_VARIANT = (
 )
 
 
+class SalesChannelQuantitySerializer(serializers.Serializer):
+    marketplace = serializers.CharField()
+    account = serializers.CharField()
+    quantity_sold = serializers.IntegerField()
+    orders_count = serializers.IntegerField()
+
+    def to_representation(self, instance):
+        payload = dict(instance)
+        payload.setdefault("quantity_sold", 0)
+        payload.setdefault("orders_count", 0)
+        return super().to_representation(payload)
+
+
+class SellerSalesStatsSerializer(serializers.Serializer):
+    quantity_sold = serializers.IntegerField()
+    orders_count = serializers.IntegerField()
+    amount_eur = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        allow_null=True,
+    )
+    amount_try = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        allow_null=True,
+    )
+    amount_usd = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        allow_null=True,
+    )
+
+    def to_representation(self, instance):
+        payload = dict(instance)
+        payload.setdefault("orders_count", 0)
+        data = super().to_representation(payload)
+        data["from"] = payload.get("from")
+        data["to"] = payload.get("to")
+        return data
+
+
+class ManagerSalesStatsSerializer(SellerSalesStatsSerializer):
+    scope = serializers.CharField()
+    product_id = serializers.IntegerField(allow_null=True)
+    product_title = serializers.CharField(allow_null=True, allow_blank=True)
+    ean = serializers.CharField(allow_blank=True)
+    seller_id = serializers.IntegerField(allow_null=True)
+    seller_email = serializers.CharField(allow_blank=True)
+    seller_name = serializers.CharField(allow_blank=True)
+    by_channel = SalesChannelQuantitySerializer(many=True)
+
+    def to_representation(self, instance):
+        payload = dict(instance)
+        payload.setdefault("by_channel", [])
+        return super().to_representation(payload)
+
+
+
 @extend_schema_serializer(component_name="ProductsOwner")
 class ProductOwnerSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)

@@ -13,6 +13,9 @@ class AfterbuyOrderItemInline(admin.TabularInline):
         "ean",
         "title",
         "quantity",
+        "unit_price",
+        "settled_unit_price",
+        "settled_currency",
         "marketplace",
         "matched_product",
     )
