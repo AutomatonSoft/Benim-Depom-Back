@@ -112,6 +112,7 @@ def test_hood_and_kaufland_use_listing_german_color():
     assert hood_color == "Weiß"
     assert kaufland_payload["color"] == "Weiß"
     assert kaufland_payload["material"] == "Holz"
+    assert kaufland_payload["material_composition"] == "Holz, Stoff"
     hood_material = next(
         item["value"]
         for item in hood_payload["product_properties"]
