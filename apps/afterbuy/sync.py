@@ -9,8 +9,8 @@ from .client import afterbuy_credentials, fetch_sold_items_xml
 from .matching import match_catalog_product
 from .models import AfterbuyOrder, AfterbuyOrderItem
 from .notify import queue_sale_notification
-from .settlement import apply_card_price_snapshot
 from .parser import is_tracked_marketplace, parse_sold_items_xml
+from .settlement import apply_card_price_snapshot
 from .types import NormalizedSoldItem, NormalizedSoldOrder
 
 BERLIN = ZoneInfo("Europe/Berlin")

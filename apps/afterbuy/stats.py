@@ -4,7 +4,17 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, Count, DecimalField, F, IntegerField, Q, Sum, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    DecimalField,
+    F,
+    IntegerField,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from rest_framework.exceptions import ValidationError
 
