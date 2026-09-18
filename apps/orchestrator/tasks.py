@@ -43,7 +43,6 @@ from .models import (
 )
 from .publication_services import (
     PUBLICATION_OPERATIONS,
-    mark_publication_awaiting_confirmation,
     mark_publication_failed,
     mark_publication_succeeded,
     start_publication_attempt,
