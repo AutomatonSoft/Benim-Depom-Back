@@ -129,13 +129,16 @@ def start_publication_attempt(
         },
         MarketplaceJob.Operation.DEACTIVATE: {
             MarketplacePublication.Status.ACTIVE,
+            MarketplacePublication.Status.DEACTIVATING,
         },
         MarketplaceJob.Operation.ACTIVATE: {
             MarketplacePublication.Status.DEACTIVATED,
+            MarketplacePublication.Status.PUBLISHING,
         },
         MarketplaceJob.Operation.DELETE: {
             MarketplacePublication.Status.ACTIVE,
             MarketplacePublication.Status.DEACTIVATED,
+            MarketplacePublication.Status.DELETING,
         },
     }
 
@@ -146,8 +149,10 @@ def start_publication_attempt(
             f"Cannot {job.operation} publication with status '{publication.status}'."
         )
 
-    publication.status_before_operation = publication.status
-    publication.status = _status_during_operation(job.operation)
+    in_progress_status = _status_during_operation(job.operation)
+    if publication.status != in_progress_status:
+        publication.status_before_operation = publication.status
+    publication.status = in_progress_status
     publication.last_job = job
     publication.last_request = compact_external_json(request_payload)
     publication.last_response = {}

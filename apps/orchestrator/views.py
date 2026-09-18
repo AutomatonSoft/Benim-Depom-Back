@@ -362,12 +362,20 @@ class ProductMarketplaceListingStateView(ManagerMutationThrottleMixin, APIView):
             )
 
         try:
-            jobs, unavailable = create_listing_state_jobs(
-                product=product,
-                requested_by=request.user,
-                action=serializer.validated_data["action"],
-                requested_targets=serializer.validated_data.get("targets"),
-            )
+            with transaction.atomic():
+                jobs, unavailable = create_listing_state_jobs(
+                    product=product,
+                    requested_by=request.user,
+                    action=serializer.validated_data["action"],
+                    requested_targets=serializer.validated_data.get("targets"),
+                )
+                if jobs:
+                    for job in jobs:
+                        transaction.on_commit(
+                            lambda job_id=str(job.id): execute_marketplace_job.delay(
+                                job_id
+                            )
+                        )
         except Exception:
             abandon_idempotency_claim(claim=claim)
             raise
@@ -380,11 +388,6 @@ class ProductMarketplaceListingStateView(ManagerMutationThrottleMixin, APIView):
                     "unavailable_targets": unavailable,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        for job in jobs:
-            transaction.on_commit(
-                lambda job_id=str(job.id): execute_marketplace_job.delay(job_id)
             )
 
         response_data = {

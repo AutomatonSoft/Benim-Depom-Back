@@ -68,6 +68,13 @@ class AfterbuyOrderItem(models.Model):
         null=True,
         blank=True,
     )
+    settled_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    settled_currency = models.CharField(max_length=3, blank=True)
     platform_name = models.CharField(max_length=80, blank=True)
     marketplace = models.CharField(
         max_length=16,

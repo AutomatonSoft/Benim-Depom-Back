@@ -387,11 +387,11 @@ def test_manager_dashboard_returns_live_counts(
     assert response.data["sellers_joined_this_month"] == 1
     assert response.data["active_listings"] == [
         {"marketplace": "otto", "account": "jv", "count": 1},
-        {"marketplace": "otto", "account": "xl", "count": 1},
-        {"marketplace": "hood", "account": "jv", "count": 1},
-        {"marketplace": "hood", "account": "xl", "count": 0},
         {"marketplace": "kaufland", "account": "jv", "count": 0},
+        {"marketplace": "hood", "account": "jv", "count": 1},
+        {"marketplace": "otto", "account": "xl", "count": 1},
         {"marketplace": "kaufland", "account": "xl", "count": 0},
+        {"marketplace": "hood", "account": "xl", "count": 0},
     ]
     assert response.data["free_eans"] == {"jv": 1, "xl": 1, "total": 2}
     assert [item["id"] for item in response.data["queue"]] == [waiting.id]

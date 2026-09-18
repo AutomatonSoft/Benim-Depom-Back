@@ -57,11 +57,11 @@ QUEUE_LIMIT = 8
 HISTORY_PAGE_SIZE = 5
 ACTIVE_LISTING_CHANNELS = (
     (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.JV),
-    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
-    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.JV),
-    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.XL),
     (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.JV),
+    (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
     (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.XL),
 )
 
 
