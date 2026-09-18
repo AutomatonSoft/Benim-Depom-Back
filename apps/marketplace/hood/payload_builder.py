@@ -4,7 +4,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
-from apps.marketplace.colors import german_color_name
+from apps.marketplace.colors import listing_color
+from apps.marketplace.listing_title import with_listing_brand_mark
+from apps.marketplace.materials import listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -95,9 +97,8 @@ def build_hood_payload(
 
     if not title:
         errors["title"] = "Enter the Hood product title"
-
-    elif len(title) > 255:
-        errors["title"] = "Hood title may not exceed 255 characters"
+    else:
+        title = with_listing_brand_mark(title, max_length=255)
 
     description = str(configuration.get("description", "")).strip()
     if not description:
@@ -148,17 +149,28 @@ def build_hood_payload(
 
     variant = product.variants.get()
 
+    color, color_error = listing_color(
+        configuration=configuration,
+        variant_color=variant.color,
+    )
+    if color_error:
+        errors["color"] = color_error
+
+    materials, material_error = listing_materials(
+        configuration=configuration,
+        variant_materials=variant.materials,
+    )
+    if material_error:
+        errors["materials"] = material_error
+    if errors:
+        raise HoodPayloadValidationError(errors)
+
     automatic_properties = {
-        "Farbe": german_color_name(variant.color_hex),
+        "Farbe": color,
         "Breite": _format_cm(variant.width_cm),
         "Höhe": _format_cm(variant.height_cm),
         "Länge": _format_cm(variant.length_cm),
     }
-
-    materials = [
-        str(material).strip() for material in variant.materials if str(material).strip()
-    ]
-
     if materials:
         automatic_properties["Material"] = ", ".join(materials)
 

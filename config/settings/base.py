@@ -37,6 +37,7 @@ LOCAL_APPS = [
     "apps.notifications.apps.NotificationsConfig",
     "apps.ean.apps.EanConfig",
     "apps.orchestrator.apps.OrchestratorConfig",
+    "apps.afterbuy.apps.AfterbuyConfig",
     "apps.marketplace.hood.apps.HoodConfig",
     "apps.marketplace.otto.apps.OttoConfig",
     "apps.marketplace.kaufland.apps.KauflandConfig",
@@ -114,6 +115,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+CONTACT_JSON_PATH = Path(
+    env("CONTACT_JSON_PATH", default=str(BASE_DIR / "data" / "contact.json"))
+)
 
 FTP_MEDIA_HOST = env("FTP_MEDIA_HOST")
 FTP_MEDIA_PORT = env.int("FTP_MEDIA_PORT", default=21)
@@ -274,6 +279,10 @@ SPECTACULAR_SETTINGS["TAGS"] = [
         "description": "Уведомления в приложении и регистрация FCM-устройств.",
     },
     {
+        "name": "Contact",
+        "description": "Публичный номер WhatsApp для связи из мобильного приложения.",
+    },
+    {
         "name": "OTTO - Catalog",
         "description": "Локальный каталог групп, категорий и атрибутов OTTO.",
     },
@@ -388,6 +397,7 @@ CELERY_TASK_ROUTES = {
     "apps.notifications.tasks.recover_stale_push_deliveries": {
         "queue": "maintenance",
     },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {"queue": "maintenance"},
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
@@ -409,6 +419,10 @@ CELERY_TASK_ANNOTATIONS = {
     "apps.notifications.tasks.send_notification_push": {
         "soft_time_limit": 60,
         "time_limit": 90,
+    },
+    "apps.afterbuy.tasks.sync_afterbuy_sales": {
+        "soft_time_limit": 240,
+        "time_limit": 270,
     },
 }
 ORCHESTRATOR_STALE_JOB_MINUTES = env.int(
@@ -496,6 +510,14 @@ OTTO_API_PRODUCTS_ENDPOINT = env(
     "OTTO_API_PRODUCTS_ENDPOINT",
     default="/extermal/get_products",
 )
+OTTO_API_QUANTITY_ENDPOINT = env(
+    "OTTO_API_QUANTITY_ENDPOINT",
+    default="/extermal/quantity/{ean}",
+)
+OTTO_API_QUANTITY_WRITE_METHOD = env(
+    "OTTO_API_QUANTITY_WRITE_METHOD",
+    default="POST",
+)
 OTTO_API_UPSERT_ENDPOINT = env(
     "OTTO_API_UPSERT_ENDPOINT",
     default="/extermal/create_or_update_product",
@@ -551,10 +573,13 @@ MARKETPLACE_HTTP_RETRY_BACKOFF_FACTOR = env.float(
 
 OTTO_API_MARKETPLACE_STATUS_ENDPOINT = env(
     "OTTO_API_MARKETPLACE_STATUS_ENDPOINT",
-    default="/v1/products/marketplace_status",
+    default=env(
+        "OTTO_API_MARKETPLACE_STATUS",
+        default="/v1/products/marketplace_status",
+    ),
 )
 
-# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 24 часа.
+# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 8 часов.
 OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
     "OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS",
     default=300,
@@ -562,12 +587,12 @@ OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
 
 OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
     "OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS",
-    default=288,
+    default=96,
 )
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_DAYS",
-    default=14,
+    default=30,
 )
 PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE = env.int(
     "PRODUCT_AVAILABILITY_REMINDER_BATCH_SIZE",
@@ -631,6 +656,10 @@ CELERY_BEAT_SCHEDULE = {
     "recover-stale-push-deliveries": {
         "task": "apps.notifications.tasks.recover_stale_push_deliveries",
         "schedule": crontab(minute="*/5"),
+    },
+    "sync-afterbuy-sales": {
+        "task": "apps.afterbuy.tasks.sync_afterbuy_sales",
+        "schedule": crontab(minute="*/15"),
     },
     "refresh-otto-marketplace-statuses": {
         "task": "apps.orchestrator.tasks.refresh_otto_marketplace_statuses",
@@ -753,6 +782,18 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int(
     "PASSWORD_RESET_TOKEN_TTL_MINUTES",
     default=10,
 )
+
+AFTERBUY_SYNC_ENABLED = env.bool("AFTERBUY_SYNC_ENABLED", default=True)
+AFTERBUY_LOOKBACK_HOURS = env.int("AFTERBUY_LOOKBACK_HOURS", default=12)
+AFTERBUY_MAX_SOLD_ITEMS = env.int("AFTERBUY_MAX_SOLD_ITEMS", default=100)
+AFTERBUY_HTTP_TIMEOUT_SECONDS = env.int("AFTERBUY_HTTP_TIMEOUT_SECONDS", default=60)
+AFTERBUY_HTTP_RETRIES = env.int("AFTERBUY_HTTP_RETRIES", default=3)
+AFTERBUY_JV_PARTNER_TOKEN = env("AFTERBUY_JV_PARTNER_TOKEN", default="")
+AFTERBUY_JV_ACCOUNT_TOKEN = env("AFTERBUY_JV_ACCOUNT_TOKEN", default="")
+AFTERBUY_JV_PARTNER_ID = env("AFTERBUY_JV_PARTNER_ID", default="")
+AFTERBUY_XL_PARTNER_TOKEN = env("AFTERBUY_XL_PARTNER_TOKEN", default="")
+AFTERBUY_XL_ACCOUNT_TOKEN = env("AFTERBUY_XL_ACCOUNT_TOKEN", default="")
+AFTERBUY_XL_PARTNER_ID = env("AFTERBUY_XL_PARTNER_ID", default="")
 
 BULK_WHITE_IMAGE_ALLOWED_IMAGE_HOSTS = tuple(
     host.strip().lower()

@@ -4,10 +4,12 @@ from .views import (
     ManagerApproveProductView,
     ManagerApproveSellerChangesView,
     ManagerChangeProductStatusView,
+    ManagerCreatePriceNegotiationView,
     ManagerDashboardView,
     ManagerDeactivateProductView,
     ManagerProductListView,
     ManagerRejectProductView,
+    ManagerRejectSellerChangesView,
     ManagerRequestProductAvailabilityView,
     ManagerSendProductNotificationView,
     ProductModerationHistoryView,
@@ -52,6 +54,11 @@ urlpatterns = [
         name="manager-product-seller-changes-approve",
     ),
     path(
+        "manager/products/<int:product_pk>/seller-changes/reject/",
+        ManagerRejectSellerChangesView.as_view(),
+        name="manager-product-seller-changes-reject",
+    ),
+    path(
         "manager/products/<int:product_pk>/notifications/",
         ManagerSendProductNotificationView.as_view(),
         name="manager-product-notification",
@@ -60,6 +67,11 @@ urlpatterns = [
         "manager/products/<int:product_pk>/availability-request/",
         ManagerRequestProductAvailabilityView.as_view(),
         name="manager-product-availability-request",
+    ),
+    path(
+        "manager/products/<int:product_pk>/price-negotiation/",
+        ManagerCreatePriceNegotiationView.as_view(),
+        name="manager-product-price-negotiation",
     ),
     path(
         "manager/products/<int:product_pk>/deactivate/",

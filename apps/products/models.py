@@ -143,6 +143,9 @@ class Product(models.Model):
     catalog_revision = models.PositiveIntegerField(default=1)
     pending_changes = models.JSONField(default=dict, blank=True)
     pending_changes_submitted_at = models.DateTimeField(null=True, blank=True)
+    # Last rejected pending request, or the snapshot from a rejected/withdrawn
+    # resubmission — so managers still see seller comment + field diffs on the card.
+    seller_change_review = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -164,25 +167,71 @@ class Product(models.Model):
         return f"{self.title} ({self.owner.username})"
 
 
+class PriceNegotiation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+        SUPERSEDED = "superseded", "Superseded"
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="price_negotiations",
+    )
+    manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="price_negotiations",
+    )
+    currency = models.CharField(max_length=3, choices=Product.Currency.choices)
+    current_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    proposed_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    message = models.TextField()
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    seller_comment = models.TextField(blank=True, default="")
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(
+                fields=("product", "status", "-created_at"),
+                name="price_neg_product_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Price negotiation #{self.pk} for product {self.product_id} "
+            f"({self.status})"
+        )
+
+
 class ProductVariant(models.Model):
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         related_name="variants",
     )
-    # The mobile app sends a colour selected in its picker and one or two
-    # free-form material names. Keeping these values on the variant avoids an
-    # unnecessary catalog CRUD workflow for sellers.
-    color_hex = models.CharField(
-        max_length=7,
-        validators=[
-            RegexValidator(
-                regex=r"^#[0-9A-Fa-f]{6}$",
-                message="Use a hexadecimal color in the #RRGGBB format.",
-            )
-        ],
-        db_index=True,
-    )
+    # The mobile app sends a free-form colour name (Turkish, English, etc.).
+    # German marketplace colour lives on the listing after AI translation.
+    color = models.CharField(max_length=80, db_index=True)
     materials = models.JSONField(default=list)
     width_cm = models.DecimalField(
         max_digits=8,
@@ -200,14 +249,14 @@ class ProductVariant(models.Model):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     quantity = models.PositiveIntegerField(
-        validators=[MinValueValidator(1)],
+        validators=[MinValueValidator(0)],
     )
 
     class Meta:
         ordering = ("id",)
 
     def __str__(self) -> str:
-        return f"{self.product.title} — {self.color_hex} / {', '.join(self.materials)}"
+        return f"{self.product.title} — {self.color} / {', '.join(self.materials)}"
 
 
 class ProductImage(models.Model):

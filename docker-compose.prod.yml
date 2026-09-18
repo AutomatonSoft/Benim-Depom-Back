@@ -8,6 +8,7 @@ x-app-common: &app-common
     - .env
   environment:
     DJANGO_ENV: production
+    CONTACT_JSON_PATH: /app/runtime/contact.json
     POSTGRES_HOST: postgres
     POSTGRES_PORT: 5432
     CELERY_BROKER_URL: redis://redis:6379/0
@@ -50,6 +51,7 @@ services:
     <<: *app-common
     volumes:
       - staticfiles:/app/staticfiles
+      - runtime-data:/app/runtime
     healthcheck:
       test:
         [
@@ -168,5 +170,6 @@ volumes:
   postgres_data:
   redis_data:
   staticfiles:
+  runtime-data:
 
 

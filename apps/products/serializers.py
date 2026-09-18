@@ -18,12 +18,18 @@ from apps.catalog.otto_catalog import (
 from apps.common.permissions import is_manager
 
 from .models import (
+    PriceNegotiation,
     Product,
     ProductGeneratedImage,
     ProductImage,
     ProductVariant,
 )
 from .services import create_product, create_product_with_images, update_product
+
+EXACTLY_ONE_VARIANT = (
+    "A product must contain exactly one variant. "
+    "Marketplaces use one EAN per listing, so only one color is allowed."
+)
 
 
 @extend_schema_serializer(component_name="ProductsOwner")
@@ -32,16 +38,67 @@ class ProductOwnerSerializer(serializers.Serializer):
     username = serializers.CharField(read_only=True)
     first_name = serializers.CharField(read_only=True)
     email = serializers.CharField(read_only=True)
+    phone = serializers.CharField(read_only=True)
+    preferred_language = serializers.CharField(read_only=True)
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiation")
+class PriceNegotiationSerializer(serializers.ModelSerializer):
+    manager_username = serializers.CharField(
+        source="manager.username",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PriceNegotiation
+        fields = (
+            "id",
+            "manager_username",
+            "proposed_unit_price",
+            "current_unit_price",
+            "currency",
+            "message",
+            "status",
+            "seller_comment",
+            "responded_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiationCreate")
+class PriceNegotiationCreateSerializer(serializers.Serializer):
+    proposed_unit_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
+    message = serializers.CharField(max_length=4000, trim_whitespace=True)
+
+    def validate_message(self, value):
+        if not value:
+            raise serializers.ValidationError("Enter a message for the seller.")
+        return value
+
+
+@extend_schema_serializer(component_name="ProductsPriceNegotiationRespond")
+class PriceNegotiationRespondSerializer(serializers.Serializer):
+    accepted = serializers.BooleanField()
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        trim_whitespace=True,
+        default="",
+    )
 
 
 @extend_schema_serializer(component_name="ProductsVariant")
 class ProductVariantSerializer(serializers.ModelSerializer):
-    color_hex = serializers.RegexField(
-        regex=r"^#[0-9A-Fa-f]{6}$",
-        max_length=7,
-        error_messages={
-            "invalid": "Use a hexadecimal color in the #RRGGBB format.",
-        },
+    color = serializers.CharField(
+        max_length=80,
+        help_text="Seller colour name, for example beyaz or white.",
     )
     materials = serializers.ListField(
         child=serializers.CharField(max_length=100, trim_whitespace=True),
@@ -57,7 +114,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = (
             "id",
-            "color_hex",
+            "color",
             "materials",
             "width_cm",
             "height_cm",
@@ -66,8 +123,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
-    def validate_color_hex(self, value):
-        return value.upper()
+    def validate_color(self, value):
+        color = value.strip()
+        if not color:
+            raise serializers.ValidationError("Enter a colour name.")
+        return color
 
     def validate_materials(self, values):
         normalized = [value.strip() for value in values]
@@ -189,6 +249,16 @@ class ProductSerializer(serializers.ModelSerializer):
         required=False,
         default=dict,
     )
+    change_comment = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Optional seller note when changing an approved product or "
+            "resubmitting a rejected one. Ignored for draft/submitted products."
+        ),
+    )
     resubmit_for_moderation = serializers.BooleanField(
         write_only=True,
         required=False,
@@ -198,11 +268,19 @@ class ProductSerializer(serializers.ModelSerializer):
             "corrections are complete to send it back to moderation."
         ),
     )
-    variants = ProductVariantSerializer(many=True, required=False)
+    variants = ProductVariantSerializer(
+        many=True,
+        required=False,
+        min_length=1,
+        max_length=1,
+        help_text="Exactly one variant. One color per product listing.",
+    )
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
     last_moderation_decision = serializers.SerializerMethodField()
+    active_price_negotiation = serializers.SerializerMethodField()
+    latest_price_negotiation = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -225,6 +303,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "otto_category_name",
             "otto_category_group_name",
             "otto_attributes",
+            "change_comment",
             "resubmit_for_moderation",
             "status",
             "last_moderation_decision",
@@ -239,6 +318,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "catalog_revision",
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
+            "active_price_negotiation",
+            "latest_price_negotiation",
             "variants",
             "images",
             "total_quantity",
@@ -268,6 +350,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "catalog_revision",
             "pending_changes",
             "pending_changes_submitted_at",
+            "seller_change_review",
+            "active_price_negotiation",
+            "latest_price_negotiation",
             "listing_price_eur",
             "pricing_formula",
         )
@@ -315,6 +400,35 @@ class ProductSerializer(serializers.ModelSerializer):
     )
     def get_last_moderation_decision(self, product) -> str | None:
         return getattr(product, "last_moderation_decision", None)
+
+    def _serialize_price_negotiation(self, negotiation):
+        if negotiation is None:
+            return None
+        return PriceNegotiationSerializer(negotiation).data
+
+    @extend_schema_field(PriceNegotiationSerializer(allow_null=True))
+    def get_active_price_negotiation(self, product):
+        prefetched = getattr(product, "_prefetched_objects_cache", {})
+        if "price_negotiations" in prefetched:
+            for item in product.price_negotiations.all():
+                if item.status == PriceNegotiation.Status.PENDING:
+                    return self._serialize_price_negotiation(item)
+            return None
+        negotiation = (
+            product.price_negotiations.filter(status=PriceNegotiation.Status.PENDING)
+            .order_by("-created_at")
+            .first()
+        )
+        return self._serialize_price_negotiation(negotiation)
+
+    @extend_schema_field(PriceNegotiationSerializer(allow_null=True))
+    def get_latest_price_negotiation(self, product):
+        prefetched = getattr(product, "_prefetched_objects_cache", {})
+        if "price_negotiations" in prefetched:
+            items = list(product.price_negotiations.all())
+            return self._serialize_price_negotiation(items[0] if items else None)
+        negotiation = product.price_negotiations.order_by("-created_at").first()
+        return self._serialize_price_negotiation(negotiation)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -455,15 +569,11 @@ class ProductSerializer(serializers.ModelSerializer):
 
         variants = attrs.get("variants")
 
-        if self.instance is None and not variants:
-            raise serializers.ValidationError(
-                {"variants": "A product must contain at least one variant."}
-            )
+        if self.instance is None and (not variants or len(variants) != 1):
+            raise serializers.ValidationError({"variants": EXACTLY_ONE_VARIANT})
 
-        if variants is not None and not variants:
-            raise serializers.ValidationError(
-                {"variants": "At least one variant is required."}
-            )
+        if variants is not None and len(variants) != 1:
+            raise serializers.ValidationError({"variants": EXACTLY_ONE_VARIANT})
 
         self._validate_otto_catalog_data(attrs)
 
@@ -496,6 +606,47 @@ class ProductSerializer(serializers.ModelSerializer):
                     {
                         "resubmit_for_moderation": (
                             "Only a rejected or withdrawn product can be resubmitted."
+                        )
+                    }
+                )
+
+        initial = getattr(self, "initial_data", {}) or {}
+        if "change_comment" not in initial and "comment" in initial:
+            raw_comment = initial.get("comment")
+            if raw_comment is not None and "change_comment" not in attrs:
+                attrs["change_comment"] = raw_comment
+
+        if "change_comment" in initial or "comment" in initial:
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "A comment can only be sent when updating a product."
+                        )
+                    }
+                )
+            status = self.instance.status
+            if status == Product.Status.APPROVED:
+                pass
+            elif status == Product.Status.REJECTED and attrs.get(
+                "resubmit_for_moderation"
+            ):
+                pass
+            elif status == Product.Status.REJECTED:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "Send change_comment together with "
+                            "resubmit_for_moderation for a rejected product."
+                        )
+                    }
+                )
+            else:
+                raise serializers.ValidationError(
+                    {
+                        "change_comment": (
+                            "A comment is only allowed when changing an approved "
+                            "product or resubmitting a rejected one."
                         )
                     }
                 )
@@ -703,6 +854,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
         validated_data.pop("resubmit_for_moderation", None)
+        validated_data.pop("change_comment", None)
 
         return create_product(
             owner=self.context["request"].user,
@@ -716,6 +868,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "resubmit_for_moderation",
             False,
         )
+        change_comment = validated_data.pop("change_comment", None)
         request = self.context.get("request")
         if (
             instance.status == Product.Status.APPROVED
@@ -728,6 +881,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 product=instance,
                 data=validated_data,
                 variants_data=variants_data,
+                comment=change_comment,
             )
 
         if (
@@ -736,17 +890,38 @@ class ProductSerializer(serializers.ModelSerializer):
         ):
             validated_data["listing_price_eur_override"] = None
 
+        resubmission_review = None
+        if resubmit_for_moderation and instance.status in {
+            Product.Status.REJECTED,
+            Product.Status.WITHDRAWN,
+        }:
+            from .services import build_seller_resubmission_review
+
+            resubmission_review = build_seller_resubmission_review(
+                product=instance,
+                data=validated_data,
+                variants_data=variants_data,
+                comment=change_comment or "",
+            )
+
         product = update_product(
             product=instance,
             data=validated_data,
             variants_data=variants_data,
         )
 
+        if resubmission_review is not None:
+            product.seller_change_review = resubmission_review
+            product.save(update_fields=("seller_change_review", "updated_at"))
+
         if resubmit_for_moderation:
             # Lazy import avoids a products <-> moderation import cycle.
             from apps.moderation.services import submit_product_for_moderation
 
-            return submit_product_for_moderation(product=product)
+            return submit_product_for_moderation(
+                product=product,
+                comment=change_comment or "",
+            )
 
         return product
 
@@ -892,7 +1067,9 @@ class ProductMultipartCreateSerializer(ProductSerializer):
     variants = MultipartJSONListField(
         child=ProductVariantSerializer(),
         allow_empty=False,
-        help_text="JSON array of product variants.",
+        min_length=1,
+        max_length=1,
+        help_text="JSON array with exactly one product variant.",
     )
     otto_attributes = MultipartJSONDictField(
         required=False,

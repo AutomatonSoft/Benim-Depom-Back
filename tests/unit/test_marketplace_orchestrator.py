@@ -1,6 +1,8 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from apps.marketplace.hood.models import HoodProductSnapshot
 from apps.marketplace.hood.services import execute as execute_hood
@@ -22,6 +24,7 @@ from apps.orchestrator.tasks import (
     get_otto_async_process_payload,
     get_otto_process_result,
     is_otto_process_pending,
+    recover_stale_orchestrator_jobs,
     refresh_kaufland_product_statuses,
     refresh_otto_marketplace_statuses,
     request_for_non_hood_channel,
@@ -417,9 +420,15 @@ def test_otto_marketplace_inactive_confirms_deactivation(
         },
     }
 
-    with patch(
-        "apps.orchestrator.tasks.get_otto_marketplace_status",
-        return_value=inactive_response,
+    with (
+        patch(
+            "apps.orchestrator.tasks.get_otto_marketplace_status",
+            return_value=inactive_response,
+        ),
+        patch(
+            "apps.orchestrator.tasks.get_otto_products",
+            return_value={"ok": True, "status_code": 200, "details": {}},
+        ),
     ):
         check_otto_marketplace_status.run(publication.pk)
 
@@ -594,6 +603,43 @@ def test_refresh_otto_marketplace_statuses_stores_probe_without_changing_job(
     assert publication.external_id == "M2DV7ZJST2"
     assert publication.last_response["marketplace_status"] == online_response["details"]
     assert job.status == MarketplaceJob.Status.SUCCEEDED
+
+
+@pytest.mark.django_db
+def test_recover_stale_orchestrator_jobs_requeues_otto_confirmation_poll(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.ACTIVATE,
+        requested_channels=["otto"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="otto",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+        last_response={"success": True, "active": False},
+    )
+
+    MarketplacePublication.objects.filter(pk=publication.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=20),
+    )
+
+    with patch(
+        "apps.orchestrator.tasks.check_otto_marketplace_status.apply_async"
+    ) as schedule_status:
+        result = recover_stale_orchestrator_jobs.run()
+
+    assert result["otto_confirmation_polls_requeued"] == 1
+    schedule_status.assert_called_once()
+    assert schedule_status.call_args.kwargs["args"] == (publication.pk, 1)
 
 
 @pytest.mark.django_db
@@ -1174,3 +1220,40 @@ def test_refresh_kaufland_product_statuses_stores_probe_without_changing_job(
     assert publication.external_id == "111"
     assert publication.last_response["is_live"] is True
     assert job.status == MarketplaceJob.Status.SUCCEEDED
+
+
+@pytest.mark.django_db
+def test_recover_stale_orchestrator_jobs_requeues_kaufland_confirmation_poll(
+    product_factory,
+    manager,
+):
+    product = product_factory(owner=manager, ean_jv="4012345678901")
+    job = MarketplaceJob.objects.create(
+        product=product,
+        requested_by=manager,
+        operation=MarketplaceJob.Operation.UPDATE,
+        requested_channels=["kaufland"],
+        status=MarketplaceJob.Status.PENDING_CONFIRMATION,
+    )
+    publication = MarketplacePublication.objects.create(
+        product=product,
+        marketplace="kaufland",
+        account="jv",
+        ean=product.ean_jv,
+        status=MarketplacePublication.Status.PUBLISHING,
+        last_job=job,
+        last_response={"success": True},
+    )
+
+    MarketplacePublication.objects.filter(pk=publication.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=20),
+    )
+
+    with patch(
+        "apps.orchestrator.tasks.check_kaufland_product_status.apply_async"
+    ) as schedule_status:
+        result = recover_stale_orchestrator_jobs.run()
+
+    assert result["kaufland_confirmation_polls_requeued"] == 1
+    schedule_status.assert_called_once()
+    assert schedule_status.call_args.kwargs["args"] == (publication.pk, 1)

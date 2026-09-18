@@ -26,8 +26,14 @@ from apps.orchestrator.tasks import execute_marketplace_job
 from apps.products.filters import filter_products
 from apps.products.models import Product
 from apps.products.pricing import latest_rate
-from apps.products.serializers import ProductSerializer
-from apps.products.services import request_product_availability
+from apps.products.serializers import (
+    PriceNegotiationCreateSerializer,
+    ProductSerializer,
+)
+from apps.products.services import (
+    create_price_negotiation,
+    request_product_availability,
+)
 
 from .models import ModerationDecision
 from .serializers import (
@@ -37,12 +43,14 @@ from .serializers import (
     ManagerDashboardSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
+    RejectSellerChangesSerializer,
 )
 from .services import (
     approve_product,
     approve_seller_changes,
     change_approved_product_status,
     reject_product,
+    reject_seller_changes,
 )
 
 QUEUE_LIMIT = 8
@@ -218,6 +226,7 @@ class ManagerProductListView(generics.ListAPIView):
                 "variants",
                 "images",
                 "images__generated_images",
+                "price_negotiations",
             )
             .exclude(status=Product.Status.ARCHIVED)
         )
@@ -414,6 +423,37 @@ class ManagerApproveSellerChangesView(ManagerMutationThrottleMixin, APIView):
         return Response(payload)
 
 
+class ManagerRejectSellerChangesView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=RejectSellerChangesSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Discard pending seller catalog changes. The product stays approved. "
+            "The seller is notified with the rejection reason."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(Product, pk=product_pk)
+        serializer = RejectSellerChangesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = reject_seller_changes(
+            product=product,
+            manager=request.user,
+            comment=serializer.validated_data["comment"],
+            expected_catalog_revision=serializer.validated_data[
+                "expected_catalog_revision"
+            ],
+        )
+        product = (
+            Product.objects.select_related("owner")
+            .prefetch_related("variants", "images", "images__generated_images")
+            .get(pk=product.pk)
+        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
+
+
 class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
@@ -428,6 +468,53 @@ class ManagerRequestProductAvailabilityView(ManagerMutationThrottleMixin, APIVie
             manager=request.user,
         )
         return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class ManagerCreatePriceNegotiationView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(
+        request=PriceNegotiationCreateSerializer,
+        responses={201: ProductSerializer},
+        description=(
+            "Send a price offer to the seller in the product currency. "
+            "A new pending offer supersedes any previous pending offer. "
+            "Accepting later updates catalog unit_price only and does not "
+            "sync marketplace listings."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("owner").prefetch_related(
+                "variants",
+                "images",
+                "images__generated_images",
+                "price_negotiations",
+            ),
+            pk=product_pk,
+        )
+        serializer = PriceNegotiationCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        create_price_negotiation(
+            product=product,
+            manager=request.user,
+            proposed_unit_price=serializer.validated_data["proposed_unit_price"],
+            message=serializer.validated_data["message"],
+        )
+        product = (
+            Product.objects.select_related("owner")
+            .prefetch_related(
+                "variants",
+                "images",
+                "images__generated_images",
+                "price_negotiations",
+            )
+            .get(pk=product.pk)
+        )
+        return Response(
+            ProductSerializer(product, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ManagerDeactivateProductView(ManagerMutationThrottleMixin, APIView):

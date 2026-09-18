@@ -24,6 +24,8 @@ SUCCESSFUL_AI_CONTENT = {
         "Stoffbezug",
         "Farbe: Blau",
     ],
+    "materials": [],
+    "color": "Blau",
 }
 
 
@@ -220,12 +222,14 @@ def test_manager_applies_draft_without_overwriting_manual_text(
     configuration.refresh_from_db()
 
     assert (
-        configuration.configuration["product_line"] == (SUCCESSFUL_AI_CONTENT["title"])
+        configuration.configuration["product_line"]
+        == f"{SUCCESSFUL_AI_CONTENT['title']} (BD)"
     )
     assert (
         configuration.configuration["bullet_points"]
         == (SUCCESSFUL_AI_CONTENT["bullet_points"])
     )
+    assert configuration.configuration["color"] == SUCCESSFUL_AI_CONTENT["color"]
     assert configuration.configuration["description"] == (
         "Текст, который менеджер написал вручную."
     )

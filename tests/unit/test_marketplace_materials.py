@@ -1,29 +1,12 @@
 import pytest
 
-from apps.marketplace.materials import german_material_name
+from apps.marketplace.materials import listing_materials
 from apps.orchestrator.ai_content import (
+    GeneratedContentValidationError,
     build_product_snapshot,
     build_universal_content_request,
+    validate_universal_content,
 )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("source", "german"),
-    [
-        ("хлопок", "Baumwolle"),
-        ("Cotton", "Baumwolle"),
-        ("pamuk", "Baumwolle"),
-        ("wood", "Holz"),
-        ("дерево", "Holz"),
-        ("Fabric", "Stoff"),
-        ("эко-кожа", "Kunstleder"),
-        ("unknown-material", None),
-        ("  ", None),
-    ],
-)
-def test_maps_common_seller_materials_to_german(source, german):
-    assert german_material_name(source) == german
 
 
 @pytest.mark.unit
@@ -35,13 +18,15 @@ def test_content_request_forbids_source_language_in_customer_text():
 
     assert "write only in german" in instructions
     assert "never copy russian" in instructions
-    assert "materials_de" in instructions
+    assert "translate each seller material" in instructions
+    assert "translate the seller colour" in instructions
+    assert "materials_de" not in instructions
     assert "claims not present in product data;\n" in request.instructions
 
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_product_snapshot_adds_german_material_names(product_factory, seller):
+def test_product_snapshot_keeps_seller_materials(product_factory, seller):
     product = product_factory(owner=seller)
     product.variants.update(materials=["хлопок", "Wood"])
 
@@ -49,4 +34,74 @@ def test_product_snapshot_adds_german_material_names(product_factory, seller):
 
     variant = snapshot["variants"][0]
     assert variant["materials"] == ["хлопок", "Wood"]
-    assert variant["materials_de"] == ["Baumwolle", "Holz"]
+    assert variant["color"] == "beyaz"
+    assert "color_hex" not in variant
+    assert "color_name_de" not in variant
+
+
+@pytest.mark.unit
+def test_listing_materials_uses_only_listing_field():
+    chosen, error = listing_materials(
+        configuration={"materials": ["Massivholz"]},
+        variant_materials=["дерево", "ткань"],
+    )
+    assert error is None
+    assert chosen == ["Massivholz"]
+
+    chosen, error = listing_materials(
+        configuration={},
+        variant_materials=["Wood", "Fabric"],
+    )
+    assert chosen == []
+    assert error == "Translate product materials to German."
+
+    chosen, error = listing_materials(
+        configuration={"materials": ["хлопок"]},
+        variant_materials=["хлопок"],
+    )
+    assert error == "Materials must be in German."
+
+
+@pytest.mark.unit
+def test_rejects_ai_draft_without_translated_materials():
+    with pytest.raises(GeneratedContentValidationError, match="German translations"):
+        validate_universal_content(
+            {
+                "title": "Holzstuhl mit Stoffbezug",
+                "description": (
+                    "Ein stabiler Holzstuhl mit Stoffbezug.\n\n"
+                    "Die Maße betragen 55 × 50 × 90 cm."
+                ),
+                "bullet_points": [
+                    "Holzgestell",
+                    "Stoffbezug",
+                    "Farbe: Blau",
+                ],
+            },
+            product_snapshot={
+                "variants": [{"materials": ["дерево", "ткань"]}],
+            },
+        )
+
+
+@pytest.mark.unit
+def test_rejects_ai_draft_without_translated_color():
+    with pytest.raises(GeneratedContentValidationError, match="German translation"):
+        validate_universal_content(
+            {
+                "title": "Holzstuhl mit Stoffbezug",
+                "description": (
+                    "Ein stabiler Holzstuhl mit Stoffbezug.\n\n"
+                    "Die Maße betragen 55 × 50 × 90 cm."
+                ),
+                "bullet_points": [
+                    "Holzgestell",
+                    "Stoffbezug",
+                    "Farbe: Blau",
+                ],
+                "materials": ["Holz", "Stoff"],
+            },
+            product_snapshot={
+                "variants": [{"color": "beyaz", "materials": ["Wood", "Fabric"]}],
+            },
+        )

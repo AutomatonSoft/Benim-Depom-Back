@@ -14,7 +14,10 @@ from apps.orchestrator.job_services import (
     create_update_job_for_active_listings,
 )
 from apps.products.models import Product
-from apps.products.services import apply_pending_seller_changes
+from apps.products.services import (
+    apply_pending_seller_changes,
+    discard_pending_seller_changes,
+)
 
 from .models import ModerationDecision
 
@@ -122,7 +125,7 @@ def validate_product_otto_data_for_submission(product: Product) -> None:
 
 
 @transaction.atomic
-def submit_product_for_moderation(*, product: Product) -> Product:
+def submit_product_for_moderation(*, product: Product, comment: str = "") -> Product:
     product = Product.objects.select_for_update().get(pk=product.pk)
 
     if product.status not in {
@@ -155,13 +158,12 @@ def submit_product_for_moderation(*, product: Product) -> Product:
     ).distinct()
     for manager in managers:
         transaction.on_commit(
-            lambda manager=manager: create_notification(
+            lambda manager=manager, comment=comment: create_notification(
                 user=manager,
                 sender=product.owner,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
-                title="New product awaiting review",
-                body=f"{product.owner.username} submitted '{product.title}' for moderation.",
+                comment=comment,
             )
         )
 
@@ -194,12 +196,14 @@ def approve_product(
     product.approved_at = timezone.now()
     product.is_available = True
     product.availability_reminder_sent_at = None
+    product.seller_change_review = {}
     product.save(
         update_fields=(
             "status",
             "approved_at",
             "is_available",
             "availability_reminder_sent_at",
+            "seller_change_review",
             "updated_at",
         )
     )
@@ -255,7 +259,6 @@ def reject_product(
             user=product.owner,
             product=product,
             notification_type=Notification.Type.PRODUCT_REJECTED,
-            title="Product rejected",
             body=comment,
         )
     )
@@ -340,7 +343,6 @@ def change_approved_product_status(
                 user=product.owner,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_REJECTED,
-                title="Product rejected",
                 body=comment,
             )
         )
@@ -383,4 +385,54 @@ def approve_seller_changes(
         )
     except MarketplacePayloadBuildError:
         job = None
+
+    owner = product.owner
+    transaction.on_commit(
+        lambda owner=owner, product=product: create_notification(
+            user=owner,
+            product=product,
+            notification_type=Notification.Type.PRODUCT_APPROVED,
+            copy_key="product_changes_approved",
+        )
+    )
     return product, job
+
+
+@transaction.atomic
+def reject_seller_changes(
+    *,
+    product: Product,
+    manager,
+    comment: str,
+    expected_catalog_revision: int | None = None,
+) -> Product:
+    product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_catalog_revision(
+        product=product,
+        expected_revision=expected_catalog_revision,
+    )
+    if product.status != Product.Status.APPROVED:
+        raise ValidationError(
+            {"detail": "Only approved products can have seller changes rejected."}
+        )
+
+    reason = comment.strip()
+    if not reason:
+        raise ValidationError({"comment": "A rejection reason is required."})
+
+    product = discard_pending_seller_changes(
+        product=product,
+        archive=True,
+        manager_comment=reason,
+    )
+    owner = product.owner
+    transaction.on_commit(
+        lambda owner=owner, product=product, reason=reason: create_notification(
+            user=owner,
+            product=product,
+            notification_type=Notification.Type.PRODUCT_REJECTED,
+            copy_key="product_changes_rejected",
+            body=reason,
+        )
+    )
+    return product

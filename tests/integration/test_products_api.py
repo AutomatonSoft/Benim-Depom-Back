@@ -22,7 +22,7 @@ def product_payload(product_type, **overrides):
         "otto_category_group_id": 3593,
         "variants": [
             {
-                "color_hex": "#5B91C8",
+                "color": "beyaz",
                 "materials": ["Wood", "Fabric"],
                 "width_cm": "50.00",
                 "height_cm": "90.00",
@@ -56,7 +56,7 @@ def test_seller_creates_product_and_other_seller_cannot_access_it(
     assert response.status_code == 201
     product_id = response.data["id"]
     assert response.data["status"] == Product.Status.SUBMITTED
-    assert response.data["variants"][0]["color_hex"] == "#5B91C8"
+    assert response.data["variants"][0]["color"] == "beyaz"
 
     authenticate(api_client, second_seller)
     assert api_client.get(f"/api/v1/products/{product_id}/").status_code == 404
@@ -183,9 +183,7 @@ def test_product_api_rejects_invalid_variant_and_non_seller_create(
         multipart_product_payload(
             product_type,
             image_file,
-            variants=[
-                {**product_payload(product_type)["variants"][0], "color_hex": "blue"}
-            ],
+            variants=[{**product_payload(product_type)["variants"][0], "color": "  "}],
         ),
         format="multipart",
     )
@@ -430,4 +428,4 @@ def test_seller_confirms_availability_only_for_approved_product(
     )
     assert confirmation["product_id"] == product.id
     assert confirmation["product_title"] == product.title
-    assert "not available" in confirmation["body"]
+    assert "нет в наличии" in confirmation["body"]

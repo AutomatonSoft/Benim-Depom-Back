@@ -81,6 +81,7 @@ def valid_configuration():
         "media_urls": ["https://xlmeubilair.nl/api-media/test-chair.jpg"],
         "description": "Deutsche Beschreibung",
         "bullet_points": ["Massivholz", "Modernes Design"],
+        "color": "Blau",
     }
 
 
@@ -109,6 +110,7 @@ def test_build_otto_payload_maps_category_attributes_and_msrp():
         "deliveryTime": 5,
     }
     assert item["productDescription"]["attributes"][0]["values"] == ["Test value"]
+    assert item["productDescription"]["productLine"] == "Teststuhl aus Holz (BD)"
     assert item["mediaAssets"] == [
         {"type": "IMAGE", "location": "https://cdn.example/white.jpg"},
         {"type": "IMAGE", "location": "https://cdn.example/interior.jpg"},

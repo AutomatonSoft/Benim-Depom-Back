@@ -6,6 +6,11 @@ class MarketplaceAutoSchema(AutoSchema):
 
     OPERATION_SUMMARIES = {
         ("GET", "/api/v1/health/"): "Проверить состояние API",
+        ("GET", "/api/v1/contact/whatsapp/"): "Получить номер WhatsApp для связи",
+        (
+            "PATCH",
+            "/api/v1/contact/whatsapp/",
+        ): "Обновить номер WhatsApp для связи",
         # Authentication
         ("POST", "/api/v1/auth/register/"): "Зарегистрировать продавца",
         ("POST", "/api/v1/auth/email/verify/"): "Подтвердить email кодом",
@@ -18,10 +23,12 @@ class MarketplaceAutoSchema(AutoSchema):
         ("POST", "/api/v1/auth/logout/"): "Выйти и отозвать refresh-токен",
         ("GET", "/api/v1/auth/me/"): "Получить свой профиль",
         ("PATCH", "/api/v1/auth/me/"): "Изменить свой профиль",
+        ("PATCH", "/api/v1/auth/me/language/"): "Выбрать язык уведомлений",
         ("PUT", "/api/v1/auth/me/"): "Заменить свой профиль",
         ("DELETE", "/api/v1/auth/me/"): "Удалить свой аккаунт",
         ("POST", "/api/v1/manager/users/"): "Создать аккаунт менеджера",
         ("GET", "/api/v1/manager/users/sellers/"): "Получить список продавцов",
+        ("GET", "/api/v1/manager/users/managers/"): "Получить список менеджеров",
         (
             "POST",
             "/api/v1/manager/users/sellers/{user_id}/confirm-email/",
@@ -73,6 +80,14 @@ class MarketplaceAutoSchema(AutoSchema):
             "/api/v1/products/{product_pk}/availability/",
         ): "Подтвердить наличие товара",
         (
+            "GET",
+            "/api/v1/products/{product_pk}/price-negotiations/",
+        ): "Получить историю торгов по цене",
+        (
+            "POST",
+            "/api/v1/products/{product_pk}/price-negotiation/respond/",
+        ): "Ответить на предложение цены",
+        (
             "POST",
             "/api/v1/products/{product_pk}/withdraw/",
         ): "Отозвать товар с модерации",
@@ -102,12 +117,20 @@ class MarketplaceAutoSchema(AutoSchema):
         ): "Одобрить изменения продавца и обновить листинги",
         (
             "POST",
+            "/api/v1/manager/products/{product_pk}/seller-changes/reject/",
+        ): "Отклонить изменения продавца",
+        (
+            "POST",
             "/api/v1/manager/products/{product_pk}/notifications/",
         ): "Отправить сообщение продавцу",
         (
             "POST",
             "/api/v1/manager/products/{product_pk}/availability-request/",
         ): "Запросить подтверждение наличия",
+        (
+            "POST",
+            "/api/v1/manager/products/{product_pk}/price-negotiation/",
+        ): "Предложить продавцу новую цену",
         (
             "POST",
             "/api/v1/manager/products/{product_pk}/deactivate/",
@@ -127,6 +150,14 @@ class MarketplaceAutoSchema(AutoSchema):
             "POST",
             "/api/v1/notifications/{notification_pk}/read/",
         ): "Пометить уведомление прочитанным",
+        (
+            "POST",
+            "/api/v1/notifications/{notification_pk}/afterbuy-sync-stock/",
+        ): "Синхронизировать остаток по продаже Afterbuy",
+        (
+            "POST",
+            "/api/v1/notifications/{notification_pk}/afterbuy-notify-seller/",
+        ): "Уведомить продавца о продаже Afterbuy",
         (
             "POST",
             "/api/v1/notifications/read-all/",
@@ -242,6 +273,8 @@ class MarketplaceAutoSchema(AutoSchema):
     def get_tags(self) -> list[str]:
         path = self.path
 
+        if path.startswith("/api/v1/contact/"):
+            return ["Contact"]
         if path.startswith("/api/v1/auth/"):
             if any(fragment in path for fragment in ("register/", "email/", "me/")):
                 return ["Auth - Seller"]

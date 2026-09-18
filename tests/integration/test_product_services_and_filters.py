@@ -22,7 +22,7 @@ from apps.products.services import (
 
 def variant_data(**overrides):
     data = {
-        "color_hex": "#ABCDEF",
+        "color": "beyaz",
         "materials": ["Wood"],
         "width_cm": "10.00",
         "height_cm": "20.00",
@@ -161,10 +161,10 @@ def test_product_filters_apply_all_business_fields_and_reject_bad_values(
     other = product_factory(
         owner=seller, title="Red table", status=Product.Status.APPROVED
     )
-    other.variants.update(color_hex="#000000", materials=["Metal"])
+    other.variants.update(color="siyah", materials=["Metal"])
     params = QueryDict(
         f"search=chair&status=draft&product_type={product_type}"
-        "&color_hex=%235B91C8&material=Fabric&is_available=true&ordering=title"
+        "&color=beyaz&material=Fabric&is_available=true&ordering=title"
     )
     assert list(
         filter_products(queryset=Product.objects.all(), query_params=params)
@@ -180,7 +180,6 @@ def test_product_filters_apply_all_business_fields_and_reject_bad_values(
 
     for key, value in (
         ("status", "unknown"),
-        ("color_hex", "blue"),
         ("is_available", "yes"),
         ("ordering", "price"),
     ):

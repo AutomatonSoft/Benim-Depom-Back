@@ -1089,14 +1089,6 @@ class MarketplaceContentGenerationDetailView(
         )
         serializer.is_valid(raise_exception=True)
 
-        try:
-            content = validate_universal_content(serializer.validated_data)
-        except GeneratedContentValidationError as error:
-            return Response(
-                {"detail": str(error)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         with transaction.atomic():
             generation = get_object_or_404(
                 MarketplaceContentGeneration.objects.select_for_update(),
@@ -1111,6 +1103,17 @@ class MarketplaceContentGenerationDetailView(
                         )
                     },
                     status=status.HTTP_409_CONFLICT,
+                )
+
+            try:
+                content = validate_universal_content(
+                    serializer.validated_data,
+                    product_snapshot=generation.input_snapshot,
+                )
+            except GeneratedContentValidationError as error:
+                return Response(
+                    {"detail": str(error)},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             result = dict(generation.result or {})
@@ -1181,6 +1184,14 @@ class ProductMarketplaceContentGenerationApplyView(
                     status=status.HTTP_409_CONFLICT,
                 )
 
+            try:
+                content = validate_universal_content(
+                    content,
+                    product_snapshot=generation.input_snapshot,
+                )
+            except GeneratedContentValidationError:
+                content = dict(content)
+
             allowed_targets = {
                 (target["marketplace"], target["account"])
                 for target in generation.targets
@@ -1228,6 +1239,8 @@ class ProductMarketplaceContentGenerationApplyView(
                 changed = False
 
                 for field_name, value in patch.items():
+                    if field_name == "color" and not value:
+                        continue
                     if not overwrite and values.get(field_name):
                         skipped.append(field_name)
                         continue

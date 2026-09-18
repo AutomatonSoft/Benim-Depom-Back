@@ -45,11 +45,6 @@ class Command(BaseCommand):
                         sender=product.owner,
                         product=product,
                         notification_type=Notification.Type.PRODUCT_SUBMITTED_FOR_REVIEW,
-                        title="New product awaiting review",
-                        body=(
-                            f"{product.owner.username} submitted "
-                            f"'{product.title}' for moderation."
-                        ),
                     )
 
         verb = "Created" if options["apply"] else "Would create"

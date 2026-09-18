@@ -1,4 +1,4 @@
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -6,6 +6,7 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -27,10 +28,12 @@ from apps.moderation.models import ModerationDecision
 from apps.orchestrator.models import MarketplacePublication
 
 from .filters import filter_products
-from .models import Product, ProductGeneratedImage, ProductImage
+from .models import PriceNegotiation, Product, ProductGeneratedImage, ProductImage
 from .permissions import CanAccessProduct
 from .pricing import latest_rate
 from .serializers import (
+    PriceNegotiationRespondSerializer,
+    PriceNegotiationSerializer,
     ProductAvailabilitySerializer,
     ProductImageReorderSerializer,
     ProductImageSerializer,
@@ -46,6 +49,7 @@ from .services import (
     reorder_product_images,
     request_product_deactivation,
     request_product_image_processing,
+    respond_to_price_negotiation,
     upload_product_image,
     withdraw_product_submission,
 )
@@ -125,6 +129,10 @@ class ProductListCreateView(
             "variants",
             "images",
             "images__generated_images",
+            Prefetch(
+                "price_negotiations",
+                queryset=PriceNegotiation.objects.order_by("-created_at"),
+            ),
         )
 
         if not is_manager(self.request.user):
@@ -158,10 +166,10 @@ class ProductListCreateView(
                 description="Exact seller-entered product type.",
             ),
             OpenApiParameter(
-                name="color_hex",
+                name="color",
                 type=OpenApiTypes.STR,
                 required=False,
-                description="Variant colour in #RRGGBB format.",
+                description="Case-insensitive match on the seller colour name.",
             ),
             OpenApiParameter(
                 name="material",
@@ -285,6 +293,10 @@ class ProductDetailView(
             "variants",
             "images",
             "images__generated_images",
+            Prefetch(
+                "price_negotiations",
+                queryset=PriceNegotiation.objects.order_by("-created_at"),
+            ),
         )
 
         if not is_manager(self.request.user):
@@ -487,6 +499,73 @@ class ProductAvailabilityView(APIView):
         return Response(ProductSerializer(product, context={"request": request}).data)
 
 
+class ProductPriceNegotiationRespondView(APIView):
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    @extend_schema(
+        request=PriceNegotiationRespondSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Seller accepts or declines the current pending price offer. "
+            "Optional comment is shown to managers. Accepting updates only "
+            "the catalog unit_price; marketplace listings are not changed."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        product = get_object_or_404(
+            Product.objects.select_related("owner"),
+            pk=product_pk,
+            owner=request.user,
+        )
+        serializer = PriceNegotiationRespondSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        respond_to_price_negotiation(
+            product=product,
+            seller=request.user,
+            accepted=serializer.validated_data["accepted"],
+            comment=serializer.validated_data.get("comment", ""),
+        )
+        product = (
+            Product.objects.select_related("owner")
+            .prefetch_related(
+                "variants",
+                "images",
+                "images__generated_images",
+                "price_negotiations",
+            )
+            .get(pk=product.pk)
+        )
+        return Response(ProductSerializer(product, context={"request": request}).data)
+
+
+class PriceNegotiationHistoryPagination(PageNumberPagination):
+    page_size = 5
+
+
+@extend_schema(
+    responses={200: PriceNegotiationSerializer(many=True)},
+    description="Price negotiation history for this product, newest first.",
+)
+class ProductPriceNegotiationHistoryView(generics.ListAPIView):
+    serializer_class = PriceNegotiationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = PriceNegotiationHistoryPagination
+
+    def get_queryset(self):
+        product_queryset = Product.objects.all()
+        if not is_manager(self.request.user):
+            product_queryset = product_queryset.filter(owner=self.request.user)
+        product = get_object_or_404(
+            product_queryset,
+            pk=self.kwargs["product_pk"],
+        )
+        return (
+            PriceNegotiation.objects.filter(product=product)
+            .select_related("manager")
+            .order_by("-created_at")
+        )
+
+
 class ProductImageProcessView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
 
@@ -548,8 +627,6 @@ class ProductDeactivateView(APIView):
                 sender=request.user,
                 product=product,
                 notification_type=Notification.Type.PRODUCT_DEACTIVATION_REQUESTED,
-                title="Deactivation requested",
-                body=f"Seller requested deactivation for '{product.title}'.",
             )
 
         return Response(
