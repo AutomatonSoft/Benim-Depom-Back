@@ -10,7 +10,6 @@ import time
 from locust import HttpUser, between, events, task
 from locust.exception import StopUser
 
-
 ACCESS_REFRESH_AFTER_SECONDS = 10 * 60
 
 

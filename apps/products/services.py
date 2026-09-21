@@ -15,8 +15,8 @@ from .models import (
     Product,
     ProductGeneratedImage,
     ProductImage,
-    ProductVariant,
     ProductSetPart,
+    ProductVariant,
 )
 
 
