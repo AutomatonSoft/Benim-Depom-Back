@@ -16,7 +16,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-
 API_BASE_URL = "https://okb.automatonsoft.de/extermal"
 PAGE_SIZE = 2000
 ATTRIBUTE_REQUEST_DELAY_SECONDS = 0.1

@@ -363,3 +363,42 @@ class ExchangeRate(models.Model):
 
     def __str__(self) -> str:
         return f"{self.as_of} EUR→USD {self.eur_to_usd} EUR→TRY {self.eur_to_try}"
+
+
+class ProductSetPart(models.Model):
+    """Extra piece of a set: own size and description, not a separate listing."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="set_parts",
+    )
+    position = models.PositiveSmallIntegerField(default=0)
+    description = models.TextField()
+    width_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    height_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    length_cm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+
+    class Meta:
+        ordering = ("position", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("product", "position"),
+                name="unique_product_set_part_position",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Set part #{self.position} for product {self.product_id}"

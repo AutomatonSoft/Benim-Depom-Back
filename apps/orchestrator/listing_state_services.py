@@ -14,7 +14,6 @@ def _operation_for(*, marketplace: str, action: str) -> str | None:
     """Translate a business action to the API operation of each marketplace."""
     reversible = {
         MarketplacePublication.Marketplace.OTTO,
-        MarketplacePublication.Marketplace.KAUFLAND,
     }
     if action == "deactivate":
         return (
@@ -36,9 +35,9 @@ def create_listing_state_jobs(
 ) -> tuple[list[MarketplaceJob], list[dict[str, str]]]:
     """Create one job per external operation required by a business action.
 
-    Hood has no reversible hide: deactivation deletes the offer. OTTO and
-    Kaufland keep the card (deactivate / amount 0) so stock can bring it
-    back without a new catalog review.
+    Hood and Kaufland have no reversible hide: deactivation deletes the
+    offer. OTTO keeps the card so stock can bring it back without a new
+    catalog review.
     """
     requested_targets = requested_targets or []
     desired_status = (

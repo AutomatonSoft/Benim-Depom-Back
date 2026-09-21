@@ -129,6 +129,7 @@ class ProductListCreateView(
     def get_queryset(self):
         queryset = Product.objects.select_related("owner").prefetch_related(
             "variants",
+            "set_parts",
             "images",
             "images__generated_images",
             Prefetch(
@@ -293,6 +294,7 @@ class ProductDetailView(
     def get_queryset(self):
         queryset = Product.objects.select_related("owner").prefetch_related(
             "variants",
+            "set_parts",
             "images",
             "images__generated_images",
             Prefetch(
@@ -531,6 +533,7 @@ class ProductPriceNegotiationRespondView(APIView):
             Product.objects.select_related("owner")
             .prefetch_related(
                 "variants",
+                "set_parts",
                 "images",
                 "images__generated_images",
                 "price_negotiations",

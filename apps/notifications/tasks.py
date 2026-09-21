@@ -368,16 +368,80 @@ def send_product_availability_reminders() -> dict:
 
 @shared_task
 def process_product_image(image_id: int) -> dict:
+    from django.core.files.base import ContentFile
     from django.db import transaction
     from django.utils import timezone
 
+    from apps.common.gemini_set_image_service import (
+        GeminiSetImageServiceError,
+        generate_set_listing_images,
+    )
     from apps.common.white_image_service import (
         WhiteImageServiceError,
         generate_white_background,
     )
-    from apps.products.models import ProductImage
+    from apps.products.models import (
+        ProductGeneratedImage,
+        ProductImage,
+        ProductSetPart,
+    )
 
     now = timezone.now()
+
+    def mark_failed(*, error: str, result: dict | None = None) -> None:
+        """Mark the cover image as failed without changing a later success."""
+        with transaction.atomic():
+            locked_image = ProductImage.objects.select_for_update().get(pk=image_id)
+            if (
+                locked_image.processing_status
+                != ProductImage.ProcessingStatus.PROCESSING
+            ):
+                return
+            locked_image.processing_status = ProductImage.ProcessingStatus.FAILED
+            locked_image.processing_error = error[:500]
+            locked_image.processing_finished_at = timezone.now()
+            update_fields = [
+                "processing_status",
+                "processing_error",
+                "processing_finished_at",
+            ]
+            if result is not None:
+                locked_image.processing_result = result
+                update_fields.append("processing_result")
+            locked_image.save(update_fields=update_fields)
+
+    def store_generated_images(images_by_mode: dict[str, bytes]) -> None:
+        """Save white/interior/human files onto the cover photo."""
+        for mode, content in images_by_mode.items():
+            generated_image, _ = ProductGeneratedImage.objects.get_or_create(
+                source_image_id=image_id,
+                mode=mode,
+            )
+            suffix = "png" if content.startswith(b"\x89PNG") else "jpg"
+            generated_image.image.save(
+                f"{mode}-{image_id}.{suffix}",
+                ContentFile(content),
+                save=True,
+            )
+            if mode == ProductGeneratedImage.Mode.WHITE:
+                with transaction.atomic():
+                    locked_image = ProductImage.objects.select_for_update().get(
+                        pk=image_id
+                    )
+                    locked_image.processed_image = generated_image.image
+                    locked_image.save(update_fields=("processed_image",))
+
+    def renew_lease() -> None:
+        """Keep recovery from treating a long Gemini run as a dead worker."""
+        with transaction.atomic():
+            locked_image = ProductImage.objects.select_for_update().get(pk=image_id)
+            if (
+                locked_image.processing_status
+                != ProductImage.ProcessingStatus.PROCESSING
+            ):
+                return
+            locked_image.processing_claimed_at = timezone.now()
+            locked_image.save(update_fields=("processing_claimed_at",))
 
     with transaction.atomic():
         image = (
@@ -415,49 +479,78 @@ def process_product_image(image_id: int) -> dict:
             )
         )
 
-        product_title = image.product.title
-        product_type = image.product.product_type
+        product = image.product
+        product_id = product.pk
+        product_title = product.title
+        product_type = product.product_type
         image_file = image.image
-
-    try:
-        result = generate_white_background(
-            image_file=image_file,
-            title=product_title,
-            product_type=product_type,
+        set_part_count = ProductSetPart.objects.filter(product_id=product_id).count()
+        pending = product.pending_changes or {}
+        pending_set_parts = (
+            pending.get("set_parts") if isinstance(pending, dict) else None
         )
-    except (WhiteImageServiceError, ImproperlyConfigured) as error:
-        with transaction.atomic():
-            image = ProductImage.objects.select_for_update().get(pk=image_id)
+        pending_set_part_count = (
+            len(pending_set_parts) if isinstance(pending_set_parts, list) else 0
+        )
+        is_set = set_part_count > 0 or pending_set_part_count > 0
+        if is_set:
+            image.processing_result = {
+                "provider": "gemini_set",
+                "status": "started",
+                "set_part_count": set_part_count,
+                "pending_set_part_count": pending_set_part_count,
+            }
+            image.save(update_fields=("processing_result",))
 
-            if image.processing_status != ProductImage.ProcessingStatus.PROCESSING:
-                return {"status": "skipped", "reason": "state_changed"}
+    logger.info(
+        "process_product_image image_id=%s product_id=%s provider=%s "
+        "set_part_count=%s pending_set_part_count=%s",
+        image_id,
+        product_id,
+        "gemini_set" if is_set else "bulk_white",
+        set_part_count,
+        pending_set_part_count,
+    )
 
-            image.processing_status = ProductImage.ProcessingStatus.FAILED
-            image.processing_error = str(error)[:500]
-            image.processing_finished_at = timezone.now()
-            image.save(
-                update_fields=(
-                    "processing_status",
-                    "processing_error",
-                    "processing_finished_at",
-                )
+    if is_set:
+        from apps.products.models import Product
+
+        product = Product.objects.prefetch_related(
+            "images",
+            "set_parts",
+            "variants",
+        ).get(pk=product_id)
+        try:
+            images_by_mode = generate_set_listing_images(
+                product=product,
+                on_mode_start=lambda _mode: renew_lease(),
             )
+        except (GeminiSetImageServiceError, ImproperlyConfigured) as error:
+            mark_failed(
+                error=str(error),
+                result={
+                    "provider": "gemini_set",
+                    "status": "failed",
+                    "set_part_count": set_part_count,
+                    "pending_set_part_count": pending_set_part_count,
+                },
+            )
+            return {"status": "failed"}
 
-        return {"status": "failed"}
+        store_generated_images(images_by_mode)
 
-    payload = result.get("payload", {})
-    external_product_id = payload.get("product_id")
-
-    if payload.get("status") != "queued" or not external_product_id:
         with transaction.atomic():
             image = ProductImage.objects.select_for_update().get(pk=image_id)
-
             if image.processing_status != ProductImage.ProcessingStatus.PROCESSING:
                 return {"status": "skipped", "reason": "state_changed"}
-
-            image.processing_status = ProductImage.ProcessingStatus.FAILED
-            image.processing_error = "Unexpected AI service response."
-            image.processing_result = result
+            image.processing_status = ProductImage.ProcessingStatus.SUCCEEDED
+            image.processing_error = ""
+            image.processing_result = {
+                "provider": "gemini_set",
+                "status": "completed",
+                "set_part_count": set_part_count,
+                "pending_set_part_count": pending_set_part_count,
+            }
             image.processing_finished_at = timezone.now()
             image.save(
                 update_fields=(
@@ -467,7 +560,23 @@ def process_product_image(image_id: int) -> dict:
                     "processing_finished_at",
                 )
             )
+        return {"status": "completed", "image_id": image_id}
 
+    try:
+        result = generate_white_background(
+            image_file=image_file,
+            title=product_title,
+            product_type=product_type,
+        )
+    except (WhiteImageServiceError, ImproperlyConfigured) as error:
+        mark_failed(error=str(error))
+        return {"status": "failed"}
+
+    payload = result.get("payload", {})
+    external_product_id = payload.get("product_id")
+
+    if payload.get("status") != "queued" or not external_product_id:
+        mark_failed(error="Unexpected AI service response.", result=result)
         return {"status": "failed"}
 
     with transaction.atomic():
@@ -513,6 +622,7 @@ def check_product_image_generation(
     from apps.products.models import (
         ProductGeneratedImage,
         ProductImage,
+        ProductSetPart,
     )
 
     now = timezone.now()
@@ -601,7 +711,32 @@ def check_product_image_generation(
             }
 
         current_status = image.processing_status
-        status_url = image.processing_result.get("payload", {}).get("status_url")
+        payload = (image.processing_result or {}).get("payload") or {}
+        status_url = payload.get("status_url")
+        set_part_count = ProductSetPart.objects.filter(
+            product_id=image.product_id
+        ).count()
+        if (
+            set_part_count > 0
+            or (image.processing_result or {}).get("provider") == "gemini_set"
+        ):
+            image.processing_status = ProductImage.ProcessingStatus.FAILED
+            image.processing_error = (
+                "Set listings cannot use the single-item white image service. "
+                "Generate set photos again."
+            )[:500]
+            image.processing_finished_at = timezone.now()
+            image.save(
+                update_fields=(
+                    "processing_status",
+                    "processing_error",
+                    "processing_finished_at",
+                )
+            )
+            return {
+                "status": "failed",
+                "reason": "set_must_use_gemini",
+            }
         # Polling task is alive: renew its lease.
         image.processing_claimed_at = now
         image.save(update_fields=("processing_claimed_at",))
