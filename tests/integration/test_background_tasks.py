@@ -22,7 +22,12 @@ from apps.notifications.tasks import (
     send_notification_push,
     send_product_availability_reminders,
 )
-from apps.products.models import Product, ProductGeneratedImage, ProductImage
+from apps.products.models import (
+    Product,
+    ProductGeneratedImage,
+    ProductImage,
+    ProductSetPart,
+)
 
 
 @pytest.mark.integration
@@ -186,6 +191,88 @@ def test_image_processing_queues_external_job_and_handles_service_failure(
     assert process_product_image.run(failed.id) == {"status": "failed"}
     failed.refresh_from_db()
     assert failed.processing_status == ProductImage.ProcessingStatus.FAILED
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_set_image_processing_saves_gemini_images(
+    monkeypatch, seller, product_factory, product_image_factory, image_file
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    ProductSetPart.objects.create(
+        product=product,
+        position=0,
+        description="Nightstand",
+        width_cm="50.00",
+        height_cm="45.00",
+        length_cm="40.00",
+    )
+    image = product_image_factory(product=product)
+    image.processing_status = ProductImage.ProcessingStatus.PENDING
+    image.save(update_fields=["processing_status"])
+    png = image_file().read()
+    monkeypatch.setattr(
+        "apps.common.gemini_set_image_service.generate_set_listing_images",
+        Mock(
+            return_value={
+                "white": png,
+                "interior": png,
+                "human": png,
+            }
+        ),
+    )
+    white_service = Mock()
+    monkeypatch.setattr(
+        "apps.common.white_image_service.generate_white_background",
+        white_service,
+    )
+
+    result = process_product_image.run(image.id)
+
+    image.refresh_from_db()
+    assert result == {"status": "completed", "image_id": image.id}
+    assert image.processing_status == ProductImage.ProcessingStatus.SUCCEEDED
+    assert image.processing_result["provider"] == "gemini_set"
+    assert image.generated_images.count() == 3
+    white_service.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_pending_set_parts_also_skip_white_service(
+    monkeypatch, seller, product_factory, product_image_factory, image_file
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    product.pending_changes = {
+        "set_parts": [
+            {
+                "description": "Nightstand",
+                "width_cm": "50.00",
+                "height_cm": "45.00",
+                "length_cm": "40.00",
+            }
+        ]
+    }
+    product.save(update_fields=["pending_changes"])
+    image = product_image_factory(product=product)
+    image.processing_status = ProductImage.ProcessingStatus.PENDING
+    image.save(update_fields=["processing_status"])
+    png = image_file().read()
+    monkeypatch.setattr(
+        "apps.common.gemini_set_image_service.generate_set_listing_images",
+        Mock(return_value={"white": png, "interior": png, "human": png}),
+    )
+    white_service = Mock()
+    monkeypatch.setattr(
+        "apps.common.white_image_service.generate_white_background",
+        white_service,
+    )
+
+    process_product_image.run(image.id)
+
+    image.refresh_from_db()
+    assert image.processing_result["provider"] == "gemini_set"
+    white_service.assert_not_called()
 
 
 @pytest.mark.integration

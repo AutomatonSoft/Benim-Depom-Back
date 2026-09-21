@@ -22,6 +22,7 @@ from .models import (
     Product,
     ProductGeneratedImage,
     ProductImage,
+    ProductSetPart,
     ProductVariant,
 )
 from .services import create_product, create_product_with_images, update_product
@@ -30,6 +31,7 @@ EXACTLY_ONE_VARIANT = (
     "A product must contain exactly one variant. "
     "Marketplaces use one EAN per listing, so only one color is allowed."
 )
+MAX_SET_PARTS = 20
 
 
 class SalesChannelQuantitySerializer(serializers.Serializer):
@@ -203,6 +205,36 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         return normalized
 
 
+@extend_schema_serializer(component_name="ProductsSetPart")
+class ProductSetPartSerializer(serializers.ModelSerializer):
+    """One extra piece of a set: size plus a short description."""
+
+    description = serializers.CharField(
+        max_length=2000,
+        trim_whitespace=True,
+        help_text="What this piece is, for example wardrobe with 4 doors.",
+    )
+
+    class Meta:
+        model = ProductSetPart
+        fields = (
+            "id",
+            "position",
+            "description",
+            "width_cm",
+            "height_cm",
+            "length_cm",
+        )
+        read_only_fields = ("id", "position")
+
+    def validate_description(self, value):
+        """Reject an empty description after trimming."""
+        description = value.strip()
+        if not description:
+            raise serializers.ValidationError("Enter a description for this piece.")
+        return description
+
+
 @extend_schema_serializer(component_name="ProductsGeneratedImage")
 class ProductGeneratedImageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -335,6 +367,14 @@ class ProductSerializer(serializers.ModelSerializer):
         max_length=1,
         help_text="Exactly one variant. One color per product listing.",
     )
+    set_parts = ProductSetPartSerializer(
+        many=True,
+        required=False,
+        max_length=MAX_SET_PARTS,
+        help_text=(
+            "Optional extra set pieces, at most 20. Empty means a normal product."
+        ),
+    )
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
@@ -382,6 +422,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "active_price_negotiation",
             "latest_price_negotiation",
             "variants",
+            "set_parts",
             "images",
             "total_quantity",
             "created_at",
@@ -913,6 +954,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
+        set_parts_data = validated_data.pop("set_parts", None)
         validated_data.pop("resubmit_for_moderation", None)
         validated_data.pop("change_comment", None)
 
@@ -920,10 +962,12 @@ class ProductSerializer(serializers.ModelSerializer):
             owner=self.context["request"].user,
             data=validated_data,
             variants_data=variants_data,
+            set_parts_data=set_parts_data,
         )
 
     def update(self, instance, validated_data):
         variants_data = validated_data.pop("variants", None)
+        set_parts_data = validated_data.pop("set_parts", None)
         resubmit_for_moderation = validated_data.pop(
             "resubmit_for_moderation",
             False,
@@ -941,6 +985,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 product=instance,
                 data=validated_data,
                 variants_data=variants_data,
+                set_parts_data=set_parts_data,
                 comment=change_comment,
             )
 
@@ -961,6 +1006,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 product=instance,
                 data=validated_data,
                 variants_data=variants_data,
+                set_parts_data=set_parts_data,
                 comment=change_comment or "",
             )
 
@@ -968,6 +1014,7 @@ class ProductSerializer(serializers.ModelSerializer):
             product=instance,
             data=validated_data,
             variants_data=variants_data,
+            set_parts_data=set_parts_data,
         )
 
         if resubmission_review is not None:
@@ -1131,6 +1178,13 @@ class ProductMultipartCreateSerializer(ProductSerializer):
         max_length=1,
         help_text="JSON array with exactly one product variant.",
     )
+    set_parts = MultipartJSONListField(
+        child=ProductSetPartSerializer(),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_SET_PARTS,
+        help_text="Optional JSON array of extra set pieces, at most 20.",
+    )
     otto_attributes = MultipartJSONDictField(
         required=False,
         default=dict,
@@ -1162,6 +1216,7 @@ class ProductMultipartCreateSerializer(ProductSerializer):
 
     def create(self, validated_data):
         variants_data = validated_data.pop("variants")
+        set_parts_data = validated_data.pop("set_parts", None)
         image_files = validated_data.pop("images")
         validated_data.pop("resubmit_for_moderation", None)
 
@@ -1170,6 +1225,7 @@ class ProductMultipartCreateSerializer(ProductSerializer):
             data=validated_data,
             variants_data=variants_data,
             image_files=image_files,
+            set_parts_data=set_parts_data,
         )
 
     def to_representation(self, instance):

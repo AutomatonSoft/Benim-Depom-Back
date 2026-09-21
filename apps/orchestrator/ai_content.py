@@ -15,6 +15,12 @@ from apps.marketplace.materials import (
     contains_source_language,
     seller_materials_from_snapshot,
 )
+from apps.marketplace.set_listing import (
+    set_piece_count_from_snapshot,
+    snapshot_has_set_parts,
+    snapshot_set_parts,
+    with_set_dimensions,
+)
 
 
 class GeneratedContentValidationError(ValueError):
@@ -184,6 +190,8 @@ def build_product_snapshot(product) -> dict[str, Any]:
 
     category_name = product.otto_category_name
 
+    set_parts = snapshot_set_parts(product)
+
     return {
         "product_id": product.pk,
         "seller_title": product.title,
@@ -200,6 +208,9 @@ def build_product_snapshot(product) -> dict[str, Any]:
             "attributes": _human_otto_attributes(product),
         },
         "variants": variants,
+        "set_parts": set_parts,
+        "is_set": bool(set_parts),
+        "set_piece_count": (1 + len(set_parts)) if set_parts else 1,
     }
 
 
@@ -209,6 +220,30 @@ def build_universal_content_request(
 ) -> UniversalContentRequest:
     """Build a single content-generation request shared by all marketplaces."""
 
+    set_instructions = ""
+    if snapshot_has_set_parts(product_snapshot):
+        piece_count = set_piece_count_from_snapshot(product_snapshot)
+        set_instructions = (
+            "\n- this listing is one furniture set sold together, not "
+            "separate products;\n"
+            f"- piece count is {piece_count}: the main item in variants[0] "
+            "plus every item in set_parts;\n"
+            "- title must make clear it is a set; do not invent extra pieces;\n"
+            "- translate each set_parts.description into German;\n"
+            "- cover every piece and its given sizes;\n"
+            "- bullet_points: first the set, then the most important pieces; "
+            "never invent a piece missing from the data."
+        )
+        description_rule = (
+            "- description: two to six plain-text paragraphs separated "
+            "by one empty line; do not use HTML;\n"
+        )
+    else:
+        description_rule = (
+            "- description: two or three plain-text paragraphs separated "
+            "by one empty line; do not use HTML;\n"
+        )
+
     return UniversalContentRequest(
         schema_name="universal_marketplace_content",
         schema=UNIVERSAL_CONTENT_SCHEMA,
@@ -217,8 +252,7 @@ def build_universal_content_request(
             "Create one universal German marketplace content draft.\n"
             "- title: maximum 65 characters; do not add (BD), the system "
             "appends it;\n"
-            "- description: two or three plain-text paragraphs separated "
-            "by one empty line; do not use HTML;\n"
+            f"{description_rule}"
             "- bullet_points: exactly three to five concise points;\n"
             "- materials: translate the seller materials into one or two "
             "German names, same order, no extras;\n"
@@ -228,6 +262,7 @@ def build_universal_content_request(
             "claims not present in product data;\n"
             "- turn a raw seller title into a natural German product title;\n"
             "- use dimensions and materials only as factual product details."
+            f"{set_instructions}"
         ),
         input_text=json.dumps(
             {"product": product_snapshot},
@@ -264,9 +299,12 @@ def validate_universal_content(
             "AI title must contain 1 to 65 characters."
         )
 
-    if not 2 <= len(paragraphs) <= 3:
+    max_paragraphs = 6 if snapshot_has_set_parts(product_snapshot) else 3
+    if not 2 <= len(paragraphs) <= max_paragraphs:
         raise GeneratedContentValidationError(
             "AI description must contain two or three paragraphs."
+            if max_paragraphs == 3
+            else "AI set description must contain two to six paragraphs."
         )
 
     if not 3 <= len(bullet_points) <= 5:
@@ -317,24 +355,31 @@ def universal_content_to_marketplace_configuration(
     *,
     marketplace: str,
     content: dict[str, Any],
+    product_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Maps one validated AI draft to marketplace configuration fields."""
 
     title = with_listing_brand_mark(content["title"], max_length=70)
+    description = content["description"]
+    if marketplace in {"otto", "hood"}:
+        description = with_set_dimensions(description, product_snapshot or {})
 
     if marketplace == "otto":
-        return {
+        payload = {
             "product_line": title,
-            "description": content["description"],
+            "description": description,
             "bullet_points": content["bullet_points"],
             "materials": content.get("materials") or [],
             "color": content.get("color") or "",
         }
+        if snapshot_has_set_parts(product_snapshot):
+            payload["bundle"] = True
+        return payload
 
     if marketplace == "hood":
         return {
             "title": title,
-            "description": universal_description_to_hood_html(content["description"]),
+            "description": universal_description_to_hood_html(description),
             "materials": content.get("materials") or [],
             "color": content.get("color") or "",
         }
