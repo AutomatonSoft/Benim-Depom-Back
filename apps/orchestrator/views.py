@@ -319,8 +319,8 @@ class ProductMarketplaceListingStateView(ManagerMutationThrottleMixin, APIView):
         parameters=[IDEMPOTENCY_KEY_HEADER],
         description=(
             "Deactivates selected marketplace listings. Without targets it "
-            "uses every active listing of the product. Hood is deleted "
-            "(no reversible hide). OTTO and Kaufland are deactivated so the "
+            "uses every active listing of the product. Hood and Kaufland "
+            "are deleted (no reversible hide). OTTO is deactivated so the "
             "card can return when stock is back."
         ),
     )
