@@ -133,7 +133,7 @@ class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
             )
 
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
         if not is_manager(request.user) and product.owner_id != request.user.id:
@@ -642,7 +642,7 @@ class ProductOttoPayloadPreviewView(APIView):
             )
 
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
         configuration = MarketplaceListingConfiguration.objects.filter(
@@ -758,7 +758,7 @@ class ProductHoodPayloadPreviewView(APIView):
             )
 
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
 
@@ -873,7 +873,7 @@ class ProductKauflandCreatePayloadPreviewView(APIView):
             )
 
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
 
@@ -921,7 +921,7 @@ class ProductKauflandUpdatePayloadPreviewView(APIView):
             )
 
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
 
@@ -974,7 +974,7 @@ class ProductMarketplaceContentGenerationCreateView(
     )
     def post(self, request, product_pk: int):
         product = get_object_or_404(
-            Product.objects.prefetch_related("variants"),
+            Product.objects.prefetch_related("variants", "set_parts"),
             pk=product_pk,
         )
 
@@ -1226,6 +1226,7 @@ class ProductMarketplaceContentGenerationApplyView(
                 patch = universal_content_to_marketplace_configuration(
                     marketplace=marketplace,
                     content=content,
+                    product_snapshot=generation.input_snapshot,
                 )
 
                 configuration, _ = (

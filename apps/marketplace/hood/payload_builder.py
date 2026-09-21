@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from apps.marketplace.colors import listing_color
 from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import listing_materials
+from apps.marketplace.set_listing import iter_set_parts
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -173,6 +174,10 @@ def build_hood_payload(
     }
     if materials:
         automatic_properties["Material"] = ", ".join(materials)
+
+    extra_parts = iter_set_parts(product)
+    if extra_parts:
+        automatic_properties["Anzahl Teile"] = str(1 + len(extra_parts))
 
     # Manager can correct automatic values or add Hood-specific properties.
     automatic_properties.update(normalized_overrides)

@@ -16,6 +16,7 @@ from .models import (
     ProductGeneratedImage,
     ProductImage,
     ProductVariant,
+    ProductSetPart,
 )
 
 
@@ -23,20 +24,8 @@ def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
-@transaction.atomic
-def create_product(
-    *, owner, data: dict[str, Any], variants_data: list[dict[str, Any]]
-) -> Product:
-    product = Product.objects.create(owner=owner, **data)
 
-    ProductVariant.objects.bulk_create(
-        [
-            ProductVariant(product=product, **variant_data)
-            for variant_data in variants_data
-        ]
-    )
 
-    return product
 
 
 def _reuse_media_connection():
@@ -46,12 +35,56 @@ def _reuse_media_connection():
     return reuse()
 
 
+
+def _replace_set_parts(
+    product: Product, set_parts_data: list[dict[str, Any]]
+) -> None:
+    """Rewrite extra set pieces from the submitted list order."""
+    product.set_parts.all().delete()
+    ProductSetPart.objects.bulk_create(
+        [
+            ProductSetPart(
+                product=product,
+                position=index,
+                description=part_data["description"],
+                width_cm=part_data["width_cm"],
+                height_cm=part_data["height_cm"],
+                length_cm=part_data["length_cm"],
+            )
+            for index, part_data in enumerate(set_parts_data)
+        ]
+    )
+
+
+@transaction.atomic
+def create_product(
+    *,
+    owner,
+    data: dict[str, Any],
+    variants_data: list[dict[str, Any]],
+    set_parts_data: list[dict[str, Any]] | None = None,
+) -> Product:
+    """Create a product, its single variant, and optional set pieces."""
+    product = Product.objects.create(owner=owner, **data)
+
+    ProductVariant.objects.bulk_create(
+        [
+            ProductVariant(product=product, **variant_data)
+            for variant_data in variants_data
+        ]
+    )
+    _replace_set_parts(product, set_parts_data or [])
+
+    return product
+
+
 def create_product_with_images(
     *,
     owner,
     data: dict[str, Any],
     variants_data: list[dict[str, Any]],
     image_files: list,
+    set_parts_data: list[dict[str, Any]] | None = None,
 ) -> Product:
     """Create and submit a product with its initial images atomically.
 
@@ -67,6 +100,7 @@ def create_product_with_images(
                     owner=owner,
                     data=data,
                     variants_data=variants_data,
+                    set_parts_data=set_parts_data,
                 )
 
                 for position, image_file in enumerate(image_files):
@@ -77,14 +111,10 @@ def create_product_with_images(
                     )
                     saved_image_files.append(image.image)
 
-                # Lazy import avoids a products <-> moderation import cycle.
                 from apps.moderation.services import submit_product_for_moderation
 
                 return submit_product_for_moderation(product=product)
         except Exception:
-            # Database changes are rolled back by the transaction, while FTP/media
-            # storage is external to that transaction. Remove any already uploaded
-            # files on a best-effort basis to avoid orphaned media.
             for saved_image in saved_image_files:
                 saved_image.delete(save=False)
             raise
@@ -96,7 +126,9 @@ def update_product(
     product: Product,
     data: dict[str, Any],
     variants_data: list[dict[str, Any]] | None,
+    set_parts_data: list[dict[str, Any]] | None = None,
 ) -> Product:
+    """Update product fields and optionally replace variant or set pieces."""
     for field, value in data.items():
         setattr(product, field, value)
 
@@ -107,13 +139,15 @@ def update_product(
 
     if variants_data is not None:
         product.variants.all().delete()
-
         ProductVariant.objects.bulk_create(
             [
                 ProductVariant(product=product, **variant_data)
                 for variant_data in variants_data
             ]
         )
+
+    if set_parts_data is not None:
+        _replace_set_parts(product, set_parts_data)
 
     return product
 
@@ -149,6 +183,46 @@ SELLER_REVIEW_META_KEYS = frozenset(
 SELLER_REVIEW_KIND_REJECTED_PENDING = "rejected_pending"
 SELLER_REVIEW_KIND_RESUBMISSION = "resubmission"
 
+def _current_set_parts_payload(product: Product) -> list[dict[str, Any]]:
+    """Serialize stored set pieces for diffs and API payloads."""
+    return [
+        {
+            "description": part.description,
+            "width_cm": part.width_cm,
+            "height_cm": part.height_cm,
+            "length_cm": part.length_cm,
+        }
+        for part in product.set_parts.all().order_by("position", "id")
+    ]
+
+
+def _normalize_set_parts_payload(
+    set_parts_data: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep only comparable fields of submitted set pieces."""
+    return [
+        {
+            "description": item.get("description"),
+            "width_cm": item.get("width_cm"),
+            "height_cm": item.get("height_cm"),
+            "length_cm": item.get("length_cm"),
+        }
+        for item in set_parts_data
+    ]
+
+
+def _pending_set_parts_diff(
+    product: Product, set_parts_data: list[dict[str, Any]] | None
+) -> list[dict[str, Any]] | None:
+    """Return new set pieces only when they differ from the stored ones."""
+    if set_parts_data is None:
+        return None
+    old = _json_ready(_current_set_parts_payload(product))
+    new = _json_ready(_normalize_set_parts_payload(set_parts_data))
+    if old == new:
+        return None
+    return new
+
 
 def _current_variants_payload(product: Product) -> list[dict[str, Any]]:
     return [
@@ -171,6 +245,8 @@ def _baseline_for_pending(product: Product, pending: dict[str, Any]) -> dict[str
             continue
         if field == "variants":
             baseline[field] = _json_ready(_current_variants_payload(product))
+        if field == "set_parts":
+            baseline[field] = _json_ready(_current_set_parts_payload(product))
         elif field in _PENDING_PRODUCT_FIELDS:
             baseline[field] = _json_ready(getattr(product, field))
     return baseline
@@ -181,6 +257,7 @@ def build_seller_resubmission_review(
     product: Product,
     data: dict[str, Any],
     variants_data: list[dict[str, Any]] | None,
+    set_parts_data: list[dict[str, Any]] | None = None,
     comment: str = "",
 ) -> dict[str, Any]:
     baseline: dict[str, Any] = {}
@@ -200,6 +277,13 @@ def build_seller_resubmission_review(
         if old_variants != new_variants:
             baseline["variants"] = old_variants
             changes["variants"] = new_variants
+
+    if set_parts_data is not None:
+        old_parts = _json_ready(_current_set_parts_payload(product))
+        new_parts = _json_ready(_normalize_set_parts_payload(set_parts_data))
+        if old_parts != new_parts:
+            baseline["set_parts"] = old_parts
+            changes["set_parts"] = new_parts
 
     review: dict[str, Any] = {
         SELLER_REVIEW_KIND_KEY: SELLER_REVIEW_KIND_RESUBMISSION,
@@ -284,6 +368,7 @@ def save_seller_pending_changes(
     product: Product,
     data: dict[str, Any],
     variants_data: list[dict[str, Any]] | None,
+    set_parts_data: list[dict[str, Any]] | None = None,
     comment: str | None = None,
 ) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
@@ -295,12 +380,18 @@ def save_seller_pending_changes(
     pending = dict(locked_product.pending_changes or {})
     updates = _pending_field_diffs(locked_product, data)
     variants_update = _pending_variants_diff(locked_product, variants_data)
+    set_parts_update = _pending_set_parts_diff(locked_product, set_parts_data)
     comment_provided = comment is not None
 
-    if not updates and variants_update is None and not comment_provided:
+    if (
+        not updates
+        and variants_update is None
+        and set_parts_update is None
+        and not comment_provided
+    ):
         return locked_product
 
-    if not updates and variants_update is None:
+    if not updates and variants_update is None and set_parts_update is None:
         raise ValidationError(
             {
                 "detail": (
@@ -313,6 +404,8 @@ def save_seller_pending_changes(
     pending.update(updates)
     if variants_update is not None:
         pending["variants"] = variants_update
+    if set_parts_update is not None:
+        pending["set_parts"] = set_parts_update
     if comment_provided:
         cleaned = str(comment or "").strip()
         if cleaned:
@@ -334,7 +427,7 @@ def save_seller_pending_changes(
         )
     )
 
-    if updates or variants_update is not None:
+    if updates or variants_update is not None or set_parts_update is not None:
         from apps.notifications.models import Notification
         from apps.notifications.services import create_notification, manager_inbox_users
 
@@ -360,6 +453,7 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
         raise ValidationError({"detail": "This product has no pending seller changes."})
 
     variants_data = pending.pop("variants", None)
+    set_parts_data = pending.pop("set_parts", None)
     product_data = {
         field: value
         for field, value in pending.items()
@@ -369,6 +463,7 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
         product=locked_product,
         data=product_data,
         variants_data=variants_data,
+        set_parts_data=set_parts_data,
     )
     locked_product.pending_changes = {}
     locked_product.pending_changes_submitted_at = None
@@ -635,6 +730,13 @@ def reorder_product_images(
             product=locked_product,
             pk=image_id,
         ).update(position=position)
+
+    ProductImage.objects.filter(product=locked_product).update(is_primary=False)
+    if image_ids:
+        ProductImage.objects.filter(
+            product=locked_product,
+            pk=image_ids[0],
+        ).update(is_primary=True)
 
     bump_in_review_catalog_revision(locked_product)
 

@@ -409,8 +409,8 @@ CELERY_TASK_ANNOTATIONS = {
         "time_limit": 300,
     },
     "apps.notifications.tasks.process_product_image": {
-        "soft_time_limit": 180,
-        "time_limit": 210,
+        "soft_time_limit": 360,
+        "time_limit": 420,
     },
     "apps.notifications.tasks.check_product_image_generation": {
         "soft_time_limit": 540,
@@ -630,6 +630,16 @@ OPENAI_TEXT_MAX_RETRIES_PER_MODEL = env.int(
 OPENAI_TEXT_RETRY_DELAY_SECONDS = env.float(
     "OPENAI_TEXT_RETRY_DELAY_SECONDS",
     default=1.5,
+)
+
+GOOGLE_API_KEY = env(
+    "GOOGLE_API_KEY",
+    default="",
+)
+
+GEMINI_IMAGE_MODEL = env(
+    "GEMINI_IMAGE_MODEL",
+    default="gemini-3.1-flash-lite-image",
 )
 
 CELERY_BEAT_SCHEDULE = {
