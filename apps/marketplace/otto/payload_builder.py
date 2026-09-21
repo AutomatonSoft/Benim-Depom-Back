@@ -21,6 +21,7 @@ from apps.catalog.otto_shipping_profiles import (
 )
 from apps.marketplace.colors import listing_color
 from apps.marketplace.listing_title import with_listing_brand_mark
+from apps.marketplace.set_listing import iter_set_parts
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -338,6 +339,8 @@ def build_otto_payload(
     ):
         if field in configuration and configuration[field] is not None:
             product_description[target_field] = bool(configuration[field])
+    if iter_set_parts(product) and configuration.get("bundle") is None:
+        product_description["bundle"] = True
     offering_start_date = _as_optional_datetime(
         configuration.get("offering_start_date")
     )

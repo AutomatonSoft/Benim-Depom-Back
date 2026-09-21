@@ -52,7 +52,13 @@ def test_manager_deactivates_all_active_listings_without_changing_product_status
     marketplaces = {
         target["marketplace"] for target in deactivate_job.request_payload["targets"]
     }
-    assert marketplaces == {"otto", "kaufland"}
+    assert marketplaces == {"otto"}
+    delete_job = next(
+        job for job in jobs if job.operation == MarketplaceJob.Operation.DELETE
+    )
+    assert {
+        target["marketplace"] for target in delete_job.request_payload["targets"]
+    } == {"hood", "kaufland"}
     product.refresh_from_db()
     assert product.status == Product.Status.APPROVED
     assert (
@@ -63,7 +69,7 @@ def test_manager_deactivates_all_active_listings_without_changing_product_status
         MarketplacePublication.objects.get(
             product=product, marketplace="kaufland"
         ).status
-        == MarketplacePublication.Status.DEACTIVATING
+        == MarketplacePublication.Status.DELETING
     )
     assert (
         MarketplacePublication.objects.get(product=product, marketplace="hood").status

@@ -88,6 +88,14 @@ def test_image_service_primary_delete_reorder_and_limit(
     assert list(
         ProductImage.objects.filter(product=product).values_list("id", flat=True)
     ) == [second.id, first.id]
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert second.is_primary is True and first.is_primary is False
+
+    reorder_product_images(product=product, image_ids=[first.id, second.id])
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.is_primary is True and second.is_primary is False
     with pytest.raises(ValidationError, match="every image"):
         reorder_product_images(product=product, image_ids=[first.id])
 

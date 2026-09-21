@@ -224,6 +224,7 @@ class ManagerProductListView(generics.ListAPIView):
             Product.objects.select_related("owner")
             .prefetch_related(
                 "variants",
+                "set_parts",
                 "images",
                 "images__generated_images",
                 "price_negotiations",
@@ -399,7 +400,12 @@ class ManagerApproveSellerChangesView(ManagerMutationThrottleMixin, APIView):
             transaction.on_commit(enqueue_job)
         product = (
             Product.objects.select_related("owner")
-            .prefetch_related("variants", "images", "images__generated_images")
+            .prefetch_related(
+                "variants",
+                "set_parts",
+                "images",
+                "images__generated_images",
+            )
             .get(pk=product.pk)
         )
         try:
@@ -448,7 +454,12 @@ class ManagerRejectSellerChangesView(ManagerMutationThrottleMixin, APIView):
         )
         product = (
             Product.objects.select_related("owner")
-            .prefetch_related("variants", "images", "images__generated_images")
+            .prefetch_related(
+                "variants",
+                "set_parts",
+                "images",
+                "images__generated_images",
+            )
             .get(pk=product.pk)
         )
         return Response(ProductSerializer(product, context={"request": request}).data)
@@ -487,6 +498,7 @@ class ManagerCreatePriceNegotiationView(ManagerMutationThrottleMixin, APIView):
         product = get_object_or_404(
             Product.objects.select_related("owner").prefetch_related(
                 "variants",
+                "set_parts",
                 "images",
                 "images__generated_images",
                 "price_negotiations",
@@ -505,6 +517,7 @@ class ManagerCreatePriceNegotiationView(ManagerMutationThrottleMixin, APIView):
             Product.objects.select_related("owner")
             .prefetch_related(
                 "variants",
+                "set_parts",
                 "images",
                 "images__generated_images",
                 "price_negotiations",
