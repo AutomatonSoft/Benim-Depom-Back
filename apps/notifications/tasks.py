@@ -486,7 +486,9 @@ def process_product_image(image_id: int) -> dict:
         image_file = image.image
         set_part_count = ProductSetPart.objects.filter(product_id=product_id).count()
         pending = product.pending_changes or {}
-        pending_set_parts = pending.get("set_parts") if isinstance(pending, dict) else None
+        pending_set_parts = (
+            pending.get("set_parts") if isinstance(pending, dict) else None
+        )
         pending_set_part_count = (
             len(pending_set_parts) if isinstance(pending_set_parts, list) else 0
         )

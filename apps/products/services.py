@@ -24,10 +24,6 @@ def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
-
-
-
-
 def _reuse_media_connection():
     reuse = getattr(default_storage, "reuse_connection", None)
     if reuse is None:
@@ -35,10 +31,7 @@ def _reuse_media_connection():
     return reuse()
 
 
-
-def _replace_set_parts(
-    product: Product, set_parts_data: list[dict[str, Any]]
-) -> None:
+def _replace_set_parts(product: Product, set_parts_data: list[dict[str, Any]]) -> None:
     """Rewrite extra set pieces from the submitted list order."""
     product.set_parts.all().delete()
     ProductSetPart.objects.bulk_create(
@@ -182,6 +175,7 @@ SELLER_REVIEW_META_KEYS = frozenset(
 )
 SELLER_REVIEW_KIND_REJECTED_PENDING = "rejected_pending"
 SELLER_REVIEW_KIND_RESUBMISSION = "resubmission"
+
 
 def _current_set_parts_payload(product: Product) -> list[dict[str, Any]]:
     """Serialize stored set pieces for diffs and API payloads."""

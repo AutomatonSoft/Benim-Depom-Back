@@ -365,7 +365,6 @@ class ExchangeRate(models.Model):
         return f"{self.as_of} EUR→USD {self.eur_to_usd} EUR→TRY {self.eur_to_try}"
 
 
-
 class ProductSetPart(models.Model):
     """Extra piece of a set: own size and description, not a separate listing."""
 

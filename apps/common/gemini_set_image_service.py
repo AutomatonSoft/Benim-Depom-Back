@@ -231,9 +231,7 @@ def generate_set_listing_images(
         ]
         for index, reference in enumerate(references, start=1):
             parts.append(
-                types.Part.from_text(
-                    text=f"Seller photo {index} of {len(references)}:"
-                )
+                types.Part.from_text(text=f"Seller photo {index} of {len(references)}:")
             )
             parts.append(
                 types.Part.from_bytes(
