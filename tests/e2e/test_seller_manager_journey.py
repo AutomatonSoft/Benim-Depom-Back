@@ -122,7 +122,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
     deactivation = api_client.post(f"/api/v1/products/{product_id}/deactivate/")
     assert deactivation.status_code == 202
     product = Product.objects.get(pk=product_id)
-    assert product.status == Product.Status.APPROVED
+    assert product.status == Product.Status.DEACTIVATED
     assert product.deactivation_requested_at is not None
     assert Notification.objects.filter(
         user=manager,
@@ -133,7 +133,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
     deactivation = api_client.post(f"/api/v1/manager/products/{product_id}/deactivate/")
     assert deactivation.status_code == 400
     product.refresh_from_db()
-    assert product.status == Product.Status.APPROVED
+    assert product.status == Product.Status.DEACTIVATED
     assert product.deactivation_requested_at is not None
     assert EanCode.objects.filter(product=product).count() == 2
 

@@ -158,7 +158,7 @@ def test_processing_request_and_approved_availability_services(
     with pytest.raises(ValidationError, match="listing-state"):
         deactivate_product(product=product)
     product.refresh_from_db()
-    assert product.status == Product.Status.APPROVED
+    assert product.status == Product.Status.DEACTIVATED
     assert product.deactivation_requested_at is not None
 
 

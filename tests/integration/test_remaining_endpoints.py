@@ -95,9 +95,11 @@ def test_seller_deactivation_creates_manager_approval_request(
     authenticate(api_client, seller)
     response = api_client.post(f"/api/v1/products/{product.id}/deactivate/")
     assert response.status_code == 202
+    assert response.data["status"] == Product.Status.DEACTIVATED
     product.refresh_from_db()
-    assert product.status == Product.Status.APPROVED
+    assert product.status == Product.Status.DEACTIVATED
     assert product.deactivation_requested_at is not None
+    assert product.deactivated_at is not None
     assert Notification.objects.filter(
         user=manager,
         product=product,
@@ -109,11 +111,11 @@ def test_seller_deactivation_creates_manager_approval_request(
 
     authenticate(api_client, manager)
     response = api_client.post(f"/api/v1/manager/products/{product.id}/deactivate/")
-    # A local product without an external listing has nothing to deactivate.
-    # Its global moderation status must remain independent of marketplace state.
+    # A local product without an external listing has nothing to take down.
+    # Marketplace listings stay independent of the product status change.
     assert response.status_code == 400
     product.refresh_from_db()
-    assert product.status == Product.Status.APPROVED
+    assert product.status == Product.Status.DEACTIVATED
     assert product.deactivation_requested_at is not None
 
 
