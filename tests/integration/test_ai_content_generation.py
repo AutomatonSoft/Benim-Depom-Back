@@ -26,6 +26,7 @@ SUCCESSFUL_AI_CONTENT = {
     ],
     "materials": [],
     "color": "Blau",
+    "material_composition": "",
 }
 
 

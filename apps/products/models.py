@@ -233,6 +233,12 @@ class ProductVariant(models.Model):
     # German marketplace colour lives on the listing after AI translation.
     color = models.CharField(max_length=80, db_index=True)
     materials = models.JSONField(default=list)
+    material_composition = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Optional textile composition, for example 100% Polyester.",
+    )
     width_cm = models.DecimalField(
         max_digits=8,
         decimal_places=2,

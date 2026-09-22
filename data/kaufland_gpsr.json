@@ -1,0 +1,14 @@
+{
+  "jv": {
+    "name": "AEA GmbH & Co. KG",
+    "address": "Am Flugplatz 28, 88483 Burgrieden, Germany",
+    "phone_number": "+49 7392 9378440",
+    "email_address": "info@jvmoebel.de"
+  },
+  "xl": {
+    "name": "XL MOEBEL GmbH",
+    "address": "Am Flugplatz 26, 88483 Burgrieden, Germany",
+    "phone_number": "+49 7392 9378445",
+    "email_address": "info@xlmoebel.de"
+  }
+}

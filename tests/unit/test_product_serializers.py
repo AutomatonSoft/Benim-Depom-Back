@@ -1,8 +1,12 @@
 import pytest
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from apps.products.serializers import (
+    MultipartJSONListField,
+    OptionalSetPartsMultipartField,
     ProductImageReorderSerializer,
     ProductSerializer,
+    ProductSetPartSerializer,
     ProductVariantSerializer,
 )
 
@@ -27,6 +31,25 @@ def test_variant_normalizes_color_and_materials():
     assert serializer.is_valid(), serializer.errors
     assert serializer.validated_data["color"] == "beyaz"
     assert serializer.validated_data["materials"] == ["Wood", "Fabric"]
+    assert serializer.validated_data["material_composition"] == ""
+
+
+@pytest.mark.unit
+def test_variant_accepts_percentage_material_composition():
+    serializer = ProductVariantSerializer(
+        data=valid_variant(material_composition=" 100% Polyester ")
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["material_composition"] == "100% Polyester"
+
+
+@pytest.mark.unit
+def test_variant_rejects_composition_without_percent():
+    serializer = ProductVariantSerializer(
+        data=valid_variant(material_composition="Polyester")
+    )
+    assert serializer.is_valid() is False
+    assert "material_composition" in serializer.errors
 
 
 @pytest.mark.unit
@@ -72,6 +95,33 @@ def test_product_rejects_more_than_one_variant():
 
     assert serializer.is_valid() is False
     assert serializer.errors["variants"]
+
+
+@pytest.mark.unit
+def test_set_parts_blank_multipart_value_is_empty_list():
+    field = OptionalSetPartsMultipartField(
+        child=ProductSetPartSerializer(),
+        required=False,
+        allow_empty=True,
+        allow_null=True,
+        default=list,
+    )
+
+    assert field.run_validation("") == []
+    assert field.run_validation("[]") == []
+
+
+@pytest.mark.unit
+def test_variants_blank_multipart_value_is_still_invalid():
+    field = MultipartJSONListField(
+        child=ProductVariantSerializer(),
+        allow_empty=False,
+        min_length=1,
+        max_length=1,
+    )
+
+    with pytest.raises(DRFValidationError):
+        field.run_validation("")
 
 
 @pytest.mark.unit

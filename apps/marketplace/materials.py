@@ -42,6 +42,51 @@ def seller_materials_from_snapshot(snapshot: dict | None) -> list[str]:
     return clean_material_names(names)
 
 
+def seller_material_composition_from_snapshot(snapshot: dict | None) -> str:
+    """First non-empty seller textile composition from the product snapshot."""
+    for variant in (snapshot or {}).get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        text = str(variant.get("material_composition") or "").strip()
+        if text:
+            return text
+    return ""
+
+
+_COMPOSITION_PART_RE = re.compile(r"^\d{1,3}\s*%\s+\S.+$")
+
+
+def composition_keeps_percent_format(value: str) -> bool:
+    """True when each comma-separated part looks like ``80% Polyester``."""
+    parts = [part.strip() for part in str(value or "").split(",") if part.strip()]
+    return bool(parts) and all(_COMPOSITION_PART_RE.match(part) for part in parts)
+
+
+def listing_material_composition(
+    *,
+    configuration: dict | None,
+    variant_composition,
+) -> tuple[str, str | None]:
+    """German Kaufland textile composition from the listing, not seller words."""
+    configuration = configuration or {}
+    chosen = str(configuration.get("material_composition") or "").strip()
+    seller = str(variant_composition or "").strip()
+
+    if chosen and contains_source_language(chosen):
+        return chosen, "Material composition must be in German."
+
+    if chosen and not composition_keeps_percent_format(chosen):
+        return chosen, (
+            "Material composition must keep percentages, for example "
+            "80% Polyester, 20% Baumwolle."
+        )
+
+    if seller and not chosen:
+        return "", "Translate the material composition to German."
+
+    return chosen, None
+
+
 def listing_materials(
     *,
     configuration: dict | None,
