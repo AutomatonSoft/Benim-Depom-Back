@@ -679,14 +679,6 @@ def delete_product_image(
         pk=image.pk, product=locked_product
     )
 
-    remaining = (
-        ProductImage.objects.filter(product=locked_product).exclude(pk=image.pk).count()
-    )
-    if remaining == 0:
-        raise ValidationError(
-            {"images": "The product must contain at least one image."}
-        )
-
     image_files = [
         image.image,
         image.processed_image,
