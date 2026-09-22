@@ -360,6 +360,10 @@ def _pending_variants_diff(
     return new
 
 
+def current_image_ids(product: Product) -> list[int]:
+    return list(product.images.order_by("position", "id").values_list("id", flat=True))
+
+
 @transaction.atomic
 def save_seller_pending_changes(
     *,
@@ -368,6 +372,7 @@ def save_seller_pending_changes(
     variants_data: list[dict[str, Any]] | None,
     set_parts_data: list[dict[str, Any]] | None = None,
     comment: str | None = None,
+    images_payload: list[int] | dict[str, Any] | None = None,
 ) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     if locked_product.status != Product.Status.APPROVED:
@@ -376,20 +381,22 @@ def save_seller_pending_changes(
         )
 
     pending = dict(locked_product.pending_changes or {})
+    already_had_images = "images" in pending
     updates = _pending_field_diffs(locked_product, data)
     variants_update = _pending_variants_diff(locked_product, variants_data)
     set_parts_update = _pending_set_parts_diff(locked_product, set_parts_data)
     comment_provided = comment is not None
+    has_catalog_change = bool(
+        updates
+        or variants_update is not None
+        or set_parts_update is not None
+        or images_payload is not None
+    )
 
-    if (
-        not updates
-        and variants_update is None
-        and set_parts_update is None
-        and not comment_provided
-    ):
+    if not has_catalog_change and not comment_provided:
         return locked_product
 
-    if not updates and variants_update is None and set_parts_update is None:
+    if not has_catalog_change:
         raise ValidationError(
             {
                 "detail": (
@@ -404,6 +411,8 @@ def save_seller_pending_changes(
         pending["variants"] = variants_update
     if set_parts_update is not None:
         pending["set_parts"] = set_parts_update
+    if images_payload is not None:
+        pending["images"] = images_payload
     if comment_provided:
         cleaned = str(comment or "").strip()
         if cleaned:
@@ -425,7 +434,14 @@ def save_seller_pending_changes(
         )
     )
 
-    if updates or variants_update is not None or set_parts_update is not None:
+    image_only_repeat = (
+        images_payload is not None
+        and already_had_images
+        and not updates
+        and variants_update is None
+        and set_parts_update is None
+    )
+    if has_catalog_change and not image_only_repeat:
         from apps.notifications.models import Notification
         from apps.notifications.services import create_notification, manager_inbox_users
 
@@ -443,6 +459,62 @@ def save_seller_pending_changes(
     return locked_product
 
 
+def build_pending_images_payload(
+    product: Product,
+    *,
+    before_ids: list[int] | None = None,
+    removed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Diff seller photo edits against the gallery at the start of this request."""
+    new_ids = current_image_ids(product)
+    existing = (product.pending_changes or {}).get("images")
+    baseline: list[int] = []
+    removed_list: list[dict[str, Any]] = []
+    if isinstance(existing, dict):
+        baseline = [int(item) for item in (existing.get("baseline_ids") or [])]
+        removed_list = [
+            item for item in (existing.get("removed") or []) if isinstance(item, dict)
+        ]
+    elif isinstance(existing, list):
+        baseline = [int(item) for item in existing]
+    if not baseline and before_ids is not None:
+        baseline = [int(item) for item in before_ids]
+    if not baseline:
+        baseline = list(new_ids)
+    if removed and removed.get("id") is not None:
+        removed_id = int(removed["id"])
+        if not any(int(item.get("id") or 0) == removed_id for item in removed_list):
+            removed_list.append(removed)
+    baseline_set = set(baseline)
+    return {
+        "image_ids": new_ids,
+        "baseline_ids": baseline,
+        "added_ids": [item for item in new_ids if item not in baseline_set],
+        "removed": removed_list,
+    }
+
+
+def record_seller_image_pending_changes(
+    product: Product,
+    *,
+    before_ids: list[int] | None = None,
+    removed: dict[str, Any] | None = None,
+) -> Product:
+    """Keep approved source photos, but queue a manager approve/reject request."""
+    if product.status != Product.Status.APPROVED:
+        return product
+    return save_seller_pending_changes(
+        product=product,
+        data={},
+        variants_data=None,
+        images_payload=build_pending_images_payload(
+            product,
+            before_ids=before_ids,
+            removed=removed,
+        ),
+    )
+
+
 @transaction.atomic
 def apply_pending_seller_changes(*, product: Product) -> Product:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
@@ -452,6 +524,7 @@ def apply_pending_seller_changes(*, product: Product) -> Product:
 
     variants_data = pending.pop("variants", None)
     set_parts_data = pending.pop("set_parts", None)
+    pending.pop("images", None)
     product_data = {
         field: value
         for field, value in pending.items()
@@ -594,6 +667,7 @@ def delete_product_image(
     product: Product,
     image: ProductImage,
     allow_after_approval: bool = False,
+    keep_files: bool = False,
 ) -> None:
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(
@@ -604,6 +678,14 @@ def delete_product_image(
     image = ProductImage.objects.select_for_update().get(
         pk=image.pk, product=locked_product
     )
+
+    remaining = (
+        ProductImage.objects.filter(product=locked_product).exclude(pk=image.pk).count()
+    )
+    if remaining == 0:
+        raise ValidationError(
+            {"images": "The product must contain at least one image."}
+        )
 
     image_files = [
         image.image,
@@ -630,7 +712,8 @@ def delete_product_image(
             if image_file:
                 image_file.delete(save=False)
 
-    transaction.on_commit(remove_files)
+    if not keep_files:
+        transaction.on_commit(remove_files)
     bump_in_review_catalog_revision(locked_product)
 
 
@@ -794,8 +877,18 @@ def request_product_deactivation(*, product: Product) -> Product:
     if locked_product.deactivation_requested_at is not None:
         raise ValidationError({"detail": "A deactivation request is already pending."})
 
-    locked_product.deactivation_requested_at = timezone.now()
-    locked_product.save(update_fields=("deactivation_requested_at", "updated_at"))
+    now = timezone.now()
+    locked_product.deactivation_requested_at = now
+    locked_product.deactivated_at = now
+    locked_product.status = Product.Status.DEACTIVATED
+    locked_product.save(
+        update_fields=(
+            "deactivation_requested_at",
+            "deactivated_at",
+            "status",
+            "updated_at",
+        )
+    )
     return locked_product
 
 
