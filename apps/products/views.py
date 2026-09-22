@@ -318,8 +318,9 @@ class ProductDetailView(
 
     def get_serializer_class(self):
         content_type = self.request.content_type or ""
-        if self.request.method == "PATCH" and content_type.startswith(
-            "multipart/form-data"
+        has_files = bool(getattr(self.request, "FILES", None))
+        if self.request.method == "PATCH" and (
+            content_type.startswith("multipart/form-data") or has_files
         ):
             return ProductMultipartUpdateSerializer
         return super().get_serializer_class()
