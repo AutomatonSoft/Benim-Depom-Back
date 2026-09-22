@@ -10,6 +10,12 @@ from .models import User
 from .services import register_user
 
 
+def _canonical_preferred_language(value):
+    if not isinstance(value, str):
+        return value
+    return User.canonical_language(value) or value
+
+
 def _validate_password_value(*, password, user, field_name: str) -> None:
     try:
         validate_password(password, user)
@@ -83,6 +89,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         return email
 
+    def validate_preferred_language(self, value):
+        return _canonical_preferred_language(value)
+
 
 @extend_schema_serializer(component_name="WebManagerCreate")
 class ManagerCreateSerializer(serializers.ModelSerializer):
@@ -139,6 +148,9 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A user with this email already exists.")
         return email
 
+    def validate_preferred_language(self, value):
+        return _canonical_preferred_language(value)
+
     def create(self, validated_data):
         password = validated_data.pop("password")
         return User.objects.create_user(
@@ -155,7 +167,8 @@ class PreferredLanguageSerializer(serializers.Serializer):
 
     def to_internal_value(self, data):
         if isinstance(data, dict) and isinstance(data.get("language"), str):
-            data = {**data, "language": data["language"].strip().casefold()}
+            language = User.canonical_language(data["language"]) or data["language"]
+            data = {**data, "language": language}
         return super().to_internal_value(data)
 
 
@@ -184,6 +197,9 @@ class ProfileSerializer(serializers.ModelSerializer):
             "date_joined",
             "product_count",
         )
+
+    def validate_preferred_language(self, value):
+        return _canonical_preferred_language(value)
 
     @extend_schema_field(serializers.IntegerField())
     def get_product_count(self, user) -> int:
