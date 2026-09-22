@@ -397,7 +397,10 @@ class ProductSerializer(serializers.ModelSerializer):
     set_parts = ProductSetPartSerializer(
         many=True,
         required=False,
+        allow_empty=True,
+        allow_null=True,
         max_length=MAX_SET_PARTS,
+        default=list,
         help_text=(
             "Optional extra set pieces, at most 20. Empty means a normal product."
         ),
@@ -1153,10 +1156,19 @@ class MultipartJSONListField(serializers.ListField):
 
     def to_internal_value(self, data):
         if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except json.JSONDecodeError as error:
-                raise serializers.ValidationError("Expected a JSON array.") from error
+            data = data.strip()
+            if not data:
+                data = []
+            else:
+                try:
+                    data = json.loads(data)
+                except json.JSONDecodeError as error:
+                    raise serializers.ValidationError(
+                        "Expected a JSON array."
+                    ) from error
+
+        if data is None:
+            data = []
 
         return super().to_internal_value(data)
 
@@ -1178,6 +1190,22 @@ class MultipartJSONDictField(serializers.DictField):
                 raise serializers.ValidationError("Expected a JSON object.") from error
 
         return super().to_internal_value(data)
+
+
+@extend_schema_field(
+    {
+        "type": "string",
+        "format": "json",
+        "description": (
+            "Optional JSON array of extra set pieces, at most 20. "
+            "Leave empty or send []. Do not add a dummy item."
+        ),
+        "example": "[]",
+        "default": "[]",
+    }
+)
+class OptionalSetPartsMultipartField(MultipartJSONListField):
+    """Swagger shows one optional JSON field instead of required nested rows."""
 
 
 class MultipartImageListField(serializers.ListField):
@@ -1205,11 +1233,13 @@ class ProductMultipartCreateSerializer(ProductSerializer):
         max_length=1,
         help_text="JSON array with exactly one product variant.",
     )
-    set_parts = MultipartJSONListField(
+    set_parts = OptionalSetPartsMultipartField(
         child=ProductSetPartSerializer(),
         required=False,
         allow_empty=True,
+        allow_null=True,
         max_length=MAX_SET_PARTS,
+        default=list,
         help_text="Optional JSON array of extra set pieces, at most 20.",
     )
     otto_attributes = MultipartJSONDictField(

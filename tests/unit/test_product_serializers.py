@@ -1,8 +1,12 @@
 import pytest
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from apps.products.serializers import (
+    MultipartJSONListField,
+    OptionalSetPartsMultipartField,
     ProductImageReorderSerializer,
     ProductSerializer,
+    ProductSetPartSerializer,
     ProductVariantSerializer,
 )
 
@@ -91,6 +95,33 @@ def test_product_rejects_more_than_one_variant():
 
     assert serializer.is_valid() is False
     assert serializer.errors["variants"]
+
+
+@pytest.mark.unit
+def test_set_parts_blank_multipart_value_is_empty_list():
+    field = OptionalSetPartsMultipartField(
+        child=ProductSetPartSerializer(),
+        required=False,
+        allow_empty=True,
+        allow_null=True,
+        default=list,
+    )
+
+    assert field.run_validation("") == []
+    assert field.run_validation("[]") == []
+
+
+@pytest.mark.unit
+def test_variants_blank_multipart_value_is_still_invalid():
+    field = MultipartJSONListField(
+        child=ProductVariantSerializer(),
+        allow_empty=False,
+        min_length=1,
+        max_length=1,
+    )
+
+    with pytest.raises(DRFValidationError):
+        field.run_validation("")
 
 
 @pytest.mark.unit
