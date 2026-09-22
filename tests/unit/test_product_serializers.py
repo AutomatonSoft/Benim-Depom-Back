@@ -27,6 +27,25 @@ def test_variant_normalizes_color_and_materials():
     assert serializer.is_valid(), serializer.errors
     assert serializer.validated_data["color"] == "beyaz"
     assert serializer.validated_data["materials"] == ["Wood", "Fabric"]
+    assert serializer.validated_data["material_composition"] == ""
+
+
+@pytest.mark.unit
+def test_variant_accepts_percentage_material_composition():
+    serializer = ProductVariantSerializer(
+        data=valid_variant(material_composition=" 100% Polyester ")
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["material_composition"] == "100% Polyester"
+
+
+@pytest.mark.unit
+def test_variant_rejects_composition_without_percent():
+    serializer = ProductVariantSerializer(
+        data=valid_variant(material_composition="Polyester")
+    )
+    assert serializer.is_valid() is False
+    assert "material_composition" in serializer.errors
 
 
 @pytest.mark.unit

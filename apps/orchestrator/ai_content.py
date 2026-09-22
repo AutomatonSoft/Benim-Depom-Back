@@ -12,7 +12,9 @@ from apps.catalog.otto_catalog import OttoCatalogError, get_otto_catalog
 from apps.marketplace.colors import seller_color_from_snapshot
 from apps.marketplace.listing_title import with_listing_brand_mark
 from apps.marketplace.materials import (
+    composition_keeps_percent_format,
     contains_source_language,
+    seller_material_composition_from_snapshot,
     seller_materials_from_snapshot,
 )
 from apps.marketplace.set_listing import (
@@ -55,6 +57,11 @@ Rules:
 - Return `color` as one German colour name.
 - Return `materials` as one or two German names, in the same order as the
   seller materials. Do not add extra materials.
+- If the seller sent `material_composition`, translate only the fibre names
+  into German. Keep the same percentages, the `%` signs and the
+  comma-separated format, for example `80% Polyester, 20% Baumwolle`.
+  Never drop the percentages or invent extra fibres. If the seller did not
+  send a composition, return an empty `material_composition`.
 - `seller_title` is a raw product title only. It is not a seller name,
   supplier, manufacturer or brand.
 - Never mention a seller, supplier, manufacturer or brand unless that
@@ -104,6 +111,14 @@ UNIVERSAL_CONTENT_SCHEMA = {
             "type": "string",
             "description": "One German colour name for the marketplace listing.",
         },
+        "material_composition": {
+            "type": "string",
+            "description": (
+                "German textile composition with percentages, for example "
+                "80% Polyester, 20% Baumwolle. Empty if the seller did not "
+                "send a composition."
+            ),
+        },
     },
     "required": (
         "title",
@@ -111,6 +126,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
         "bullet_points",
         "materials",
         "color",
+        "material_composition",
     ),
     "additionalProperties": False,
 }
@@ -181,6 +197,9 @@ def build_product_snapshot(product) -> dict[str, Any]:
             {
                 "color": str(variant.color or "").strip(),
                 "materials": raw_materials,
+                "material_composition": str(
+                    getattr(variant, "material_composition", "") or ""
+                ).strip(),
                 "width_cm": _format_decimal(variant.width_cm),
                 "height_cm": _format_decimal(variant.height_cm),
                 "length_cm": _format_decimal(variant.length_cm),
@@ -256,6 +275,10 @@ def build_universal_content_request(
             "- bullet_points: exactly three to five concise points;\n"
             "- materials: translate the seller materials into one or two "
             "German names, same order, no extras;\n"
+            "- material_composition: if the seller sent a composition, "
+            "translate fibre names to German and keep percentages and commas "
+            "(example: 80% Polyester, 20% Baumwolle); otherwise return "
+            "an empty string and do not invent a composition;\n"
             "- color: translate the seller colour into one German colour "
             "name, correcting spelling mistakes;\n"
             "- do not include prices, delivery promises, guarantees or "
@@ -290,10 +313,12 @@ def validate_universal_content(
     ]
     seller_materials = seller_materials_from_snapshot(product_snapshot)
     seller_color = seller_color_from_snapshot(product_snapshot)
+    seller_composition = seller_material_composition_from_snapshot(product_snapshot)
     materials = [
         str(item).strip() for item in data.get("materials", []) if str(item).strip()
     ][:2]
     color = str(data.get("color", "")).strip()
+    composition = str(data.get("material_composition", "")).strip()
     if not title or len(title) > 65:
         raise GeneratedContentValidationError(
             "AI title must contain 1 to 65 characters."
@@ -328,6 +353,23 @@ def validate_universal_content(
     if color and contains_source_language(color):
         raise GeneratedContentValidationError("AI color must be written in German.")
 
+    if not seller_composition:
+        composition = ""
+    elif not composition:
+        raise GeneratedContentValidationError(
+            "AI material composition must be a German translation of the "
+            "seller composition."
+        )
+    elif contains_source_language(composition):
+        raise GeneratedContentValidationError(
+            "AI material composition must be written in German."
+        )
+    elif not composition_keeps_percent_format(composition):
+        raise GeneratedContentValidationError(
+            "AI material composition must keep percentages, for example "
+            "80% Polyester, 20% Baumwolle."
+        )
+
     if len(materials) > 2:
         materials = materials[:2]
 
@@ -337,6 +379,7 @@ def validate_universal_content(
         "bullet_points": bullet_points,
         "materials": materials,
         "color": color,
+        "material_composition": composition,
     }
 
 
@@ -385,11 +428,15 @@ def universal_content_to_marketplace_configuration(
         }
 
     if marketplace == "kaufland":
-        return {
+        payload = {
             "title": title,
             "description": content["description"],
             "materials": content.get("materials") or [],
             "color": content.get("color") or "",
         }
+        composition = str(content.get("material_composition") or "").strip()
+        if composition:
+            payload["material_composition"] = composition
+        return payload
 
     raise ValueError(f"Unsupported marketplace: {marketplace}")

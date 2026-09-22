@@ -156,7 +156,7 @@ def test_multipart_product_create_rejects_invalid_variants_and_too_many_images(
             "currency": "TRY",
             "warehouse_city": "INE",
             "variants": json.dumps(product_payload(product_type)["variants"]),
-            "images": [image_file(f"image-{index}.png") for index in range(11)],
+            "images": [image_file(f"image-{index}.png") for index in range(21)],
         },
         format="multipart",
     )

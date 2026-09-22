@@ -25,7 +25,12 @@ from .models import (
     ProductSetPart,
     ProductVariant,
 )
-from .services import create_product, create_product_with_images, update_product
+from .services import (
+    MAX_PRODUCT_IMAGES,
+    create_product,
+    create_product_with_images,
+    update_product,
+)
 
 EXACTLY_ONE_VARIANT = (
     "A product must contain exactly one variant. "
@@ -171,6 +176,17 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "material and is sent to Kaufland."
         ),
     )
+    material_composition = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        trim_whitespace=True,
+        default="",
+        help_text=(
+            "Optional textile composition for Kaufland, for example "
+            "100% Polyester. Omit for wood/metal/glass furniture."
+        ),
+    )
 
     class Meta:
         model = ProductVariant
@@ -178,6 +194,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "id",
             "color",
             "materials",
+            "material_composition",
             "width_cm",
             "height_cm",
             "length_cm",
@@ -203,6 +220,16 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             )
 
         return normalized
+
+    def validate_material_composition(self, value):
+        composition = (value or "").strip()
+        if not composition:
+            return ""
+        if "%" not in composition:
+            raise serializers.ValidationError(
+                "Enter a percentage composition, for example 100% Polyester."
+            )
+        return composition
 
 
 @extend_schema_serializer(component_name="ProductsSetPart")
@@ -1193,9 +1220,9 @@ class ProductMultipartCreateSerializer(ProductSerializer):
     images = MultipartImageListField(
         child=serializers.ImageField(),
         min_length=1,
-        max_length=10,
+        max_length=MAX_PRODUCT_IMAGES,
         write_only=True,
-        help_text="One to ten image files. The first image becomes primary.",
+        help_text="One to twenty image files. The first image becomes primary.",
     )
 
     def validate_images(self, images):

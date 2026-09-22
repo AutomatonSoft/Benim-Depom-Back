@@ -103,14 +103,16 @@ def test_image_service_primary_delete_reorder_and_limit(
     first.refresh_from_db()
     assert first.is_primary is True
 
-    for index in range(9):
+    while ProductImage.objects.filter(product=product).count() < 20:
         upload_product_image(
             product=product,
-            image_file=image_file(f"extra-{index}.png"),
+            image_file=image_file(
+                f"extra-{ProductImage.objects.filter(product=product).count()}.png"
+            ),
             is_primary=False,
         )
-    assert ProductImage.objects.filter(product=product).count() == 10
-    with pytest.raises(ValidationError, match="more than 10"):
+    assert ProductImage.objects.filter(product=product).count() == 20
+    with pytest.raises(ValidationError, match="more than 20"):
         upload_product_image(
             product=product, image_file=image_file("too-many.png"), is_primary=False
         )

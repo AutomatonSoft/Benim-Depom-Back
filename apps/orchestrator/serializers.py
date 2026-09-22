@@ -14,6 +14,7 @@ from apps.marketplace.kaufland.payload_builder import (
 )
 from apps.marketplace.materials import (
     clean_material_names,
+    composition_keeps_percent_format,
     contains_source_language,
 )
 from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
@@ -327,6 +328,15 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="German colour name copied into listing configurations.",
+    )
+    material_composition = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "German textile composition with percentages, for Kaufland. "
+            "Example: 80% Polyester, 20% Baumwolle."
+        ),
     )
 
     def validate_color(self, value):
@@ -777,6 +787,28 @@ class KauflandListingConfigurationSerializer(
         allow_blank=True,
         help_text="Необязательный unit ID для Kaufland update.",
     )
+    material_composition = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "German textile composition with percentages. "
+            "Example: 80% Polyester, 20% Baumwolle. Empty for hard furniture."
+        ),
+    )
+
+    def validate_material_composition(self, value):
+        composition = (value or "").strip()
+        if not composition:
+            return ""
+        if contains_source_language(composition):
+            raise serializers.ValidationError("Material composition must be in German.")
+        if not composition_keeps_percent_format(composition):
+            raise serializers.ValidationError(
+                "Material composition must keep percentages, for example "
+                "80% Polyester, 20% Baumwolle."
+            )
+        return composition
 
     @staticmethod
     def to_storage(validated_data):

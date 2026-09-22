@@ -30,6 +30,7 @@ def test_validates_and_normalizes_universal_ai_content():
     assert content["description"].count("\n\n") == 1
     assert content["materials"] == []
     assert content["color"] == ""
+    assert content["material_composition"] == ""
 
 
 @pytest.mark.unit
@@ -71,6 +72,7 @@ def test_maps_one_draft_to_each_marketplace_configuration():
         "bullet_points": ["Holz", "Stoff", "Blau"],
         "materials": ["Holz", "Stoff"],
         "color": "Blau",
+        "material_composition": "80% Polyester, 20% Baumwolle",
     }
 
     otto = universal_content_to_marketplace_configuration(
@@ -97,11 +99,13 @@ def test_maps_one_draft_to_each_marketplace_configuration():
     assert hood["description"] == ("<p>Erster Absatz.</p><p>Zweiter Absatz.</p>")
     assert hood["materials"] == ["Holz", "Stoff"]
     assert hood["color"] == "Blau"
+    assert "material_composition" not in hood
     assert kaufland == {
         "title": f"{content['title']} (BD)",
         "description": content["description"],
         "materials": ["Holz", "Stoff"],
         "color": "Blau",
+        "material_composition": "80% Polyester, 20% Baumwolle",
     }
 
 

@@ -19,6 +19,7 @@ def make_product():
     variant = SimpleNamespace(
         color="beyaz",
         materials=["Wood", "Fabric"],
+        material_composition="",
         width_cm=Decimal("50.00"),
         height_cm=Decimal("90.00"),
         length_cm=Decimal("55.00"),
@@ -112,7 +113,7 @@ def test_hood_and_kaufland_use_listing_german_color():
     assert hood_color == "Weiß"
     assert kaufland_payload["color"] == "Weiß"
     assert kaufland_payload["material"] == "Holz"
-    assert kaufland_payload["material_composition"] == "Holz, Stoff"
+    assert "material_composition" not in kaufland_payload
     hood_material = next(
         item["value"]
         for item in hood_payload["product_properties"]
@@ -175,3 +176,43 @@ def test_hood_payload_uses_default_category_when_missing():
     )
 
     assert hood_payload["categoryID"] == "2412"
+
+
+def test_kaufland_sends_textile_composition_only_when_set():
+    product = make_product()
+    product.variants.get().material_composition = "100% Polyester"
+    payload = build_kaufland_create_payload(
+        product=product,
+        account="jv",
+        configuration={
+            "title": "Test sofa",
+            "description": "Detailed product description",
+            "price": "299.00",
+            "materials": ["Textil"],
+            "material_composition": "100% Polyester",
+            "color": "Weiß",
+        },
+    )
+    assert payload["material"] == "Textil"
+    assert payload["material_composition"] == "100% Polyester"
+    assert payload["parts_of_animal_origin"] == "No"
+
+
+def test_kaufland_marks_real_leather_as_animal_origin():
+    product = make_product()
+    product.variants.get().material_composition = "100% Leder"
+    payload = build_kaufland_create_payload(
+        product=product,
+        account="jv",
+        configuration={
+            "title": "Leather sofa",
+            "description": "Detailed product description",
+            "price": "299.00",
+            "materials": ["Leder"],
+            "material_composition": "100% Leder",
+            "color": "Schwarz",
+        },
+    )
+    assert payload["material"] == "Leder"
+    assert payload["material_composition"] == "100% Leder"
+    assert payload["parts_of_animal_origin"] == "Yes"
