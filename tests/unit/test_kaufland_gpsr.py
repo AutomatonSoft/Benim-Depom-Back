@@ -47,7 +47,7 @@ def test_kaufland_update_payload_includes_gpsr_fields():
     payload = build_kaufland_update_payload(
         product=make_product(),
         account="jv",
-        configuration={"title": "Updated chair"},
+        configuration={"title": "Updated chair", "price": "299.00"},
     )
     assert payload["manufacturer"] == ["AEA GmbH & Co. KG"]
     assert payload["product_safety_contact"]["name"] == "AEA GmbH & Co. KG"

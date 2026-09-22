@@ -28,6 +28,7 @@ def make_product():
     return SimpleNamespace(
         ean_jv="4071489789768",
         ean_xl="",
+        listing_price_eur_override=None,
         variants=SimpleNamespace(count=lambda: 1, get=lambda: variant),
         images=SimpleNamespace(
             all=lambda: [

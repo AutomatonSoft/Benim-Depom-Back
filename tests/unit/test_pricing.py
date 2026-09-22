@@ -89,9 +89,9 @@ def test_set_parts_add_their_volume_to_packed_cbm_and_listing_price(
         product=product,
         position=0,
         description="Nightstand",
-        width_cm="50.00",
-        height_cm="50.00",
-        length_cm="40.00",
+        width_cm="80.00",
+        height_cm="80.00",
+        length_cm="50.00",
     )
-    assert packed_cbm(product) == Decimal("0.3475")
+    assert packed_cbm(product) == Decimal("0.5675")
     assert listing_price_eur(product) > without_parts
