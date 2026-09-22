@@ -27,9 +27,12 @@ from .models import (
 )
 from .services import (
     MAX_PRODUCT_IMAGES,
+    build_pending_images_payload,
     create_product,
     create_product_with_images,
+    current_image_ids,
     update_product,
+    upload_product_image,
 )
 
 EXACTLY_ONE_VARIANT = (
@@ -730,13 +733,15 @@ class ProductSerializer(serializers.ModelSerializer):
                 )
 
             if self.instance.status not in {
+                Product.Status.DRAFT,
                 Product.Status.REJECTED,
                 Product.Status.WITHDRAWN,
             }:
                 raise serializers.ValidationError(
                     {
                         "resubmit_for_moderation": (
-                            "Only a rejected or withdrawn product can be resubmitted."
+                            "Only a draft, rejected or withdrawn product "
+                            "can be submitted for moderation."
                         )
                     }
                 )
@@ -1017,6 +1022,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 variants_data=variants_data,
                 set_parts_data=set_parts_data,
                 comment=change_comment,
+                images_payload=self.context.get("pending_image_ids"),
             )
 
         if (
@@ -1284,6 +1290,88 @@ class ProductMultipartCreateSerializer(ProductSerializer):
             image_files=image_files,
             set_parts_data=set_parts_data,
         )
+
+    def to_representation(self, instance):
+        return ProductSerializer(instance, context=self.context).data
+
+
+@extend_schema_serializer(component_name="ProductsMultipartUpdate")
+class ProductMultipartUpdateSerializer(ProductSerializer):
+    """Attach extra photos on PATCH, then save or submit the product."""
+
+    variants = MultipartJSONListField(
+        child=ProductVariantSerializer(),
+        required=False,
+        allow_empty=False,
+        min_length=1,
+        max_length=1,
+        help_text="JSON array with exactly one product variant. Omit to leave unchanged.",
+    )
+    set_parts = OptionalSetPartsMultipartField(
+        child=ProductSetPartSerializer(),
+        required=False,
+        allow_empty=True,
+        allow_null=True,
+        max_length=MAX_SET_PARTS,
+        default=list,
+        help_text="Optional JSON array of extra set pieces, at most 20.",
+    )
+    otto_attributes = MultipartJSONDictField(
+        required=False,
+        help_text="Optional JSON object with OTTO attribute values.",
+    )
+    images = MultipartImageListField(
+        child=serializers.ImageField(),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_PRODUCT_IMAGES,
+        write_only=True,
+        help_text="Optional extra photos to attach before saving or submitting.",
+    )
+
+    def validate_images(self, images):
+        if not images:
+            return []
+        image_validator = ProductImageUploadSerializer()
+        errors = {}
+        validated_images = []
+        for index, image in enumerate(images):
+            try:
+                validated_images.append(image_validator.validate_image(image))
+            except serializers.ValidationError as error:
+                errors[str(index)] = error.detail
+        if errors:
+            raise serializers.ValidationError(errors)
+        return validated_images
+
+    def update(self, instance, validated_data):
+        image_files = validated_data.pop("images", None) or []
+        request = self.context.get("request")
+        allow_after = bool(
+            request
+            and (is_manager(request.user) or instance.status == Product.Status.APPROVED)
+        )
+        had_images = instance.images.exists()
+        before_ids = current_image_ids(instance)
+        for index, image_file in enumerate(image_files):
+            upload_product_image(
+                product=instance,
+                image_file=image_file,
+                is_primary=not had_images and index == 0,
+                allow_after_approval=allow_after,
+            )
+        if image_files:
+            instance.refresh_from_db()
+            if (
+                request
+                and not is_manager(request.user)
+                and instance.status == Product.Status.APPROVED
+            ):
+                self.context["pending_image_ids"] = build_pending_images_payload(
+                    instance,
+                    before_ids=before_ids,
+                )
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         return ProductSerializer(instance, context=self.context).data
