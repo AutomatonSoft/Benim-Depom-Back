@@ -56,6 +56,16 @@ def test_preferred_language_endpoint_updates_profile(api_client, seller):
     )
     assert rejected.status_code == 400
 
+    english = api_client.patch(
+        "/api/v1/auth/me/language/",
+        {"language": "en-US"},
+        format="json",
+    )
+    assert english.status_code == 200, english.data
+    assert english.data["preferred_language"] == "en"
+    seller.refresh_from_db()
+    assert seller.preferred_language == "en"
+
 
 @pytest.mark.integration
 @pytest.mark.django_db
@@ -71,3 +81,32 @@ def test_seller_notifications_use_preferred_language(seller, product_factory):
     assert notification.title == "Ürün onayı"
     assert "Kreslo" in notification.body
     assert "approved" not in notification.body.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_english_notifications_use_en_copy_not_turkish(seller, product_factory):
+    seller.preferred_language = "en"
+    seller.save(update_fields=["preferred_language"])
+    product = product_factory(owner=seller, title="White sofa")
+    approved = create_notification(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_APPROVED,
+    )
+    rejected = create_notification(
+        user=seller,
+        product=product,
+        notification_type=Notification.Type.PRODUCT_REJECTED,
+    )
+    reminder_title, reminder_body = render_notification_copy(
+        key="product_availability_reminder",
+        language="en-US",
+        name="White sofa",
+    )
+    assert approved.title == "Product approval"
+    assert "approved" in approved.body.lower()
+    assert rejected.title == "Product rejected"
+    assert "Ürün" not in rejected.title
+    assert reminder_title == "Product availability"
+    assert "mevcut" not in reminder_body

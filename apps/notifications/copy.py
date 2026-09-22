@@ -296,10 +296,7 @@ _TYPE_KEYS = {
 
 
 def normalize_language(value: str | None) -> str:
-    language = (value or "").strip().casefold()
-    if language in SUPPORTED_LANGUAGES:
-        return language
-    return User.Language.RUSSIAN
+    return User.canonical_language(value) or User.Language.RUSSIAN
 
 
 def render_notification_copy(

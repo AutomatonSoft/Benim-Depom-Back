@@ -484,6 +484,46 @@ def test_seller_can_submit_a_draft_after_attaching_photos(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize("status", [Product.Status.REJECTED, Product.Status.WITHDRAWN])
+@pytest.mark.parametrize("image_field", ["images", "image"])
+def test_seller_can_replace_photos_then_resubmit_rejected_or_withdrawn(
+    api_client,
+    seller,
+    product_factory,
+    product_image_factory,
+    image_file,
+    status,
+    image_field,
+):
+    product = product_factory(owner=seller, status=status)
+    old = product_image_factory(product=product, is_primary=True)
+    authenticate(api_client, seller)
+
+    assert (
+        api_client.delete(f"/api/v1/products/{product.id}/images/{old.id}/").status_code
+        == 204
+    )
+    assert not ProductImage.objects.filter(product=product).exists()
+
+    payload = {"resubmit_for_moderation": True}
+    if image_field == "images":
+        payload["images"] = [image_file("replacement.png")]
+    else:
+        payload["image"] = image_file("replacement.png")
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        payload,
+        format="multipart",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == Product.Status.SUBMITTED
+    assert ProductImage.objects.filter(product=product).count() == 1
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_seller_can_delete_the_last_product_image(
     api_client, seller, product_factory, product_image_factory
 ):

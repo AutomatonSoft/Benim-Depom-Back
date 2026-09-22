@@ -13,7 +13,7 @@ from apps.orchestrator.job_services import (
     MarketplacePayloadBuildError,
     create_update_job_for_active_listings,
 )
-from apps.products.models import Product
+from apps.products.models import Product, ProductImage
 from apps.products.services import (
     apply_pending_seller_changes,
     discard_pending_seller_changes,
@@ -142,7 +142,7 @@ def submit_product_for_moderation(*, product: Product, comment: str = "") -> Pro
             {"variants": "The product must contain at least one variant."}
         )
 
-    if not product.images.exists():
+    if not ProductImage.objects.filter(product_id=product.pk).exists():
         raise ValidationError(
             {"images": "The product must contain at least one image."}
         )
