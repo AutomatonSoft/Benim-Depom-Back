@@ -119,6 +119,12 @@ MEDIA_ROOT = BASE_DIR / "media"
 CONTACT_JSON_PATH = Path(
     env("CONTACT_JSON_PATH", default=str(BASE_DIR / "data" / "contact.json"))
 )
+KAUFLAND_GPSR_JSON_PATH = Path(
+    env(
+        "KAUFLAND_GPSR_JSON_PATH",
+        default=str(BASE_DIR / "data" / "kaufland_gpsr.json"),
+    )
+)
 
 FTP_MEDIA_HOST = env("FTP_MEDIA_HOST")
 FTP_MEDIA_PORT = env.int("FTP_MEDIA_PORT", default=21)

@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from apps.marketplace.set_listing import iter_set_parts
 
 SET_LISTING_IMAGE_MODES = ("white", "interior", "human")
-_MAX_REFERENCE_IMAGES = 10
+_MAX_REFERENCE_IMAGES = 20
 _MAX_REFERENCE_EDGE = 1600
 
 _SCENE_INSTRUCTIONS = {

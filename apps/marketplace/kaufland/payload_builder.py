@@ -5,8 +5,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from apps.marketplace.colors import listing_color
+from apps.marketplace.kaufland.gpsr import gpsr_payload_for_account
 from apps.marketplace.listing_title import with_listing_brand_mark
-from apps.marketplace.materials import listing_materials
+from apps.marketplace.materials import listing_material_composition, listing_materials
 from apps.products.listing_images import (
     MISSING_LISTING_IMAGES,
     public_generated_listing_urls,
@@ -83,6 +84,16 @@ def _format_number(value: Decimal) -> str:
         result = result.rstrip("0").rstrip(".")
 
     return result
+
+
+def _parts_of_animal_origin(material: str) -> str | None:
+    """Kaufland GPSR flag for leather vs textile upholstery."""
+    token = material.casefold()
+    if token in {"leder", "echtleder"}:
+        return "Yes"
+    if token in {"kunstleder", "textil"}:
+        return "No"
+    return None
 
 
 def _get_single_variant(product, errors: dict[str, str]):
@@ -165,6 +176,7 @@ def build_kaufland_create_payload(
 
     materials: list[str] = []
     color = ""
+    composition = ""
     if variant is not None:
         color, color_error = listing_color(
             configuration=configuration,
@@ -178,6 +190,19 @@ def build_kaufland_create_payload(
         )
         if material_error:
             errors["material"] = material_error
+        composition, composition_error = listing_material_composition(
+            configuration=configuration,
+            variant_composition=getattr(variant, "material_composition", ""),
+        )
+        if composition_error:
+            errors["material_composition"] = composition_error
+
+    gpsr = gpsr_payload_for_account(account) if account in {"jv", "xl"} else None
+    if account in {"jv", "xl"} and gpsr is None:
+        errors["product_safety_contact"] = (
+            "Kaufland GPSR contact is missing for this account. "
+            "Set name, EU address, phone and email in kaufland_gpsr.json."
+        )
 
     if errors:
         raise KauflandPayloadValidationError(errors)
@@ -185,8 +210,7 @@ def build_kaufland_create_payload(
     # The Kaufland API accepts one material. Remaining listing materials stay
     # on Hood, OTTO configuration and the manager listing form.
     primary_material = materials[0]
-
-    return {
+    payload = {
         "ean": ean,
         "controller": account,
         "title": title,
@@ -200,7 +224,6 @@ def build_kaufland_create_payload(
         ),
         "color": color,
         "material": primary_material,
-        "material_composition": ", ".join(materials),
         "delivery": delivery,
         "height": float(variant.height_cm),
         "length": float(variant.length_cm),
@@ -208,7 +231,14 @@ def build_kaufland_create_payload(
         "amount": variant.quantity,
         "id_offer": str(configuration.get("id_offer") or ean).strip(),
         "storefronts": cleaned_storefronts,
+        **gpsr,
     }
+    if composition:
+        payload["material_composition"] = composition
+    origin = _parts_of_animal_origin(primary_material)
+    if origin:
+        payload["parts_of_animal_origin"] = origin
+    return payload
 
 
 def build_kaufland_update_payload(
@@ -252,6 +282,14 @@ def build_kaufland_update_payload(
 
     if variant is not None:
         payload["amount"] = int(variant.quantity)
+        listing_composition, composition_error = listing_material_composition(
+            configuration=configuration,
+            variant_composition=getattr(variant, "material_composition", ""),
+        )
+        if composition_error:
+            errors["material_composition"] = composition_error
+        elif listing_composition:
+            payload["material_composition"] = listing_composition
 
     title = str(configuration.get("title", "")).strip()
     if title:
@@ -277,6 +315,15 @@ def build_kaufland_update_payload(
     unit_id = str(configuration.get("unit_id", "")).strip()
     if unit_id:
         payload["unit_id"] = unit_id
+
+    gpsr = gpsr_payload_for_account(account) if account in {"jv", "xl"} else None
+    if account in {"jv", "xl"} and gpsr is None:
+        errors["product_safety_contact"] = (
+            "Kaufland GPSR contact is missing for this account. "
+            "Set name, EU address, phone and email in kaufland_gpsr.json."
+        )
+    elif gpsr is not None:
+        payload.update(gpsr)
 
     if errors:
         raise KauflandPayloadValidationError(errors)

@@ -25,7 +25,12 @@ from .models import (
     ProductSetPart,
     ProductVariant,
 )
-from .services import create_product, create_product_with_images, update_product
+from .services import (
+    MAX_PRODUCT_IMAGES,
+    create_product,
+    create_product_with_images,
+    update_product,
+)
 
 EXACTLY_ONE_VARIANT = (
     "A product must contain exactly one variant. "
@@ -171,6 +176,17 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "material and is sent to Kaufland."
         ),
     )
+    material_composition = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        trim_whitespace=True,
+        default="",
+        help_text=(
+            "Optional textile composition for Kaufland, for example "
+            "100% Polyester. Omit for wood/metal/glass furniture."
+        ),
+    )
 
     class Meta:
         model = ProductVariant
@@ -178,6 +194,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "id",
             "color",
             "materials",
+            "material_composition",
             "width_cm",
             "height_cm",
             "length_cm",
@@ -203,6 +220,16 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             )
 
         return normalized
+
+    def validate_material_composition(self, value):
+        composition = (value or "").strip()
+        if not composition:
+            return ""
+        if "%" not in composition:
+            raise serializers.ValidationError(
+                "Enter a percentage composition, for example 100% Polyester."
+            )
+        return composition
 
 
 @extend_schema_serializer(component_name="ProductsSetPart")
@@ -370,7 +397,10 @@ class ProductSerializer(serializers.ModelSerializer):
     set_parts = ProductSetPartSerializer(
         many=True,
         required=False,
+        allow_empty=True,
+        allow_null=True,
         max_length=MAX_SET_PARTS,
+        default=list,
         help_text=(
             "Optional extra set pieces, at most 20. Empty means a normal product."
         ),
@@ -1126,10 +1156,19 @@ class MultipartJSONListField(serializers.ListField):
 
     def to_internal_value(self, data):
         if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except json.JSONDecodeError as error:
-                raise serializers.ValidationError("Expected a JSON array.") from error
+            data = data.strip()
+            if not data:
+                data = []
+            else:
+                try:
+                    data = json.loads(data)
+                except json.JSONDecodeError as error:
+                    raise serializers.ValidationError(
+                        "Expected a JSON array."
+                    ) from error
+
+        if data is None:
+            data = []
 
         return super().to_internal_value(data)
 
@@ -1151,6 +1190,22 @@ class MultipartJSONDictField(serializers.DictField):
                 raise serializers.ValidationError("Expected a JSON object.") from error
 
         return super().to_internal_value(data)
+
+
+@extend_schema_field(
+    {
+        "type": "string",
+        "format": "json",
+        "description": (
+            "Optional JSON array of extra set pieces, at most 20. "
+            "Leave empty or send []. Do not add a dummy item."
+        ),
+        "example": "[]",
+        "default": "[]",
+    }
+)
+class OptionalSetPartsMultipartField(MultipartJSONListField):
+    """Swagger shows one optional JSON field instead of required nested rows."""
 
 
 class MultipartImageListField(serializers.ListField):
@@ -1178,11 +1233,13 @@ class ProductMultipartCreateSerializer(ProductSerializer):
         max_length=1,
         help_text="JSON array with exactly one product variant.",
     )
-    set_parts = MultipartJSONListField(
+    set_parts = OptionalSetPartsMultipartField(
         child=ProductSetPartSerializer(),
         required=False,
         allow_empty=True,
+        allow_null=True,
         max_length=MAX_SET_PARTS,
+        default=list,
         help_text="Optional JSON array of extra set pieces, at most 20.",
     )
     otto_attributes = MultipartJSONDictField(
@@ -1193,9 +1250,9 @@ class ProductMultipartCreateSerializer(ProductSerializer):
     images = MultipartImageListField(
         child=serializers.ImageField(),
         min_length=1,
-        max_length=10,
+        max_length=MAX_PRODUCT_IMAGES,
         write_only=True,
-        help_text="One to ten image files. The first image becomes primary.",
+        help_text="One to twenty image files. The first image becomes primary.",
     )
 
     def validate_images(self, images):
