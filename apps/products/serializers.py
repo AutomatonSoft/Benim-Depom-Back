@@ -1009,6 +1009,45 @@ class ProductSerializer(serializers.ModelSerializer):
         )
         change_comment = validated_data.pop("change_comment", None)
         request = self.context.get("request")
+        image_files = [
+            item
+            for item in (validated_data.pop("images", None) or [])
+            if item not in (None, "")
+        ]
+        if not image_files:
+            image_files = collect_multipart_image_files(
+                getattr(request, "FILES", None)
+            ) or collect_multipart_image_files(getattr(request, "data", None))
+        if image_files:
+            allow_after = bool(
+                request
+                and (
+                    is_manager(request.user)
+                    or instance.status == Product.Status.APPROVED
+                )
+            )
+            had_images = ProductImage.objects.filter(product=instance).exists()
+            before_ids = current_image_ids(instance)
+            for index, image_file in enumerate(image_files):
+                upload_product_image(
+                    product=instance,
+                    image_file=image_file,
+                    is_primary=not had_images and index == 0,
+                    allow_after_approval=allow_after,
+                )
+            instance.refresh_from_db()
+            prefetched = getattr(instance, "_prefetched_objects_cache", None)
+            if prefetched is not None:
+                prefetched.pop("images", None)
+            if (
+                request
+                and not is_manager(request.user)
+                and instance.status == Product.Status.APPROVED
+            ):
+                self.context["pending_image_ids"] = build_pending_images_payload(
+                    instance,
+                    before_ids=before_ids,
+                )
         if (
             instance.status == Product.Status.APPROVED
             and request
@@ -1214,16 +1253,32 @@ class OptionalSetPartsMultipartField(MultipartJSONListField):
     """Swagger shows one optional JSON field instead of required nested rows."""
 
 
+def collect_multipart_image_files(source) -> list:
+    """Pick photo files from ``images``, ``images[]`` or singular ``image``."""
+    if source is None or not hasattr(source, "getlist"):
+        return []
+
+    collected = []
+    seen = set()
+    for key in ("images", "images[]", "image"):
+        for item in source.getlist(key):
+            if item in (None, "") or not hasattr(item, "read"):
+                continue
+            marker = id(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            collected.append(item)
+    return collected
+
+
 class MultipartImageListField(serializers.ListField):
-    """Read repeated ``images`` fields from Django's multipart QueryDict."""
+    """Read repeated ``images`` / ``image`` fields from Django's multipart QueryDict."""
 
     def get_value(self, dictionary):
-        if hasattr(dictionary, "getlist"):
-            values = dictionary.getlist(self.field_name) or dictionary.getlist(
-                f"{self.field_name}[]"
-            )
-            if values:
-                return values
+        values = collect_multipart_image_files(dictionary)
+        if values:
+            return values
 
         return super().get_value(dictionary)
 
@@ -1330,6 +1385,7 @@ class ProductMultipartUpdateSerializer(ProductSerializer):
     )
 
     def validate_images(self, images):
+        images = [item for item in (images or []) if item not in (None, "")]
         if not images:
             return []
         image_validator = ProductImageUploadSerializer()
@@ -1343,35 +1399,6 @@ class ProductMultipartUpdateSerializer(ProductSerializer):
         if errors:
             raise serializers.ValidationError(errors)
         return validated_images
-
-    def update(self, instance, validated_data):
-        image_files = validated_data.pop("images", None) or []
-        request = self.context.get("request")
-        allow_after = bool(
-            request
-            and (is_manager(request.user) or instance.status == Product.Status.APPROVED)
-        )
-        had_images = instance.images.exists()
-        before_ids = current_image_ids(instance)
-        for index, image_file in enumerate(image_files):
-            upload_product_image(
-                product=instance,
-                image_file=image_file,
-                is_primary=not had_images and index == 0,
-                allow_after_approval=allow_after,
-            )
-        if image_files:
-            instance.refresh_from_db()
-            if (
-                request
-                and not is_manager(request.user)
-                and instance.status == Product.Status.APPROVED
-            ):
-                self.context["pending_image_ids"] = build_pending_images_payload(
-                    instance,
-                    before_ids=before_ids,
-                )
-        return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         return ProductSerializer(instance, context=self.context).data

@@ -85,3 +85,17 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.username
+
+    @classmethod
+    def canonical_language(cls, value: str | None) -> str | None:
+        """Map en-US / en_GB / TR to ru, en, de, or tr. Unknown values stay None."""
+        language = (value or "").strip().casefold().replace("_", "-")
+        if not language:
+            return None
+        supported = frozenset(cls.Language.values)
+        if language in supported:
+            return language
+        primary = language.split("-", 1)[0]
+        if primary in supported:
+            return primary
+        return None
