@@ -19,6 +19,7 @@ def test_content_request_forbids_source_language_in_customer_text():
     assert "write only in german" in instructions
     assert "never copy russian" in instructions
     assert "translate each seller material" in instructions
+    assert "material_composition" in request.instructions.lower()
     assert "translate the seller colour" in instructions
     assert "materials_de" not in instructions
     assert "claims not present in product data;\n" in request.instructions
@@ -35,6 +36,7 @@ def test_product_snapshot_keeps_seller_materials(product_factory, seller):
     variant = snapshot["variants"][0]
     assert variant["materials"] == ["хлопок", "Wood"]
     assert variant["color"] == "beyaz"
+    assert variant["material_composition"] == ""
     assert "color_hex" not in variant
     assert "color_name_de" not in variant
 
@@ -105,3 +107,54 @@ def test_rejects_ai_draft_without_translated_color():
                 "variants": [{"color": "beyaz", "materials": ["Wood", "Fabric"]}],
             },
         )
+
+
+@pytest.mark.unit
+def test_rejects_ai_draft_without_translated_composition():
+    with pytest.raises(GeneratedContentValidationError, match="material composition"):
+        validate_universal_content(
+            {
+                "title": "Stoffsofa",
+                "description": (
+                    "Ein bequemes Sofa mit Stoffbezug.\n\n"
+                    "Die Maße betragen 220 × 90 × 85 cm."
+                ),
+                "bullet_points": ["Stoffbezug", "Holzgestell", "Farbe: Grau"],
+                "materials": ["Textil"],
+                "color": "Grau",
+            },
+            product_snapshot={
+                "variants": [
+                    {
+                        "materials": ["ткань"],
+                        "material_composition": "80% полиэстер, 20% хлопок",
+                    }
+                ],
+            },
+        )
+
+
+@pytest.mark.unit
+def test_accepts_german_composition_with_percentages():
+    content = validate_universal_content(
+        {
+            "title": "Stoffsofa",
+            "description": (
+                "Ein bequemes Sofa mit Stoffbezug.\n\n"
+                "Die Maße betragen 220 × 90 × 85 cm."
+            ),
+            "bullet_points": ["Stoffbezug", "Holzgestell", "Farbe: Grau"],
+            "materials": ["Textil"],
+            "color": "Grau",
+            "material_composition": "80% Polyester, 20% Baumwolle",
+        },
+        product_snapshot={
+            "variants": [
+                {
+                    "materials": ["ткань"],
+                    "material_composition": "80% полиэстер, 20% хлопок",
+                }
+            ],
+        },
+    )
+    assert content["material_composition"] == "80% Polyester, 20% Baumwolle"

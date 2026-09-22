@@ -19,6 +19,8 @@ from .models import (
     ProductVariant,
 )
 
+MAX_PRODUCT_IMAGES = 20
+
 
 def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
@@ -223,6 +225,7 @@ def _current_variants_payload(product: Product) -> list[dict[str, Any]]:
         {
             "color": variant.color,
             "materials": list(variant.materials or []),
+            "material_composition": str(variant.material_composition or "").strip(),
             "width_cm": variant.width_cm,
             "height_cm": variant.height_cm,
             "length_cm": variant.length_cm,
@@ -299,6 +302,7 @@ def _normalize_variants_payload(
         {
             "color": item.get("color"),
             "materials": list(item.get("materials") or []),
+            "material_composition": str(item.get("material_composition") or "").strip(),
             "width_cm": item.get("width_cm"),
             "height_cm": item.get("height_cm"),
             "length_cm": item.get("length_cm"),
@@ -558,8 +562,10 @@ def upload_product_image(
         product=locked_product
     )
 
-    if images_queryset.count() >= 10:
-        raise ValidationError({"image": "A product cannot have more than 10 images"})
+    if images_queryset.count() >= MAX_PRODUCT_IMAGES:
+        raise ValidationError(
+            {"image": f"A product cannot have more than {MAX_PRODUCT_IMAGES} images"}
+        )
 
     max_position = images_queryset.aggregate(max_position=Max("position"))[
         "max_position"

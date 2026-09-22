@@ -15,19 +15,25 @@ class FxRate(NamedTuple):
     eur_to_try: Decimal
 
 
+def _box_cbm(width, height, length) -> Decimal:
+    """Convert one packed box in centimetres to cubic metres."""
+    return (
+        Decimal(str(width)) * Decimal(str(height)) * Decimal(str(length))
+    ) / CM3_PER_M3
+
+
 def packed_cbm(product: Product) -> Decimal:
+    """Main variant CBM plus every extra set piece. Colors are alternatives."""
     volumes = [
-        (
-            Decimal(str(variant.width_cm))
-            * Decimal(str(variant.height_cm))
-            * Decimal(str(variant.length_cm))
-        )
-        / CM3_PER_M3
+        _box_cbm(variant.width_cm, variant.height_cm, variant.length_cm)
         for variant in product.variants.all()
     ]
     if not volumes:
         raise ValueError("Product has no variants to compute CBM.")
-    return max(volumes)
+    total = max(volumes)
+    for part in product.set_parts.all():
+        total += _box_cbm(part.width_cm, part.height_cm, part.length_cm)
+    return total
 
 
 def percent_factor(catalog: dict) -> Decimal:
