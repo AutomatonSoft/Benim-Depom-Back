@@ -525,3 +525,51 @@ def test_later_seller_edit_still_notifies_managers(
         ).count()
         == first_count + 1
     )
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_image_edit_on_approved_product_is_pending_until_manager_approves(
+    api_client,
+    seller,
+    manager,
+    product_factory,
+    product_image_factory,
+    image_file,
+    django_capture_on_commit_callbacks,
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    product_image_factory(product=product, is_primary=True)
+    authenticate(api_client, seller)
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/",
+        {"image": image_file(), "is_primary": False},
+        format="multipart",
+    )
+    assert response.status_code == 201
+    product.refresh_from_db()
+    assert product.images.count() == 2
+    assert "images" in product.pending_changes
+    assert "image_ids" in product.pending_changes["images"]
+    assert "added_ids" in product.pending_changes["images"]
+    revision = product.catalog_revision
+    assert Notification.objects.filter(
+        notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
+        product=product,
+        user=manager,
+    ).exists()
+
+    authenticate(api_client, manager)
+    with (
+        patch("apps.moderation.views.execute_marketplace_job.delay"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        approved = api_client.post(
+            f"/api/v1/manager/products/{product.id}/seller-changes/approve/",
+            {"expected_catalog_revision": revision},
+            format="json",
+        )
+    assert approved.status_code == 200
+    product.refresh_from_db()
+    assert product.pending_changes == {}
+    assert product.images.count() == 2

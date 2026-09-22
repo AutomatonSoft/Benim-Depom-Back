@@ -266,13 +266,20 @@ def test_product_image_operations_and_edit_lock(
 
     product.status = Product.Status.APPROVED
     product.save(update_fields=["status"])
+    response = api_client.post(
+        f"/api/v1/products/{product.id}/images/",
+        {"image": image_file()},
+        format="multipart",
+    )
+    assert response.status_code == 201
+    product.refresh_from_db()
+    assert "images" in product.pending_changes
+    assert product.pending_changes["images"]["added_ids"]
     assert (
-        api_client.post(
-            f"/api/v1/products/{product.id}/images/",
-            {"image": image_file()},
-            format="multipart",
+        api_client.delete(
+            f"/api/v1/products/{product.id}/images/{first.id}/"
         ).status_code
-        == 404
+        == 204
     )
 
 
@@ -429,3 +436,61 @@ def test_seller_confirms_availability_only_for_approved_product(
     assert confirmation["product_id"] == product.id
     assert confirmation["product_title"] == product.title
     assert "нет в наличии" in confirmation["body"]
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_can_attach_photos_on_patch_and_submit_for_moderation(
+    api_client, seller, product_factory, image_file
+):
+    product = product_factory(owner=seller, status=Product.Status.REJECTED)
+    authenticate(api_client, seller)
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "resubmit_for_moderation": True,
+            "images": [image_file()],
+        },
+        format="multipart",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == Product.Status.SUBMITTED
+    assert ProductImage.objects.filter(product=product).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_can_submit_a_draft_after_attaching_photos(
+    api_client, seller, product_factory, image_file
+):
+    product = product_factory(owner=seller, status=Product.Status.DRAFT)
+    authenticate(api_client, seller)
+
+    response = api_client.patch(
+        f"/api/v1/products/{product.id}/",
+        {
+            "resubmit_for_moderation": True,
+            "images": [image_file()],
+        },
+        format="multipart",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == Product.Status.SUBMITTED
+    assert ProductImage.objects.filter(product=product).count() == 1
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_cannot_delete_the_last_product_image(
+    api_client, seller, product_factory, product_image_factory
+):
+    product = product_factory(owner=seller)
+    image = product_image_factory(product=product, is_primary=True)
+    authenticate(api_client, seller)
+    response = api_client.delete(f"/api/v1/products/{product.id}/images/{image.id}/")
+    assert response.status_code == 400
+    assert "images" in response.data
+    assert ProductImage.objects.filter(product=product, pk=image.id).exists()

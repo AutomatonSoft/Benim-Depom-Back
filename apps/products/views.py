@@ -40,14 +40,17 @@ from .serializers import (
     ProductImageSerializer,
     ProductImageUploadSerializer,
     ProductMultipartCreateSerializer,
+    ProductMultipartUpdateSerializer,
     ProductSerializer,
     SellerSalesStatsSerializer,
 )
 from .services import (
     confirm_product_availability,
+    current_image_ids,
     delete_generated_product_image,
     delete_product_image,
     make_product_image_primary,
+    record_seller_image_pending_changes,
     reorder_product_images,
     request_product_deactivation,
     request_product_image_processing,
@@ -84,8 +87,29 @@ def get_editable_product_for_user(*, user, product_id: int) -> Product:
                 Product.Status.SUBMITTED,
                 Product.Status.REJECTED,
                 Product.Status.WITHDRAWN,
+                Product.Status.APPROVED,
             ),
         )
+    )
+
+
+def _allow_after_approval_for_images(user, product) -> bool:
+    return is_manager(user) or product.status == Product.Status.APPROVED
+
+
+def _queue_seller_image_change_if_needed(
+    user,
+    product,
+    *,
+    before_ids: list[int] | None = None,
+    removed: dict | None = None,
+) -> None:
+    if is_manager(user) or product.status != Product.Status.APPROVED:
+        return
+    record_seller_image_pending_changes(
+        product,
+        before_ids=before_ids,
+        removed=removed,
     )
 
 
@@ -290,6 +314,31 @@ class ProductDetailView(
     http_method_names = ["get", "patch", "delete", "head", "options"]
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, CanAccessProduct]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_serializer_class(self):
+        content_type = self.request.content_type or ""
+        if self.request.method == "PATCH" and content_type.startswith(
+            "multipart/form-data"
+        ):
+            return ProductMultipartUpdateSerializer
+        return super().get_serializer_class()
+
+    @extend_schema(
+        request={
+            "multipart/form-data": ProductMultipartUpdateSerializer,
+            "application/json": ProductSerializer,
+        },
+        responses={200: ProductSerializer},
+        description=(
+            "Updates a product. JSON is enough for text fields. "
+            "To add photos, send multipart/form-data and attach files in "
+            "`images`. Extra photos can also be posted to "
+            "`/api/v1/products/{id}/images/`."
+        ),
+    )
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
 
     def get_queryset(self):
         queryset = Product.objects.select_related("owner").prefetch_related(
@@ -372,11 +421,17 @@ class ProductImageUploadView(ManagerMutationThrottleMixin, APIView):
         serializer = ProductImageUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        before_ids = current_image_ids(product)
         image = upload_product_image(
             product=product,
             image_file=serializer.validated_data["image"],
             is_primary=serializer.validated_data["is_primary"],
-            allow_after_approval=is_manager(request.user),
+            allow_after_approval=_allow_after_approval_for_images(
+                request.user, product
+            ),
+        )
+        _queue_seller_image_change_if_needed(
+            request.user, product, before_ids=before_ids
         )
 
         return Response(
@@ -400,10 +455,33 @@ class ProductImageDeleteView(ManagerMutationThrottleMixin, APIView):
             product=product,
         )
 
+        before_ids = current_image_ids(product)
+        removed = None
+        if image.image:
+            url = image.image.url
+            if not url.startswith("http"):
+                url = request.build_absolute_uri(url)
+            removed = {
+                "id": image.id,
+                "url": url,
+                "is_primary": image.is_primary,
+            }
+        keep_files = (
+            not is_manager(request.user) and product.status == Product.Status.APPROVED
+        )
         delete_product_image(
             product=product,
             image=image,
-            allow_after_approval=is_manager(request.user),
+            allow_after_approval=_allow_after_approval_for_images(
+                request.user, product
+            ),
+            keep_files=keep_files,
+        )
+        _queue_seller_image_change_if_needed(
+            request.user,
+            product,
+            before_ids=before_ids,
+            removed=removed,
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -447,10 +525,16 @@ class ProductImagePrimaryView(ManagerMutationThrottleMixin, APIView):
             product=product,
         )
 
+        before_ids = current_image_ids(product)
         image = make_product_image_primary(
             product=product,
             image=image,
-            allow_after_approval=is_manager(request.user),
+            allow_after_approval=_allow_after_approval_for_images(
+                request.user, product
+            ),
+        )
+        _queue_seller_image_change_if_needed(
+            request.user, product, before_ids=before_ids
         )
 
         return Response(
@@ -471,10 +555,16 @@ class ProductImageReorderView(ManagerMutationThrottleMixin, APIView):
         serializer = ProductImageReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        before_ids = current_image_ids(product)
         reorder_product_images(
             product=product,
             image_ids=serializer.validated_data["image_ids"],
-            allow_after_approval=is_manager(request.user),
+            allow_after_approval=_allow_after_approval_for_images(
+                request.user, product
+            ),
+        )
+        _queue_seller_image_change_if_needed(
+            request.user, product, before_ids=before_ids
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -599,7 +689,7 @@ class ProductImageProcessView(ManagerMutationThrottleMixin, APIView):
 
 
 class ProductDeactivateView(APIView):
-    """Seller submits a deactivation request; a manager confirms it later."""
+    """Seller requests deactivation: product status changes, listings stay live."""
 
     permission_classes = [IsAuthenticated, IsSeller]
 

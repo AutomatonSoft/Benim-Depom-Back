@@ -130,3 +130,16 @@ def test_image_reorder_rejects_duplicate_ids():
 
     assert serializer.is_valid() is False
     assert "image_ids" in serializer.errors
+
+
+@pytest.mark.unit
+def test_openapi_patch_product_includes_multipart_images():
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    patch = schema["paths"]["/api/v1/products/{id}/"]["patch"]
+    content = patch["requestBody"]["content"]
+    assert "multipart/form-data" in content
+    ref = content["multipart/form-data"]["schema"]["$ref"]
+    name = ref.rsplit("/", 1)[-1]
+    assert "images" in schema["components"]["schemas"][name]["properties"]
