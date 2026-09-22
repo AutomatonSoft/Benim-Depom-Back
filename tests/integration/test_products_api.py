@@ -484,13 +484,12 @@ def test_seller_can_submit_a_draft_after_attaching_photos(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_seller_cannot_delete_the_last_product_image(
+def test_seller_can_delete_the_last_product_image(
     api_client, seller, product_factory, product_image_factory
 ):
     product = product_factory(owner=seller)
     image = product_image_factory(product=product, is_primary=True)
     authenticate(api_client, seller)
     response = api_client.delete(f"/api/v1/products/{product.id}/images/{image.id}/")
-    assert response.status_code == 400
-    assert "images" in response.data
-    assert ProductImage.objects.filter(product=product, pk=image.id).exists()
+    assert response.status_code == 204
+    assert not ProductImage.objects.filter(product=product).exists()
