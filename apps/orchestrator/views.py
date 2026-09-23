@@ -3,6 +3,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -418,9 +419,16 @@ class MarketplaceJobDetailView(APIView):
         return Response(MarketplaceJobSerializer(job).data)
 
 
+class MarketplaceListPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class MarketplaceJobListView(generics.ListAPIView):
     permission_classes = (IsAuthenticated, IsManager)
     serializer_class = MarketplaceJobSerializer
+    pagination_class = MarketplaceListPagination
 
     @extend_schema(
         parameters=[MarketplaceJobFilterSerializer],
@@ -507,6 +515,7 @@ class MarketplacePublicationListView(generics.ListAPIView):
 
     permission_classes = (IsAuthenticated, IsManager)
     serializer_class = MarketplacePublicationSerializer
+    pagination_class = MarketplaceListPagination
 
     @extend_schema(
         parameters=[MarketplacePublicationFilterSerializer],

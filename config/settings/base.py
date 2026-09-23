@@ -505,7 +505,7 @@ KAUFLAND_STATUS_POLL_INTERVAL_SECONDS = env.int(
 )
 KAUFLAND_STATUS_MAX_POLL_ATTEMPTS = env.int(
     "KAUFLAND_STATUS_MAX_POLL_ATTEMPTS",
-    default=90,
+    default=30,
 )
 
 OTTO_API_BASE_URL = env(
@@ -585,7 +585,7 @@ OTTO_API_MARKETPLACE_STATUS_ENDPOINT = env(
     ),
 )
 
-# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 8 часов.
+# Проверяем реальную публикацию OTTO раз в 5 минут, максимум 1 час.
 OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
     "OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS",
     default=300,
@@ -593,7 +593,7 @@ OTTO_MARKETPLACE_STATUS_POLL_INTERVAL_SECONDS = env.int(
 
 OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS = env.int(
     "OTTO_MARKETPLACE_STATUS_MAX_POLL_ATTEMPTS",
-    default=96,
+    default=12,
 )
 
 PRODUCT_AVAILABILITY_REMINDER_DAYS = env.int(
