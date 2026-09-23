@@ -1,14 +1,19 @@
+from datetime import timedelta
+from urllib.parse import urlsplit
+
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.exceptions import APIException
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.common.permissions import IsManager, IsSeller
 from apps.common.throttles import (
@@ -156,10 +161,107 @@ class EmailVerificationResendView(APIView):
         )
 
 
+REFRESH_COOKIE_NAME = "benim_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth/"
+
+
+def _set_refresh_cookie(response, token):
+    lifetime = settings.SIMPLE_JWT.get("REFRESH_TOKEN_LIFETIME", timedelta(days=7))
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        token,
+        max_age=int(lifetime.total_seconds()),
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="Lax",
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response):
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        samesite="Lax",
+    )
+
+
+def _is_same_origin(request):
+    origin = request.headers.get("Origin")
+    if not origin:
+        return False
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    expected_scheme = "https" if request.is_secure() else "http"
+    same_host = (
+        parsed.scheme == expected_scheme
+        and parsed.netloc.lower() == request.get_host().lower()
+    )
+    trusted_origins = set(settings.CSRF_TRUSTED_ORIGINS)
+    return same_host or origin in trusted_origins
+
+
 class LoginView(TokenObtainPairView):
     serializer_class = EmailTokenObtainPairSerializer
     throttle_classes = [LoginRateThrottle]
     permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        cookie_mode = request.headers.get("X-Refresh-Token-Cookie")
+        if cookie_mode in {"seller", "manager"} and response.status_code < 400:
+            _clear_refresh_cookie(response)
+            refresh = response.data.pop("refresh", None)
+            if refresh:
+                token = RefreshToken(refresh)
+                user_id = token[settings.SIMPLE_JWT.get("USER_ID_CLAIM", "user_id")]
+                role = (
+                    User.objects.filter(pk=user_id)
+                    .values_list("role", flat=True)
+                    .first()
+                )
+                allowed_roles = (
+                    {User.Role.SELLER}
+                    if cookie_mode == "seller"
+                    else {User.Role.MANAGER, User.Role.ADMIN}
+                )
+                if role in allowed_roles:
+                    _set_refresh_cookie(response, refresh)
+            response["Cache-Control"] = "no-store"
+        return response
+
+
+class RefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if not refresh:
+            return super().post(request, *args, **kwargs)
+
+        if not _is_same_origin(request):
+            response = Response(
+                {"detail": "Refresh requests must come from this site."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+            _clear_refresh_cookie(response)
+            return response
+
+        serializer = self.get_serializer(data={"refresh": refresh})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except APIException as exc:
+            response = self.handle_exception(exc)
+            _clear_refresh_cookie(response)
+            return response
+
+        data = dict(serializer.validated_data)
+        rotated_refresh = data.pop("refresh", None)
+        response = Response(data, status=status.HTTP_200_OK)
+        if rotated_refresh:
+            _set_refresh_cookie(response, rotated_refresh)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
@@ -367,11 +469,22 @@ class LogoutView(APIView):
         responses={204: None},
     )
     def post(self, request):
-        serializer = LogoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        refresh = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        logout_data = {"refresh": refresh} if refresh else request.data
+        if logout_data.get("refresh"):
+            serializer = LogoutSerializer(data=logout_data)
+            try:
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+            except APIException as exc:
+                response = self.handle_exception(exc)
+                _clear_refresh_cookie(response)
+                return response
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        _clear_refresh_cookie(response)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class PasswordChangeView(APIView):
