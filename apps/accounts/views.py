@@ -3,6 +3,7 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -177,11 +178,18 @@ class ManagerCreateView(ManagerMutationThrottleMixin, generics.CreateAPIView):
         )
 
 
+class ManagerDirectoryPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class ManagerSellerListView(generics.ListAPIView):
     """Paginated seller directory for managers."""
 
     serializer_class = ManagerSellerSerializer
     permission_classes = [IsManager]
+    pagination_class = ManagerDirectoryPagination
 
     def get_queryset(self):
         queryset = (
@@ -226,6 +234,7 @@ class ManagerStaffListView(generics.ListAPIView):
 
     serializer_class = ProfileSerializer
     permission_classes = [IsManager]
+    pagination_class = ManagerDirectoryPagination
 
     def get_queryset(self):
         queryset = User.objects.filter(
