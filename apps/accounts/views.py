@@ -216,9 +216,7 @@ class LoginView(TokenObtainPairView):
             refresh = response.data.pop("refresh", None)
             if refresh:
                 token = RefreshToken(refresh)
-                user_id = token[
-                    settings.SIMPLE_JWT.get("USER_ID_CLAIM", "user_id")
-                ]
+                user_id = token[settings.SIMPLE_JWT.get("USER_ID_CLAIM", "user_id")]
                 role = (
                     User.objects.filter(pk=user_id)
                     .values_list("role", flat=True)

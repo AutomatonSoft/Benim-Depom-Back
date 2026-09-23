@@ -1,4 +1,5 @@
 from django.urls import path
+
 from .views import (
     EmailVerificationResendView,
     EmailVerificationView,
@@ -10,8 +11,8 @@ from .views import (
     PasswordResetRequestView,
     PasswordResetVerifyView,
     PreferredLanguageView,
-    RegisterView,
     RefreshView,
+    RegisterView,
 )
 
 app_name = "accounts"
