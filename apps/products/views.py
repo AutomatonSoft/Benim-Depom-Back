@@ -120,10 +120,15 @@ class ExchangeRateSerializerContextMixin:
         return context
 
 
+class SellerProductPagination(PageNumberPagination):
+    page_size = 10
+
+
 class ProductListCreateView(
     ExchangeRateSerializerContextMixin, generics.ListCreateAPIView
 ):
     serializer_class = ProductSerializer
+    pagination_class = SellerProductPagination
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_serializer_class(self):
