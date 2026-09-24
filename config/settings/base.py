@@ -836,7 +836,7 @@ PRODUCT_IMAGE_MAX_UPLOAD_BYTES = env.int(
 
 PRODUCT_IMAGE_MAX_PIXELS = env.int(
     "PRODUCT_IMAGE_MAX_PIXELS",
-    default=25_000_000,
+    default=300_000_000,
 )
 
 
