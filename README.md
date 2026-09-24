@@ -288,7 +288,7 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 | `POST` | `{id}/images/{image_id}/make-primary/` | owner | Сделать фото главным. |
 | `POST` | `{id}/images/{image_id}/process/` | manager/admin | Запустить AI-photo processing. |
 
-У товара одно `is_primary=true`: первое фото становится главным автоматически. Лимит — 10 JPEG/PNG/WebP фотографий до 10 MB каждая.
+У товара одно `is_primary=true`: первое фото становится главным автоматически. Лимит — 10 JPEG/PNG/WebP фотографий до 40 MB каждая.
 
 ### Moderation
 
