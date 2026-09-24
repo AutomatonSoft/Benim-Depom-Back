@@ -65,7 +65,7 @@ def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
-def claim_idempotency_key(*, request, endpoint: str) -> IdempotencyClaim:
+def claim_idempotency_key(*, request, endpoint: str, payload: Any | None = None) -> IdempotencyClaim:
     """
     Reserve a key for one authenticated user and logical endpoint.
 
@@ -75,7 +75,7 @@ def claim_idempotency_key(*, request, endpoint: str) -> IdempotencyClaim:
     if key is None:
         return IdempotencyClaim(record=None)
 
-    request_hash = _request_hash(request.data)
+    request_hash = _request_hash(request.data if payload is None else payload)
     expires_at = timezone.now() + timedelta(hours=settings.IDEMPOTENCY_TTL_HOURS)
 
     # A simultaneous request can hit the unique constraint. In that case,

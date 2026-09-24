@@ -1,5 +1,7 @@
+import hashlib
 import logging
 
+from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Subquery
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -29,6 +31,7 @@ from apps.idempotency.services import (
     complete_idempotency_claim,
 )
 from apps.moderation.models import ModerationDecision
+from apps.moderation.services import submit_product_for_moderation
 from apps.orchestrator.models import MarketplacePublication
 
 from .filters import filter_products
@@ -45,6 +48,7 @@ from .serializers import (
     ProductMultipartCreateSerializer,
     ProductMultipartUpdateSerializer,
     ProductSerializer,
+    ProductSubmitSerializer,
     SellerSalesStatsSerializer,
 )
 from .services import (
@@ -240,13 +244,16 @@ class ProductListCreateView(
 
     @extend_schema(
         parameters=[IDEMPOTENCY_KEY_HEADER],
-        request={"multipart/form-data": ProductMultipartCreateSerializer},
+        request={
+            "application/json": ProductSerializer,
+            "multipart/form-data": ProductMultipartCreateSerializer,
+        },
         responses={201: ProductSerializer},
         description=(
-            "Создаёт товар продавца с одним-десятью исходными фото и сразу "
-            "отправляет его на модерацию. Принимается только multipart/form-data, "
-            "чтобы товар не попал на модерацию без фото. Передайте "
-            "Idempotency-Key для защиты от дублирующего запроса мобильного клиента."
+            "JSON creates a draft without photos. Upload photos to the draft and "
+            "submit it when all uploads succeed. Multipart creation with photos "
+            "still submits the product immediately. Use Idempotency-Key to avoid "
+            "duplicate products when retrying."
         ),
     )
     def post(self, request, *args, **kwargs):
@@ -260,16 +267,16 @@ class ProductListCreateView(
         ),
     )
     def create(self, request, *args, **kwargs):
-        if not request.content_type.startswith("multipart/form-data"):
+        if not request.content_type.startswith(("multipart/form-data", "application/json")):
             logger.warning(
-                "Product create rejected: multipart/form-data required (user_id=%s)",
+                "Product create rejected: unsupported content type (user_id=%s)",
                 request.user.pk,
             )
             return Response(
                 {
                     "detail": (
-                        "Product creation requires multipart/form-data with at "
-                        "least one image."
+                        "Product creation requires application/json for a draft or "
+                        "multipart/form-data with at least one image."
                     )
                 },
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -437,6 +444,49 @@ class ProductDetailView(
 
         instance.status = Product.Status.ARCHIVED
         instance.save(update_fields=("status", "updated_at"))
+
+
+class ProductSubmitView(APIView):
+    permission_classes = [IsAuthenticated, IsSeller]
+    parser_classes = [JSONParser]
+
+    @extend_schema(
+        request=ProductSubmitSerializer,
+        responses={200: ProductSerializer},
+        description=(
+            "Submit a draft after all photos have been uploaded. image_ids must "
+            "contain every photo attached to the product. Repeating a completed "
+            "submission returns the product without submitting it again."
+        ),
+    )
+    def post(self, request, product_pk: int):
+        serializer = ProductSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            product = get_object_or_404(
+                Product.objects.select_for_update(),
+                pk=product_pk,
+                owner=request.user,
+            )
+            if product.status not in {Product.Status.DRAFT, Product.Status.SUBMITTED}:
+                raise ValidationError(
+                    {"detail": "Only a draft product can be submitted."}
+                )
+
+            uploaded_ids = current_image_ids(product)
+            if set(uploaded_ids) != set(serializer.validated_data["image_ids"]):
+                raise ValidationError(
+                    {"image_ids": "Provide exactly the uploaded product image IDs."}
+                )
+
+            if product.status == Product.Status.DRAFT:
+                product = submit_product_for_moderation(product=product)
+
+        return Response(
+            ProductSerializer(product, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProductImageUploadView(ManagerMutationThrottleMixin, APIView):
