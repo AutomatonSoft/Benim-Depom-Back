@@ -1,4 +1,3 @@
-import hashlib
 import logging
 
 from django.db import transaction
@@ -267,7 +266,9 @@ class ProductListCreateView(
         ),
     )
     def create(self, request, *args, **kwargs):
-        if not request.content_type.startswith(("multipart/form-data", "application/json")):
+        if not request.content_type.startswith(
+            ("multipart/form-data", "application/json")
+        ):
             logger.warning(
                 "Product create rejected: unsupported content type (user_id=%s)",
                 request.user.pk,

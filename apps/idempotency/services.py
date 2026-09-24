@@ -65,7 +65,9 @@ def _json_ready(value: Any) -> Any:
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
-def claim_idempotency_key(*, request, endpoint: str, payload: Any | None = None) -> IdempotencyClaim:
+def claim_idempotency_key(
+    *, request, endpoint: str, payload: Any | None = None
+) -> IdempotencyClaim:
     """
     Reserve a key for one authenticated user and logical endpoint.
 
