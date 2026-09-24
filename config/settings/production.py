@@ -1,4 +1,5 @@
 import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from .base import *  # noqa: F403
 
@@ -17,5 +18,7 @@ if SENTRY_DSN:
         dsn=SENTRY_DSN,
         environment=env("SENTRY_ENVIRONMENT", default="production"),
         traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.1),
+        enable_logs=True,
+        integrations=[LoggingIntegration(sentry_logs_level=None)],
         send_default_pii=True,
     )
