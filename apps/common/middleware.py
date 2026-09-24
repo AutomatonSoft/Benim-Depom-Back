@@ -1,4 +1,8 @@
+import logging
+
 import sentry_sdk
+
+logger = logging.getLogger(__name__)
 
 
 class SentryAPIResponseLogMiddleware:
@@ -13,18 +17,27 @@ class SentryAPIResponseLogMiddleware:
 
         if request.path_info.startswith("/api/") and status_code >= 400:
             route = getattr(request.resolver_match, "route", "<unmatched-api-route>")
-            log = (
-                sentry_sdk.logger.error
-                if status_code >= 500
-                else sentry_sdk.logger.warning
-            )
-            log(
-                "API request returned an unsuccessful response",
-                attributes={
-                    "api_method": request.method,
-                    "api_route": route,
-                    "http_status_code": status_code,
-                },
-            )
+            message = "API request returned an unsuccessful response"
+            attributes = {
+                "api_method": request.method,
+                "api_route": route,
+                "http_status_code": status_code,
+            }
+            sentry_logger = getattr(sentry_sdk, "logger", None)
+
+            if sentry_logger is not None:
+                log = (
+                    sentry_logger.error if status_code >= 500 else sentry_logger.warning
+                )
+                log(message, attributes=attributes)
+            else:
+                logger.log(
+                    logging.ERROR if status_code >= 500 else logging.WARNING,
+                    "%s (api_method=%s, api_route=%s, http_status_code=%s)",
+                    message,
+                    attributes["api_method"],
+                    attributes["api_route"],
+                    status_code,
+                )
 
         return response
