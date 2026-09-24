@@ -1126,7 +1126,7 @@ class ProductImageUploadSerializer(serializers.Serializer):
         }
 
         if image.size > settings.PRODUCT_IMAGE_MAX_UPLOAD_BYTES:
-            raise serializers.ValidationError("Image size must not exceed 10 MB.")
+            raise serializers.ValidationError("Image size must not exceed 40 MB.")
 
         declared_content_type = getattr(image, "content_type", None)
 
@@ -1188,6 +1188,20 @@ class ProductImageUploadSerializer(serializers.Serializer):
             image.seek(0)
 
         return image
+
+
+@extend_schema_serializer(component_name="ProductsSubmit")
+class ProductSubmitSerializer(serializers.Serializer):
+    image_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=1,
+        max_length=MAX_PRODUCT_IMAGES,
+    )
+
+    def validate_image_ids(self, image_ids):
+        if len(image_ids) != len(set(image_ids)):
+            raise serializers.ValidationError("Image IDs must be unique.")
+        return image_ids
 
 
 class MultipartJSONListField(serializers.ListField):
