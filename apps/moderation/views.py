@@ -214,6 +214,16 @@ class ManagerProductListView(generics.ListAPIView):
     permission_classes = [IsManager]
     pagination_class = ManagerProductPagination
 
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        owner_id = request.query_params.get("owner_id")
+        if owner_id:
+            response.data["archived_count"] = Product.objects.filter(
+                owner_id=owner_id,
+                status=Product.Status.ARCHIVED,
+            ).count()
+        return response
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context["exchange_rate"] = latest_rate()

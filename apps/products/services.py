@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import nullcontext
 from decimal import Decimal
 from typing import Any
@@ -20,6 +21,7 @@ from .models import (
 )
 
 MAX_PRODUCT_IMAGES = 20
+logger = logging.getLogger(__name__)
 
 
 def _json_ready(value: Any) -> Any:
@@ -81,38 +83,65 @@ def create_product_with_images(
     image_files: list,
     set_parts_data: list[dict[str, Any]] | None = None,
 ) -> Product:
-    """Create and submit a product with its initial images atomically.
+    """Upload images first, then create and submit the product atomically.
 
-    The temporary draft exists only inside this transaction: image upload
-    requires an editable product, while moderation requires persisted images.
+    FTP I/O stays outside the database transaction. The product and its image
+    rows are still committed together, and uploaded files are removed if that
+    transaction fails.
     """
-    saved_image_files = []
+    if len(image_files) > MAX_PRODUCT_IMAGES:
+        raise ValidationError(
+            {"image": f"A product cannot have more than {MAX_PRODUCT_IMAGES} images"}
+        )
 
-    with _reuse_media_connection():
-        try:
-            with transaction.atomic():
-                product = create_product(
-                    owner=owner,
-                    data=data,
-                    variants_data=variants_data,
-                    set_parts_data=set_parts_data,
+    uploaded_image_names = []
+    try:
+        # upload_to only needs the owner id, so the existing
+        # products/{owner_id}/... paths work before the Product row exists.
+        image_product = Product(owner=owner)
+        with _reuse_media_connection():
+            for image_file in image_files:
+                image = ProductImage(product=image_product)
+                image.image.save(image_file.name, image_file, save=False)
+                uploaded_image_names.append(image.image.name)
+
+        with transaction.atomic():
+            product = create_product(
+                owner=owner,
+                data=data,
+                variants_data=variants_data,
+                set_parts_data=set_parts_data,
+            )
+
+            for position, image_name in enumerate(uploaded_image_names):
+                ProductImage.objects.create(
+                    product=product,
+                    image=image_name,
+                    position=position,
+                    is_primary=position == 0,
                 )
 
-                for position, image_file in enumerate(image_files):
-                    image = upload_product_image(
-                        product=product,
-                        image_file=image_file,
-                        is_primary=position == 0,
-                    )
-                    saved_image_files.append(image.image)
+            from apps.moderation.services import submit_product_for_moderation
 
-                from apps.moderation.services import submit_product_for_moderation
-
-                return submit_product_for_moderation(product=product)
-        except Exception:
-            for saved_image in saved_image_files:
-                saved_image.delete(save=False)
-            raise
+            return submit_product_for_moderation(product=product)
+    except Exception:
+        if uploaded_image_names:
+            try:
+                with _reuse_media_connection():
+                    for image_name in uploaded_image_names:
+                        try:
+                            default_storage.delete(image_name)
+                        except Exception:
+                            logger.exception(
+                                "Failed to clean up uploaded product image after "
+                                "product creation failed (name=%s)",
+                                image_name,
+                            )
+            except Exception:
+                logger.exception(
+                    "Failed to open media storage for product image cleanup"
+                )
+        raise
 
 
 @transaction.atomic

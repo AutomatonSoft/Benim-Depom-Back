@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import OuterRef, Prefetch, Subquery
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -6,6 +8,7 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -58,6 +61,8 @@ from .services import (
     upload_product_image,
     withdraw_product_submission,
 )
+
+logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_KEY_HEADER = OpenApiParameter(
     name="Idempotency-Key",
@@ -256,6 +261,10 @@ class ProductListCreateView(
     )
     def create(self, request, *args, **kwargs):
         if not request.content_type.startswith("multipart/form-data"):
+            logger.warning(
+                "Product create rejected: multipart/form-data required (user_id=%s)",
+                request.user.pk,
+            )
             return Response(
                 {
                     "detail": (
@@ -269,6 +278,11 @@ class ProductListCreateView(
         try:
             claim = claim_idempotency_key(request=request, endpoint="products:create")
         except IdempotencyKeyReuseError:
+            logger.warning(
+                "Product create rejected: Idempotency-Key reused with different data "
+                "(user_id=%s)",
+                request.user.pk,
+            )
             return Response(
                 {
                     "detail": (
@@ -280,6 +294,11 @@ class ProductListCreateView(
             )
 
         except IdempotencyRequestInProgressError:
+            logger.warning(
+                "Product create rejected: request with Idempotency-Key is in progress "
+                "(user_id=%s)",
+                request.user.pk,
+            )
             return Response(
                 {
                     "detail": (
@@ -295,7 +314,18 @@ class ProductListCreateView(
 
         try:
             response = super().create(request, *args, **kwargs)
+        except ValidationError as error:
+            logger.warning(
+                "Product create validation failed (user_id=%s, errors=%s)",
+                request.user.pk,
+                error.detail,
+            )
+            abandon_idempotency_claim(claim=claim)
+            raise
         except Exception:
+            logger.exception(
+                "Product create failed unexpectedly (user_id=%s)", request.user.pk
+            )
             abandon_idempotency_claim(claim=claim)
             raise
 
