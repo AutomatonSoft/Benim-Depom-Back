@@ -280,6 +280,16 @@ class ProductImage(models.Model):
         related_name="images",
     )
     image = models.ImageField(upload_to=product_image_upload_to)
+    preview = models.ImageField(
+        upload_to=product_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    thumbnail = models.ImageField(
+        upload_to=product_image_upload_to,
+        blank=True,
+        null=True,
+    )
     processed_image = models.ImageField(
         upload_to=product_image_upload_to,
         blank=True,
@@ -342,6 +352,16 @@ class ProductGeneratedImage(models.Model):
         choices=Mode.choices,
     )
     image = models.ImageField(upload_to=generated_image_upload_to)
+    preview = models.ImageField(
+        upload_to=generated_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    thumbnail = models.ImageField(
+        upload_to=generated_image_upload_to,
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -548,9 +548,13 @@ class ProductImageDeleteView(ManagerMutationThrottleMixin, APIView):
             url = image.image.url
             if not url.startswith("http"):
                 url = request.build_absolute_uri(url)
+            thumbnail_url = image.thumbnail.url if image.thumbnail else url
+            if not thumbnail_url.startswith("http"):
+                thumbnail_url = request.build_absolute_uri(thumbnail_url)
             removed = {
                 "id": image.id,
                 "url": url,
+                "thumbnail_url": thumbnail_url,
                 "is_primary": image.is_primary,
             }
         keep_files = (

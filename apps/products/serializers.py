@@ -273,6 +273,8 @@ class ProductGeneratedImageSerializer(serializers.ModelSerializer):
             "id",
             "mode",
             "image",
+            "preview",
+            "thumbnail",
             "created_at",
         )
         read_only_fields = fields
@@ -290,6 +292,8 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "image",
+            "preview",
+            "thumbnail",
             "processed_image",
             "position",
             "is_primary",
@@ -301,6 +305,8 @@ class ProductImageSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "image",
+            "preview",
+            "thumbnail",
             "processed_image",
             "position",
             "is_primary",

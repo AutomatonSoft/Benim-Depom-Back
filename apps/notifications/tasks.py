@@ -380,6 +380,7 @@ def process_product_image(image_id: int) -> dict:
         WhiteImageServiceError,
         generate_white_background,
     )
+    from apps.products.image_optimization import make_product_image_variants
     from apps.products.models import (
         ProductGeneratedImage,
         ProductImage,
@@ -417,12 +418,20 @@ def process_product_image(image_id: int) -> dict:
                 source_image_id=image_id,
                 mode=mode,
             )
-            suffix = "png" if content.startswith(b"\x89PNG") else "jpg"
-            generated_image.image.save(
-                f"{mode}-{image_id}.{suffix}",
-                ContentFile(content),
-                save=True,
+            optimized_image, thumbnail = make_product_image_variants(
+                ContentFile(content, name=f"{mode}-{image_id}")
             )
+            generated_image.image.save(
+                optimized_image.name,
+                optimized_image,
+                save=False,
+            )
+            generated_image.thumbnail.save(
+                thumbnail.name,
+                thumbnail,
+                save=False,
+            )
+            generated_image.save()
             if mode == ProductGeneratedImage.Mode.WHITE:
                 with transaction.atomic():
                     locked_image = ProductImage.objects.select_for_update().get(
@@ -836,11 +845,20 @@ def check_product_image_generation(
                 mode=mode,
             )
 
-            generated_image.image.save(
-                f"{mode}-{image_id}.jpg",
-                ContentFile(image_content),
-                save=True,
+            optimized_image, thumbnail = make_product_image_variants(
+                ContentFile(image_content, name=f"{mode}-{image_id}")
             )
+            generated_image.image.save(
+                optimized_image.name,
+                optimized_image,
+                save=False,
+            )
+            generated_image.thumbnail.save(
+                thumbnail.name,
+                thumbnail,
+                save=False,
+            )
+            generated_image.save()
 
             if mode == ProductGeneratedImage.Mode.WHITE:
                 with transaction.atomic():

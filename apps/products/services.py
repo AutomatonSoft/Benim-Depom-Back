@@ -11,6 +11,7 @@ from django.db.models import F, Max, Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from .image_optimization import make_product_image_variants
 from .models import (
     PriceNegotiation,
     Product,
@@ -95,6 +96,7 @@ def create_product_with_images(
         )
 
     uploaded_image_names = []
+    uploaded_images = []
     try:
         # upload_to only needs the owner id, so the existing
         # products/{owner_id}/... paths work before the Product row exists.
@@ -102,8 +104,12 @@ def create_product_with_images(
         with _reuse_media_connection():
             for image_file in image_files:
                 image = ProductImage(product=image_product)
-                image.image.save(image_file.name, image_file, save=False)
+                optimized_image, thumbnail = make_product_image_variants(image_file)
+                image.image.save(optimized_image.name, optimized_image, save=False)
                 uploaded_image_names.append(image.image.name)
+                image.thumbnail.save(thumbnail.name, thumbnail, save=False)
+                uploaded_image_names.append(image.thumbnail.name)
+                uploaded_images.append((image.image.name, image.thumbnail.name))
 
         with transaction.atomic():
             product = create_product(
@@ -113,10 +119,11 @@ def create_product_with_images(
                 set_parts_data=set_parts_data,
             )
 
-            for position, image_name in enumerate(uploaded_image_names):
+            for position, (image_name, thumbnail_name) in enumerate(uploaded_images):
                 ProductImage.objects.create(
                     product=product,
                     image=image_name,
+                    thumbnail=thumbnail_name,
                     position=position,
                     is_primary=position == 0,
                 )
@@ -653,6 +660,7 @@ def upload_product_image(
     is_primary: bool,
     allow_after_approval: bool = False,
 ) -> ProductImage:
+    optimized_image, thumbnail = make_product_image_variants(image_file)
 
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(
@@ -682,7 +690,8 @@ def upload_product_image(
 
     created = ProductImage.objects.create(
         product=locked_product,
-        image=image_file,
+        image=optimized_image,
+        thumbnail=thumbnail,
         position=position,
         is_primary=is_primary,
     )
@@ -710,8 +719,14 @@ def delete_product_image(
 
     image_files = [
         image.image,
+        image.preview,
+        image.thumbnail,
         image.processed_image,
-        *(generated.image for generated in image.generated_images.all()),
+        *(
+            file
+            for generated in image.generated_images.all()
+            for file in (generated.image, generated.preview, generated.thumbnail)
+        ),
     ]
     was_primary = image.is_primary
 
@@ -778,7 +793,7 @@ def delete_generated_product_image(
         .get(pk=generated.pk, source_image__product=locked_product)
     )
     source = generated.source_image
-    image_file = generated.image
+    image_files = (generated.image, generated.preview, generated.thumbnail)
 
     if generated.mode == ProductGeneratedImage.Mode.WHITE:
         source.processed_image = None
@@ -787,8 +802,9 @@ def delete_generated_product_image(
     generated.delete()
 
     def remove_file():
-        if image_file:
-            image_file.delete(save=False)
+        for image_file in image_files:
+            if image_file:
+                image_file.delete(save=False)
 
     transaction.on_commit(remove_file)
 
