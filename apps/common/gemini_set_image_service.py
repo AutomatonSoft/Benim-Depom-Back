@@ -255,3 +255,66 @@ def generate_set_listing_images(
         generated[mode] = _image_bytes_from_response(response)
 
     return generated
+
+
+def generate_xl_cover(*, white_cover: bytes, title: str) -> bytes:
+    """Create a clearly distinct white-background packshot for the XL account."""
+    if not settings.GOOGLE_API_KEY:
+        raise ImproperlyConfigured(
+            "XL cover generation is not configured. Set GOOGLE_API_KEY."
+        )
+    
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as error:
+        raise ImproperlyConfigured(
+            "The google-genai package is required for XL cover generation."
+        ) from error
+
+    try:
+        with Image.open(BytesIO(white_cover)) as reference:
+            reference = ImageOps.exif_transpose(reference).convert("RGB")
+            reference.thumbnail(
+                (_MAX_REFERENCE_EDGE, _MAX_REFERENCE_EDGE),
+                Image.Resampling.LANCZOS,
+            )
+            white_cover = _jpeg_bytes(reference)
+
+        with genai.Client(api_key=settings.GOOGLE_API_KEY) as client:
+            response = client.models.generate_content(
+                model=settings.GEMINI_IMAGE_MODEL,
+                contents=[
+                    types.Part.from_text(
+                        text=(
+                            "Create one photorealistic e-commerce catalog packshot of "
+                            f"the exact same furniture product: {title}. Use the attached "
+                            "image as the only product reference. Keep its design, color, "
+                            "materials, proportions, and construction unchanged. The input is "
+                            "view A. Create a genuinely different view B: move the camera "
+                            "horizontally at least 50 degrees around the product to the other "
+                            "front corner, opposite the side emphasized in view A, and raise "
+                            "the camera so it looks down about 15 degrees. The opposite side "
+                            "of the chair and more of the seat surface must be clearly visible; "
+                            "the silhouette and visible sides must differ from view A. Use a "
+                            "different camera composition while keeping the whole product "
+                            "centered and uncropped. Do not produce a near-identical view: a "
+                            "change in lighting, brightness, shadows, or background alone is "
+                            "not a valid result. Rotate the camera around the same real "
+                            "product; do not mirror, redesign, or alter its details. Pure "
+                            "seamless white background and soft studio lighting. No props, "
+                            "text, logos, watermark, extra objects, or people."
+                        )
+                    ),
+                    types.Part.from_bytes(data=white_cover, mime_type="image/jpeg"),
+                ],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(aspect_ratio="4:3"),
+                ),
+            )
+    except Exception as error:
+        raise GeminiSetImageServiceError("XL cover generation failed.") from error
+
+    return _image_bytes_from_response(response)

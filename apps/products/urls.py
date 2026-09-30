@@ -5,15 +5,18 @@ from .views import (
     ProductDeactivateView,
     ProductDetailView,
     ProductGeneratedImageDeleteView,
+    ProductGeneratedImageReplaceView,
     ProductImageDeleteView,
     ProductImagePrimaryView,
     ProductImageProcessView,
     ProductImageReorderView,
+    ProductImageReplaceView,
     ProductImageUploadView,
     ProductListCreateView,
     ProductPriceNegotiationHistoryView,
     ProductPriceNegotiationRespondView,
     ProductWithdrawView,
+    ProductXLCoverGenerateView,
     SellerSalesStatsView,
 )
 
@@ -44,6 +47,16 @@ urlpatterns = [
         name="product-generated-image-delete",
     ),
     path(
+        "<int:product_pk>/images/<int:image_pk>/generated/<int:generated_pk>/replace/",
+        ProductGeneratedImageReplaceView.as_view(),
+        name="product-generated-image-replace",
+    ),
+    path(
+        "<int:product_pk>/images/<int:image_pk>/replace/",
+        ProductImageReplaceView.as_view(),
+        name="product-image-replace",
+    ),
+    path(
         "<int:product_pk>/images/<int:image_pk>/make-primary/",
         ProductImagePrimaryView.as_view(),
         name="product-image-make-primary",
@@ -67,6 +80,11 @@ urlpatterns = [
         "<int:product_pk>/images/<int:image_pk>/process/",
         ProductImageProcessView.as_view(),
         name="product-image-process",
+    ),
+    path(
+        "<int:product_pk>/images/<int:image_pk>/xl-cover/",
+        ProductXLCoverGenerateView.as_view(),
+        name="product-image-xl-cover",
     ),
     path(
         "<int:product_pk>/deactivate/",

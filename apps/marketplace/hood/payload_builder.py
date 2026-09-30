@@ -115,7 +115,7 @@ def build_hood_payload(
         str(configuration.get("category_id", "")).strip() or DEFAULT_HOOD_CATEGORY_ID
     )
 
-    image_urls = public_generated_listing_urls(product)
+    image_urls = public_generated_listing_urls(product, account=account)
     if not image_urls:
         errors["image_urls"] = MISSING_LISTING_IMAGES
     elif any(not _is_public_http_url(url) for url in image_urls):

@@ -798,6 +798,10 @@ def delete_generated_product_image(
     if generated.mode == ProductGeneratedImage.Mode.WHITE:
         source.processed_image = None
         source.save(update_fields=("processed_image",))
+    elif generated.mode == ProductGeneratedImage.Mode.XL_COVER:
+        source.xl_cover_status = ProductImage.XLCoverStatus.IDLE
+        source.xl_cover_error = ""
+        source.save(update_fields=("xl_cover_status", "xl_cover_error"))
 
     generated.delete()
 

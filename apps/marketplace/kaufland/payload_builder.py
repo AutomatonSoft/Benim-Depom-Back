@@ -107,8 +107,10 @@ def _get_single_variant(product, errors: dict[str, str]):
     return product.variants.get()
 
 
-def _get_listing_image_urls(product, errors: dict[str, str]) -> list[str]:
-    image_urls = public_generated_listing_urls(product)
+def _get_listing_image_urls(
+    product, errors: dict[str, str], *, account: str
+) -> list[str]:
+    image_urls = public_generated_listing_urls(product, account=account)
     if not image_urls:
         errors["image_urls"] = MISSING_LISTING_IMAGES
         return []
@@ -172,7 +174,7 @@ def build_kaufland_create_payload(
     else:
         cleaned_storefronts = [str(value).strip() for value in storefronts]
 
-    image_urls = _get_listing_image_urls(product, errors)
+    image_urls = _get_listing_image_urls(product, errors, account=account)
 
     materials: list[str] = []
     color = ""
@@ -308,7 +310,7 @@ def build_kaufland_update_payload(
         else:
             payload["price"] = float(price)
 
-    image_urls = _get_listing_image_urls(product, errors)
+    image_urls = _get_listing_image_urls(product, errors, account=account)
     if image_urls:
         payload["picture_urls"] = image_urls
 
