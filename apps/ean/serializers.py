@@ -36,6 +36,7 @@ class EanCodeSerializer(serializers.ModelSerializer):
             "id",
             "code",
             "account",
+            "state",
             "product_id",
             "imported_at",
             "assigned_at",

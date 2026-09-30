@@ -302,8 +302,12 @@ def generate_xl_cover(*, white_cover: bytes, title: str) -> bytes:
                             "centered and uncropped. Do not produce a near-identical view: a "
                             "change in lighting, brightness, shadows, or background alone is "
                             "not a valid result. Rotate the camera around the same real "
-                            "product; do not mirror, redesign, or alter its details. Pure "
-                            "seamless white background and soft studio lighting. No props, "
+                            "product; do not mirror, redesign, or alter its details. The "
+                            "background must be perfectly pure white, RGB (255, 255, 255), "
+                            "uniform across the entire background with no gray, off-white, "
+                            "gradient, texture, room, or interior. No cast or contact shadows "
+                            "on the background; keep natural shading on the product itself "
+                            "so its shape and details remain clear. No props, "
                             "text, logos, watermark, extra objects, or people."
                         )
                     ),

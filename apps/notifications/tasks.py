@@ -628,6 +628,7 @@ def check_product_image_generation(
         WhiteImageServiceError,
         get_generation_results,
     )
+    from apps.products.image_optimization import make_product_image_variants
     from apps.products.models import (
         ProductGeneratedImage,
         ProductImage,

@@ -104,6 +104,7 @@ class OpenAITextService:
         input_text: str,
         schema_name: str,
         schema: dict[str, Any],
+        image_data_url: str | None = None,
     ) -> OpenAITextResult:
         """
         Generate one object matching a strict JSON Schema.
@@ -114,6 +115,20 @@ class OpenAITextService:
 
         errors: list[str] = []
         attempts_per_model = max(settings.OPENAI_TEXT_MAX_RETRIES_PER_MODEL, 1)
+        request_input: str | list[dict[str, Any]] = input_text
+        if image_data_url:
+            request_input = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": input_text},
+                        {
+                            "type": "input_image",
+                            "image_url": image_data_url,
+                        },
+                    ],
+                }
+            ]
 
         for model in settings.OPENAI_TEXT_MODELS:
             for attempt in range(1, attempts_per_model + 1):
@@ -121,7 +136,7 @@ class OpenAITextService:
                     response = self.client.responses.create(
                         model=model,
                         instructions=instructions,
-                        input=input_text,
+                        input=request_input,
                         text={
                             "format": {
                                 "type": "json_schema",
