@@ -73,6 +73,17 @@ Rules:
 - Do not use quotation marks around the generated product title.
 - Title must be at most 65 characters. Do not append a brand suffix;
   the system adds `` (BD)`` later.
+- Make the title natural, specific and attractive to a buyer. Lead with the
+  product type and add only the strongest supported details, such as style,
+  intended room or use, shape, colour or material. Avoid a bare list of
+  colour and materials, repeated keywords, and generic claims. Mention
+  comfort, office use or other benefits only when the supplied data supports
+  them.
+- Write descriptions as useful, appealing sales copy rather than a short
+  inventory sentence. Explain the product's visible design and practical
+  appeal using the supplied title, type and attributes. Keep every benefit
+  factual; do not claim premium quality, durability, comfort or other
+  performance without supporting product data.
 - Use only facts present in the supplied product data.
 - Keep the content clear, commercially useful and suitable for a marketplace.
 - Return only data matching the supplied JSON schema.
@@ -91,8 +102,9 @@ UNIVERSAL_CONTENT_SCHEMA = {
         "description": {
             "type": "string",
             "description": (
-                "German description consisting of two or three plain-text "
-                "paragraphs separated by an empty line."
+                "Appealing, informative German product description in three "
+                "plain-text paragraphs, about 70 to 110 words total. "
+                "Separate paragraphs with an empty line; do not use HTML."
             ),
         },
         "bullet_points": {
@@ -254,13 +266,16 @@ def build_universal_content_request(
             "never invent a piece missing from the data."
         )
         description_rule = (
-            "- description: two to six plain-text paragraphs separated "
-            "by one empty line; do not use HTML;\n"
+            "- description: three to five plain-text paragraphs, about 100 "
+            "to 150 German words total, separated by one empty line; do not "
+            "use HTML; describe the supplied set and its parts without "
+            "inventing benefits or details;\n"
         )
     else:
         description_rule = (
-            "- description: two or three plain-text paragraphs separated "
-            "by one empty line; do not use HTML;\n"
+            "- description: three plain-text paragraphs, about 70 to 110 "
+            "German words total, separated by one empty line; do not use "
+            "HTML;\n"
         )
 
     return UniversalContentRequest(
@@ -283,7 +298,13 @@ def build_universal_content_request(
             "name, correcting spelling mistakes;\n"
             "- do not include prices, delivery promises, guarantees or "
             "claims not present in product data;\n"
-            "- turn a raw seller title into a natural German product title;\n"
+            "- turn the raw seller title into a concise, attractive German "
+            "listing title: start with the product type and add the most "
+            "useful supported details; do not simply list colour and every "
+            "material;\n"
+            "- make descriptions informative and buyer-focused, with a "
+            "concrete explanation of design and supported practical appeal; "
+            "avoid filler and unsupported praise;\n"
             "- use dimensions and materials only as factual product details."
             f"{set_instructions}"
         ),
