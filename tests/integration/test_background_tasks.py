@@ -309,7 +309,7 @@ def test_image_processing_skips_unknown_and_non_pending_and_rejects_bad_payload(
 @pytest.mark.django_db
 @override_settings(BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS=3)
 def test_image_poll_reschedules_then_persists_all_generated_images(
-    monkeypatch, seller, product_factory, product_image_factory
+    monkeypatch, seller, product_factory, product_image_factory, image_file
 ):
     product = product_factory(owner=seller, status=Product.Status.SUBMITTED)
     image = product_image_factory(product=product)
@@ -345,9 +345,10 @@ def test_image_poll_reschedules_then_persists_all_generated_images(
             }
         ),
     )
+    valid_png = image_file().read()
     monkeypatch.setattr(
         "apps.common.safe_image_download.download_generated_image",
-        Mock(return_value=b"image-bytes"),
+        Mock(return_value=valid_png),
     )
     assert check_product_image_generation.run(image.id, 42, 2)["status"] == "completed"
     image.refresh_from_db()

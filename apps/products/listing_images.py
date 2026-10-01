@@ -37,7 +37,7 @@ def _public_http_url(file_field) -> str | None:
     return None
 
 
-def public_generated_listing_urls(product) -> list[str]:
+def public_generated_listing_urls(product, *, account: str = "jv") -> list[str]:
     """Public URLs of AI images for the cover photo, never seller originals."""
     cover = _cover_source_image(product)
     if cover is None:
@@ -49,10 +49,15 @@ def public_generated_listing_urls(product) -> list[str]:
     }
     urls: list[str] = []
     seen: set[str] = set()
-    for mode in LISTING_IMAGE_MODES:
+    modes = (
+        ("xl_cover", "interior", "human") if account == "xl" else LISTING_IMAGE_MODES
+    )
+    for mode in modes:
         generated = by_mode.get(mode)
         url = _public_http_url(getattr(generated, "image", None) if generated else None)
         if url and url not in seen:
             urls.append(url)
             seen.add(url)
+    if account == "xl" and len(urls) != len(modes):
+        return []
     return urls

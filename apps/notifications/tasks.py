@@ -380,6 +380,7 @@ def process_product_image(image_id: int) -> dict:
         WhiteImageServiceError,
         generate_white_background,
     )
+    from apps.products.image_optimization import make_product_image_variants
     from apps.products.models import (
         ProductGeneratedImage,
         ProductImage,
@@ -417,12 +418,20 @@ def process_product_image(image_id: int) -> dict:
                 source_image_id=image_id,
                 mode=mode,
             )
-            suffix = "png" if content.startswith(b"\x89PNG") else "jpg"
-            generated_image.image.save(
-                f"{mode}-{image_id}.{suffix}",
-                ContentFile(content),
-                save=True,
+            optimized_image, thumbnail = make_product_image_variants(
+                ContentFile(content, name=f"{mode}-{image_id}")
             )
+            generated_image.image.save(
+                optimized_image.name,
+                optimized_image,
+                save=False,
+            )
+            generated_image.thumbnail.save(
+                thumbnail.name,
+                thumbnail,
+                save=False,
+            )
+            generated_image.save()
             if mode == ProductGeneratedImage.Mode.WHITE:
                 with transaction.atomic():
                     locked_image = ProductImage.objects.select_for_update().get(
@@ -619,6 +628,7 @@ def check_product_image_generation(
         WhiteImageServiceError,
         get_generation_results,
     )
+    from apps.products.image_optimization import make_product_image_variants
     from apps.products.models import (
         ProductGeneratedImage,
         ProductImage,
@@ -836,11 +846,20 @@ def check_product_image_generation(
                 mode=mode,
             )
 
-            generated_image.image.save(
-                f"{mode}-{image_id}.jpg",
-                ContentFile(image_content),
-                save=True,
+            optimized_image, thumbnail = make_product_image_variants(
+                ContentFile(image_content, name=f"{mode}-{image_id}")
             )
+            generated_image.image.save(
+                optimized_image.name,
+                optimized_image,
+                save=False,
+            )
+            generated_image.thumbnail.save(
+                thumbnail.name,
+                thumbnail,
+                save=False,
+            )
+            generated_image.save()
 
             if mode == ProductGeneratedImage.Mode.WHITE:
                 with transaction.atomic():
@@ -977,3 +996,78 @@ def recover_stale_product_image_processing() -> dict[str, int]:
         "failed": failed_count,
         "skipped": skipped_count,
     }
+
+
+@shared_task(name="apps.notifications.tasks.generate_product_xl_cover")
+def generate_product_xl_cover(image_id: int) -> dict:
+    """Generate the XL-specific cover from the existing external JV cover."""
+    from io import BytesIO
+
+    from django.core.files.base import ContentFile
+    from PIL import Image
+
+    from apps.common.gemini_set_image_service import generate_xl_cover
+    from apps.products.models import ProductGeneratedImage, ProductImage
+
+    image = ProductImage.objects.select_related("product").filter(pk=image_id).first()
+    if image is None:
+        return {"status": "skipped", "reason": "cover_not_found"}
+    if not image.is_primary:
+        ProductImage.objects.filter(pk=image_id).update(
+            xl_cover_status=ProductImage.XLCoverStatus.FAILED,
+            xl_cover_error="This photo is no longer the product cover.",
+        )
+        return {"status": "failed", "reason": "cover_changed"}
+
+    white_cover = image.generated_images.filter(
+        mode=ProductGeneratedImage.Mode.WHITE
+    ).first()
+    if white_cover is None or not white_cover.image:
+        ProductImage.objects.filter(pk=image_id).update(
+            xl_cover_status=ProductImage.XLCoverStatus.FAILED,
+            xl_cover_error="Generate the JV cover before the XL cover.",
+        )
+        return {"status": "failed", "reason": "jv_cover_missing"}
+
+    ProductImage.objects.filter(pk=image_id).update(
+        xl_cover_status=ProductImage.XLCoverStatus.PROCESSING,
+        xl_cover_error="",
+    )
+    try:
+        white_cover.image.open("rb")
+        try:
+            generated_bytes = generate_xl_cover(
+                white_cover=white_cover.image.read(),
+                title=image.product.title,
+            )
+        finally:
+            white_cover.image.close()
+
+        with Image.open(BytesIO(generated_bytes)) as generated_image:
+            extension = (generated_image.format or "JPEG").lower()
+            generated_image.verify()
+
+        xl_cover, _ = ProductGeneratedImage.objects.get_or_create(
+            source_image=image,
+            mode=ProductGeneratedImage.Mode.XL_COVER,
+        )
+        old_file_name = xl_cover.image.name
+        xl_cover.image.save(
+            f"xl-cover-{image_id}.{extension}",
+            ContentFile(generated_bytes),
+            save=True,
+        )
+        if old_file_name:
+            xl_cover.image.storage.delete(old_file_name)
+        ProductImage.objects.filter(pk=image_id).update(
+            xl_cover_status=ProductImage.XLCoverStatus.SUCCEEDED,
+            xl_cover_error="",
+        )
+        return {"status": "completed", "image_id": xl_cover.pk}
+    except Exception:
+        logger.exception("XL cover generation failed for product image %s", image_id)
+        ProductImage.objects.filter(pk=image_id).update(
+            xl_cover_status=ProductImage.XLCoverStatus.FAILED,
+            xl_cover_error="XL cover generation failed. Try again.",
+        )
+        return {"status": "failed"}

@@ -292,7 +292,7 @@ def build_otto_payload(
                     "The selected profile has an invalid transport time."
                 )
 
-    media_urls = public_generated_listing_urls(product)
+    media_urls = public_generated_listing_urls(product, account=account)
     if not media_urls:
         errors["media_urls"] = MISSING_LISTING_IMAGES
     elif any(not _is_public_http_url(url) for url in media_urls):

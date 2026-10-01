@@ -41,6 +41,7 @@ from .serializers import (
     PriceNegotiationRespondSerializer,
     PriceNegotiationSerializer,
     ProductAvailabilitySerializer,
+    ProductGeneratedImageSerializer,
     ProductImageReorderSerializer,
     ProductImageSerializer,
     ProductImageUploadSerializer,
@@ -548,9 +549,13 @@ class ProductImageDeleteView(ManagerMutationThrottleMixin, APIView):
             url = image.image.url
             if not url.startswith("http"):
                 url = request.build_absolute_uri(url)
+            thumbnail_url = image.thumbnail.url if image.thumbnail else url
+            if not thumbnail_url.startswith("http"):
+                thumbnail_url = request.build_absolute_uri(thumbnail_url)
             removed = {
                 "id": image.id,
                 "url": url,
+                "thumbnail_url": thumbnail_url,
                 "is_primary": image.is_primary,
             }
         keep_files = (
@@ -595,6 +600,113 @@ class ProductGeneratedImageDeleteView(ManagerMutationThrottleMixin, APIView):
             allow_after_approval=True,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProductImageReplaceView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        request=ProductImageUploadSerializer,
+        responses={200: ProductImageSerializer},
+    )
+    def put(self, request, product_pk: int, image_pk: int):
+        product = get_object_or_404(
+            Product.objects.exclude(status=Product.Status.ARCHIVED), pk=product_pk
+        )
+        image = get_object_or_404(ProductImage, pk=image_pk, product=product)
+        serializer = ProductImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        old_file = image.image
+        image.image = serializer.validated_data["image"]
+        image.save(update_fields=("image",))
+        transaction.on_commit(lambda: old_file.delete(save=False) if old_file else None)
+        return Response(
+            ProductImageSerializer(image, context={"request": request}).data
+        )
+
+
+class ProductGeneratedImageReplaceView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        request=ProductImageUploadSerializer,
+        responses={200: ProductGeneratedImageSerializer},
+    )
+    def put(self, request, product_pk: int, image_pk: int, generated_pk: int):
+        product = get_object_or_404(
+            Product.objects.exclude(status=Product.Status.ARCHIVED), pk=product_pk
+        )
+        generated = get_object_or_404(
+            ProductGeneratedImage,
+            pk=generated_pk,
+            source_image_id=image_pk,
+            source_image__product=product,
+        )
+        serializer = ProductImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        old_file = generated.image
+        generated.image = serializer.validated_data["image"]
+        generated.save(update_fields=("image",))
+        if generated.mode == ProductGeneratedImage.Mode.WHITE:
+            ProductImage.objects.filter(pk=image_pk).update(
+                processed_image=generated.image.name
+            )
+        transaction.on_commit(lambda: old_file.delete(save=False) if old_file else None)
+        return Response(
+            ProductGeneratedImageSerializer(
+                generated, context={"request": request}
+            ).data
+        )
+
+
+class ProductXLCoverGenerateView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+
+    @extend_schema(request=None, responses={202: ProductImageSerializer})
+    def post(self, request, product_pk: int, image_pk: int):
+        product = get_object_or_404(
+            Product.objects.exclude(status=Product.Status.ARCHIVED),
+            pk=product_pk,
+        )
+        if product.status != Product.Status.APPROVED:
+            raise ValidationError(
+                {"detail": "Approve the product before generating images."}
+            )
+        with transaction.atomic():
+            image = get_object_or_404(
+                ProductImage.objects.select_for_update(),
+                pk=image_pk,
+                product=product,
+                is_primary=True,
+            )
+            if (
+                image.processing_status != ProductImage.ProcessingStatus.SUCCEEDED
+                or not image.generated_images.filter(
+                    mode=ProductGeneratedImage.Mode.WHITE
+                ).exists()
+            ):
+                raise ValidationError(
+                    {"detail": "Generate the JV cover before the XL cover."}
+                )
+            if image.xl_cover_status in {
+                ProductImage.XLCoverStatus.PENDING,
+                ProductImage.XLCoverStatus.PROCESSING,
+            }:
+                raise ValidationError(
+                    {"detail": "XL cover generation is already in progress."}
+                )
+            image.xl_cover_status = ProductImage.XLCoverStatus.PENDING
+            image.xl_cover_error = ""
+            image.save(update_fields=("xl_cover_status", "xl_cover_error"))
+            from apps.notifications.tasks import generate_product_xl_cover
+
+            transaction.on_commit(lambda: generate_product_xl_cover.delay(image.pk))
+        return Response(
+            ProductImageSerializer(image, context={"request": request}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class ProductImagePrimaryView(ManagerMutationThrottleMixin, APIView):

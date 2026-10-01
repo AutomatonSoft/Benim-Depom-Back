@@ -57,11 +57,19 @@ def _collect_media_files(products) -> list:
         for image in product.images.all():
             if image.image:
                 files.append(image.image)
+            if image.preview:
+                files.append(image.preview)
+            if image.thumbnail:
+                files.append(image.thumbnail)
             if image.processed_image:
                 files.append(image.processed_image)
             for generated in image.generated_images.all():
                 if generated.image:
                     files.append(generated.image)
+                if generated.preview:
+                    files.append(generated.preview)
+                if generated.thumbnail:
+                    files.append(generated.thumbnail)
     return files
 
 

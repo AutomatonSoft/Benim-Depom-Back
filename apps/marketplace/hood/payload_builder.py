@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from html import escape
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
 
@@ -15,6 +17,105 @@ from apps.products.listing_images import (
 from apps.products.pricing import fill_marketplace_price
 
 DEFAULT_HOOD_CATEGORY_ID = "2412"
+
+
+class _DescriptionTextParser(HTMLParser):
+    """Extract readable text from an existing plain-text or HTML description."""
+
+    _IGNORED_TAGS = {"head", "script", "style"}
+    _BLOCK_TAGS = {
+        "address",
+        "article",
+        "br",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "ol",
+        "p",
+        "section",
+        "table",
+        "td",
+        "th",
+        "tr",
+        "ul",
+    }
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.ignored_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in self._IGNORED_TAGS:
+            self.ignored_depth += 1
+        elif not self.ignored_depth and tag in self._BLOCK_TAGS:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._IGNORED_TAGS and self.ignored_depth:
+            self.ignored_depth -= 1
+        elif not self.ignored_depth and tag in self._BLOCK_TAGS:
+            self.parts.append(" ")
+
+    def handle_data(self, data: str) -> None:
+        if not self.ignored_depth:
+            self.parts.append(data)
+
+
+def _hood_html_description(
+    *, title: str, description: str, properties: list[dict[str, str]]
+) -> str:
+    parser = _DescriptionTextParser()
+    parser.feed(description)
+    intro = " ".join(" ".join(parser.parts).split())
+    details = "".join(
+        '<tr><th scope="row">{}</th><td>{}</td></tr>'.format(
+            escape(str(item["name"])),
+            escape(str(item["value"])),
+        )
+        for item in properties
+    )
+    return (
+        "<!doctype html>\n"
+        '<html lang="de">\n'
+        "<head>\n"
+        '  <meta charset="utf-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
+        "  <style>\n"
+        "    body { margin: 0; padding: 16px; color: #222; "
+        "font-family: Arial, Helvetica, sans-serif; line-height: 1.6; }\n"
+        "    .product-description { max-width: 800px; margin: 0 auto; }\n"
+        "    .product-title { margin: 0 0 16px; font-size: 24px; "
+        "line-height: 1.3; }\n"
+        "    .product-intro { margin: 0 0 24px; }\n"
+        "    .product-details-title { margin: 0 0 12px; font-size: 19px; }\n"
+        "    .product-details { width: 100%; border-collapse: collapse; }\n"
+        "    .product-details th, .product-details td { padding: 9px 12px; "
+        "border: 1px solid #ddd; text-align: left; vertical-align: top; }\n"
+        "    .product-details th { width: 35%; background: #f5f5f5; "
+        "font-weight: 600; }\n"
+        "  </style>\n"
+        "</head>\n"
+        "<body>\n"
+        '  <main class="product-description">\n'
+        f'    <h1 class="product-title">{escape(title)}</h1>\n'
+        f'    <p class="product-intro">{escape(intro)}</p>\n'
+        '    <section aria-labelledby="product-details-heading">\n'
+        '      <h2 class="product-details-title" '
+        'id="product-details-heading">Produktdetails</h2>\n'
+        '      <table class="product-details">\n'
+        f"        <tbody>{details}</tbody>\n"
+        "      </table>\n"
+        "    </section>\n"
+        "  </main>\n"
+        "</body>\n"
+        "</html>"
+    )
 
 
 class HoodPayloadValidationError(ValueError):
@@ -115,7 +216,7 @@ def build_hood_payload(
         str(configuration.get("category_id", "")).strip() or DEFAULT_HOOD_CATEGORY_ID
     )
 
-    image_urls = public_generated_listing_urls(product)
+    image_urls = public_generated_listing_urls(product, account=account)
     if not image_urls:
         errors["image_urls"] = MISSING_LISTING_IMAGES
     elif any(not _is_public_http_url(url) for url in image_urls):
@@ -182,18 +283,20 @@ def build_hood_payload(
     # Manager can correct automatic values or add Hood-specific properties.
     automatic_properties.update(normalized_overrides)
 
+    product_properties = [
+        {"name": name, "value": value} for name, value in automatic_properties.items()
+    ]
+
     return {
         "title": title,
-        "description": description,
+        "description": _hood_html_description(
+            title=title,
+            description=description,
+            properties=product_properties,
+        ),
         "price": float(price),
         "quantity": variant.quantity,
         "categoryID": category_id,
         "image_urls": image_urls,
-        "product_properties": [
-            {
-                "name": name,
-                "value": value,
-            }
-            for name, value in automatic_properties.items()
-        ],
+        "product_properties": product_properties,
     }

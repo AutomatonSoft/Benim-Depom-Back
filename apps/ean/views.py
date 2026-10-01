@@ -50,6 +50,9 @@ class ManagerEanListView(generics.ListAPIView):
         if is_assigned == "true":
             queryset = queryset.filter(product__isnull=False)
         elif is_assigned == "false":
-            queryset = queryset.filter(product__isnull=True)
+            queryset = queryset.filter(
+                product__isnull=True,
+                state=EanCode.State.AVAILABLE,
+            )
 
         return queryset
