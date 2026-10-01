@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import logging
 import re
 from datetime import timedelta
+from io import BytesIO
 from typing import Any
 
 from celery import shared_task
@@ -9,6 +12,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from PIL import Image, ImageOps
 
 from apps.common.external_json import compact_external_json
 from apps.common.openai_text_service import (
@@ -24,6 +28,7 @@ from apps.marketplace.kaufland.status import (
     kaufland_status_failure_payload,
 )
 from apps.marketplace.otto.constants import OttoMarketplaceStatus
+from apps.products.models import ProductImage
 
 from .ai_content import (
     GeneratedContentValidationError,
@@ -47,6 +52,37 @@ from .publication_services import (
     mark_publication_succeeded,
     start_publication_attempt,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _primary_product_image_data_url(product_id: int) -> str | None:
+    """Prepare the main product photo for visual detail in AI descriptions."""
+
+    image = (
+        ProductImage.objects.filter(product_id=product_id)
+        .order_by("-is_primary", "position", "id")
+        .first()
+    )
+    if image is None or not image.image:
+        return None
+
+    try:
+        with image.image.open("rb") as source_file:
+            with Image.open(source_file) as source_image:
+                prepared_image = ImageOps.exif_transpose(source_image).convert("RGB")
+                prepared_image.thumbnail((1024, 1024))
+                buffer = BytesIO()
+                prepared_image.save(buffer, format="JPEG", quality=82, optimize=True)
+    except (OSError, ValueError, Image.DecompressionBombError):
+        logger.warning(
+            "Skipping unreadable product photo for AI description",
+            extra={"product_id": product_id, "image_id": image.pk},
+        )
+        return None
+
+    encoded_image = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded_image}"
 
 
 def path_with_ean(endpoint: str, ean: str) -> str:
@@ -643,7 +679,12 @@ def request_for_non_hood_channel(
             )
 
         if operation == MarketplaceJob.Operation.ACTIVATE:
-            return client.request(
+            if not payload:
+                raise ValueError(
+                    "OTTO activation requires a complete product update payload."
+                )
+
+            activation_result = client.request(
                 settings.OTTO_API_BASE_URL,
                 "POST",
                 settings.OTTO_API_ACTIVATE_ENDPOINT,
@@ -651,6 +692,17 @@ def request_for_non_hood_channel(
                     "ean": ean,
                     "controller": account,
                 },
+            )
+            if not activation_result["ok"]:
+                return activation_result
+
+            return request_for_non_hood_channel(
+                client,
+                marketplace=marketplace,
+                operation=MarketplaceJob.Operation.UPDATE,
+                ean=ean,
+                account=account,
+                payload=payload,
             )
         if operation == MarketplaceJob.Operation.DEACTIVATE:
             return client.request(
@@ -712,6 +764,7 @@ def execute_marketplace_job(self, job_id: str) -> None:
     if job.operation in {
         MarketplaceJob.Operation.PUBLISH,
         MarketplaceJob.Operation.UPDATE,
+        MarketplaceJob.Operation.ACTIVATE,
     }:
         try:
             # Rebuild right before the external call so compact_external_json
@@ -1576,15 +1629,18 @@ def generate_marketplace_content(
         request = build_universal_content_request(
             product_snapshot=generation.input_snapshot,
         )
+        image_data_url = _primary_product_image_data_url(generation.product_id)
         ai_result = service.generate_json(
             instructions=request.instructions,
             input_text=request.input_text,
             schema_name=request.schema_name,
             schema=request.schema,
+            image_data_url=image_data_url,
         )
         content = validate_universal_content(
             ai_result.data,
             product_snapshot=generation.input_snapshot,
+            validate_description_paragraphs=False,
         )
     except (
         OpenAITextServiceError,

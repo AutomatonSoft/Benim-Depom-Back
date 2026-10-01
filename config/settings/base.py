@@ -392,6 +392,7 @@ CELERY_TASK_ROUTES = {
     },
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
+    "apps.notifications.tasks.generate_product_xl_cover": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
     "apps.notifications.tasks.send_notification_push": {"queue": "notifications"},
     "apps.notifications.tasks.send_product_availability_reminders": {

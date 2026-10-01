@@ -274,12 +274,29 @@ class ProductImage(models.Model):
         FAILED = "failed", "Failed"
         RESULT_RECEIVED = "result_received", "Result received"
 
+    class XLCoverStatus(models.TextChoices):
+        IDLE = "idle", "Idle"
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         related_name="images",
     )
     image = models.ImageField(upload_to=product_image_upload_to)
+    preview = models.ImageField(
+        upload_to=product_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    thumbnail = models.ImageField(
+        upload_to=product_image_upload_to,
+        blank=True,
+        null=True,
+    )
     processed_image = models.ImageField(
         upload_to=product_image_upload_to,
         blank=True,
@@ -306,6 +323,12 @@ class ProductImage(models.Model):
         null=True,
         blank=True,
     )
+    xl_cover_status = models.CharField(
+        max_length=20,
+        choices=XLCoverStatus.choices,
+        default=XLCoverStatus.IDLE,
+    )
+    xl_cover_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -331,6 +354,7 @@ class ProductGeneratedImage(models.Model):
         WHITE = "white", "White background"
         INTERIOR = "interior", "Interior"
         HUMAN = "human", "Human"
+        XL_COVER = "xl_cover", "XL white background"
 
     source_image = models.ForeignKey(
         ProductImage,
@@ -342,6 +366,16 @@ class ProductGeneratedImage(models.Model):
         choices=Mode.choices,
     )
     image = models.ImageField(upload_to=generated_image_upload_to)
+    preview = models.ImageField(
+        upload_to=generated_image_upload_to,
+        blank=True,
+        null=True,
+    )
+    thumbnail = models.ImageField(
+        upload_to=generated_image_upload_to,
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
