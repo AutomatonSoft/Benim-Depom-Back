@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -68,6 +69,10 @@ Rules:
   exact information is explicitly present in the supplied product data.
 - Never mention stock quantity, availability, price, discounts, delivery
   time or delivery promises in generated title, description or bullets.
+- In bullet points, spell out dimension labels in German instead of using
+  abbreviations or an ``x`` formula. Write, for example, ``Breite: 70 cm,
+  Tiefe: 50 cm und Höhe: 90 cm``. Preserve the meaning and order of the
+  supplied dimensions (B = Breite, L = Länge, T = Tiefe, H = Höhe).
 - Do not write phrases such as "according to product data" or describe
   the source data itself.
 - Do not use quotation marks around the generated product title.
@@ -126,7 +131,11 @@ UNIVERSAL_CONTENT_SCHEMA = {
         "bullet_points": {
             "type": "array",
             "items": {"type": "string"},
-            "description": ("Three to five concise German product highlights."),
+            "description": (
+                "Three to five concise German product highlights. Spell out "
+                "dimension labels as Breite, Länge, Tiefe or Höhe; do not "
+                "use abbreviations or an x formula."
+            ),
         },
         "materials": {
             "type": "array",
@@ -351,10 +360,12 @@ def validate_universal_content(
 ) -> dict[str, Any]:
     """Normalize and validate the one universal AI response."""
 
-    title = str(data.get("title", "")).strip()
-    description = str(data.get("description", "")).strip()
+    title = _ascii_hyphens(str(data.get("title", "")).strip())
+    description = _ascii_hyphens(str(data.get("description", "")).strip())
     bullet_points = [
-        str(item).strip() for item in data.get("bullet_points", []) if str(item).strip()
+        _expand_dimension_abbreviations(_ascii_hyphens(str(item).strip()))
+        for item in data.get("bullet_points", [])
+        if str(item).strip()
     ]
     paragraphs = [
         paragraph.strip()
@@ -365,10 +376,12 @@ def validate_universal_content(
     seller_color = seller_color_from_snapshot(product_snapshot)
     seller_composition = seller_material_composition_from_snapshot(product_snapshot)
     materials = [
-        str(item).strip() for item in data.get("materials", []) if str(item).strip()
+        _ascii_hyphens(str(item).strip())
+        for item in data.get("materials", [])
+        if str(item).strip()
     ][:2]
-    color = str(data.get("color", "")).strip()
-    composition = str(data.get("material_composition", "")).strip()
+    color = _ascii_hyphens(str(data.get("color", "")).strip())
+    composition = _ascii_hyphens(str(data.get("material_composition", "")).strip())
     if not title or len(title) > 65:
         raise GeneratedContentValidationError(
             "AI title must contain 1 to 65 characters."
@@ -435,6 +448,33 @@ def validate_universal_content(
         "color": color,
         "material_composition": composition,
     }
+
+
+def _ascii_hyphens(value: str) -> str:
+    """Replace Unicode hyphen characters that Hood may corrupt in text."""
+
+    return value.replace("\u2011", "-").replace("\u2010", "-")
+
+
+def _expand_dimension_abbreviations(value: str) -> str:
+    """Spell out abbreviated German dimensions in generated bullet points."""
+
+    labels = {"B": "Breite", "L": "Länge", "T": "Tiefe", "H": "Höhe"}
+    pattern = re.compile(
+        r"\b([BLTH])\s*(\d+(?:[.,]\d+)?)\s*x\s*"
+        r"([BLTH])\s*(\d+(?:[.,]\d+)?)\s*x\s*"
+        r"([BLTH])\s*(\d+(?:[.,]\d+)?)\s*cm\b",
+        re.IGNORECASE,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        parts = [
+            f"{labels[match.group(index).upper()]}: {match.group(index + 1)} cm"
+            for index in (1, 3, 5)
+        ]
+        return f"{', '.join(parts[:-1])} und {parts[-1]}"
+
+    return pattern.sub(replace, value)
 
 
 def universal_description_to_hood_html(description: str) -> str:

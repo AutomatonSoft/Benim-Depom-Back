@@ -263,7 +263,6 @@ def generate_xl_cover(*, white_cover: bytes, title: str) -> bytes:
         raise ImproperlyConfigured(
             "XL cover generation is not configured. Set GOOGLE_API_KEY."
         )
-    
 
     try:
         from google import genai

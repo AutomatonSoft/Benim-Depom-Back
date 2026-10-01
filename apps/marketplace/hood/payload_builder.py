@@ -74,34 +74,34 @@ def _hood_html_description(
     parser.feed(description)
     intro = " ".join(" ".join(parser.parts).split())
     details = "".join(
-        "<tr><th scope=\"row\">{}</th><td>{}</td></tr>".format(
+        '<tr><th scope="row">{}</th><td>{}</td></tr>'.format(
             escape(str(item["name"])),
             escape(str(item["value"])),
         )
         for item in properties
     )
     return (
-        '<!doctype html>\n'
+        "<!doctype html>\n"
         '<html lang="de">\n'
-        '<head>\n'
+        "<head>\n"
         '  <meta charset="utf-8" />\n'
         '  <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
-        '  <style>\n'
-        '    body { margin: 0; padding: 16px; color: #222; '
-        'font-family: Arial, Helvetica, sans-serif; line-height: 1.6; }\n'
-        '    .product-description { max-width: 800px; margin: 0 auto; }\n'
-        '    .product-title { margin: 0 0 16px; font-size: 24px; '
-        'line-height: 1.3; }\n'
-        '    .product-intro { margin: 0 0 24px; }\n'
-        '    .product-details-title { margin: 0 0 12px; font-size: 19px; }\n'
-        '    .product-details { width: 100%; border-collapse: collapse; }\n'
-        '    .product-details th, .product-details td { padding: 9px 12px; '
-        'border: 1px solid #ddd; text-align: left; vertical-align: top; }\n'
-        '    .product-details th { width: 35%; background: #f5f5f5; '
-        'font-weight: 600; }\n'
-        '  </style>\n'
-        '</head>\n'
-        '<body>\n'
+        "  <style>\n"
+        "    body { margin: 0; padding: 16px; color: #222; "
+        "font-family: Arial, Helvetica, sans-serif; line-height: 1.6; }\n"
+        "    .product-description { max-width: 800px; margin: 0 auto; }\n"
+        "    .product-title { margin: 0 0 16px; font-size: 24px; "
+        "line-height: 1.3; }\n"
+        "    .product-intro { margin: 0 0 24px; }\n"
+        "    .product-details-title { margin: 0 0 12px; font-size: 19px; }\n"
+        "    .product-details { width: 100%; border-collapse: collapse; }\n"
+        "    .product-details th, .product-details td { padding: 9px 12px; "
+        "border: 1px solid #ddd; text-align: left; vertical-align: top; }\n"
+        "    .product-details th { width: 35%; background: #f5f5f5; "
+        "font-weight: 600; }\n"
+        "  </style>\n"
+        "</head>\n"
+        "<body>\n"
         '  <main class="product-description">\n'
         f'    <h1 class="product-title">{escape(title)}</h1>\n'
         f'    <p class="product-intro">{escape(intro)}</p>\n'
@@ -109,12 +109,12 @@ def _hood_html_description(
         '      <h2 class="product-details-title" '
         'id="product-details-heading">Produktdetails</h2>\n'
         '      <table class="product-details">\n'
-        f'        <tbody>{details}</tbody>\n'
-        '      </table>\n'
-        '    </section>\n'
-        '  </main>\n'
-        '</body>\n'
-        '</html>'
+        f"        <tbody>{details}</tbody>\n"
+        "      </table>\n"
+        "    </section>\n"
+        "  </main>\n"
+        "</body>\n"
+        "</html>"
     )
 
 
