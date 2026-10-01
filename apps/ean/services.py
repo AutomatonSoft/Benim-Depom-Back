@@ -147,6 +147,7 @@ def get_ean_summary() -> dict:
         available_count = EanCode.objects.filter(
             account=account,
             state=EanCode.State.AVAILABLE,
+            product__isnull=True,
         ).count()
         accounts.append(
             {

@@ -88,6 +88,7 @@ def build_target_payloads(
                 if operation not in {
                     MarketplaceJob.Operation.PUBLISH,
                     MarketplaceJob.Operation.UPDATE,
+                    MarketplaceJob.Operation.ACTIVATE,
                 }:
                     continue
                 payload = build_otto_payload(
@@ -185,7 +186,6 @@ def create_marketplace_job(
     if target_payloads is None and operation in {
         MarketplaceJob.Operation.PUBLISH,
         MarketplaceJob.Operation.UPDATE,
-        MarketplaceJob.Operation.ACTIVATE,
     }:
         target_payloads = build_target_payloads(
             product=product,

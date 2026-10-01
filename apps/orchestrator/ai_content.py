@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -68,11 +69,37 @@ Rules:
   exact information is explicitly present in the supplied product data.
 - Never mention stock quantity, availability, price, discounts, delivery
   time or delivery promises in generated title, description or bullets.
+- In bullet points, spell out dimension labels in German instead of using
+  abbreviations or an ``x`` formula. Write, for example, ``Breite: 70 cm,
+  Tiefe: 50 cm und Höhe: 90 cm``. Preserve the meaning and order of the
+  supplied dimensions (B = Breite, L = Länge, T = Tiefe, H = Höhe).
 - Do not write phrases such as "according to product data" or describe
   the source data itself.
 - Do not use quotation marks around the generated product title.
 - Title must be at most 65 characters. Do not append a brand suffix;
   the system adds `` (BD)`` later.
+- Write a natural, appealing product title, not a bare name or keyword list.
+  Always begin the title with a German word, never a digit or number. If a
+  product type starts with a number (for example, ``4-Fußstuhl``), put a
+  supported colour or product word before it. Then add its most useful
+  supported
+  differentiators: a clearly visible design feature from the photo and one
+  or two key facts such as colour, material or intended use. Prefer a
+  specific detail over generic words such as "beautiful" or "high quality".
+  Do not infer material, construction, comfort or durability from a photo.
+  Aim for 45 to 65 characters when the supplied facts support it; never pad
+  the title, exceed 65 characters or append `` (BD)`` yourself.
+  Example: ``Schwarzer 4-Fuß-Bürostuhl mit textilem Bezug im schlichten
+  Design`` is preferable to ``Schwarzer Bürostuhl`` when those details are
+  supported by the product data and photo.
+- Write descriptions as useful, appealing sales copy rather than a short
+  inventory sentence. Write naturally and warmly, not like a specification
+  list. When a photo is supplied, explain the product's clearly visible
+  shape and design, and connect them to the product type and attributes.
+  Use the photo only for appearance; use written product data for materials,
+  measurements, capacity and functions. Never infer comfort, quality,
+  durability or construction from the photo. Develop supported details
+  instead of repeating them, and avoid empty superlatives.
 - Use only facts present in the supplied product data.
 - Keep the content clear, commercially useful and suitable for a marketplace.
 - Return only data matching the supplied JSON schema.
@@ -86,19 +113,29 @@ UNIVERSAL_CONTENT_SCHEMA = {
     "properties": {
         "title": {
             "type": "string",
-            "description": ("German marketplace title, maximum 65 characters."),
+            "description": (
+                "Natural, attractive German product title: exact product "
+                "type plus supported distinguishing details; starts with a "
+                "German word, never a number; maximum 65 "
+                "characters, without the system-added (BD) suffix."
+            ),
         },
         "description": {
             "type": "string",
             "description": (
-                "German description consisting of two or three plain-text "
-                "paragraphs separated by an empty line."
+                "Appealing, informative German product description in three "
+                "plain-text paragraphs, about 70 to 110 words total. "
+                "Separate paragraphs with an empty line; do not use HTML."
             ),
         },
         "bullet_points": {
             "type": "array",
             "items": {"type": "string"},
-            "description": ("Three to five concise German product highlights."),
+            "description": (
+                "Three to five concise German product highlights. Spell out "
+                "dimension labels as Breite, Länge, Tiefe or Höhe; do not "
+                "use abbreviations or an x formula."
+            ),
         },
         "materials": {
             "type": "array",
@@ -254,13 +291,16 @@ def build_universal_content_request(
             "never invent a piece missing from the data."
         )
         description_rule = (
-            "- description: two to six plain-text paragraphs separated "
-            "by one empty line; do not use HTML;\n"
+            "- description: three to five informative plain-text paragraphs, "
+            "100 to 150 German words total, separated by one empty line; do "
+            "not use HTML; explain the supplied set and its parts using only "
+            "given facts, without invented benefits or details;\n"
         )
     else:
         description_rule = (
-            "- description: two or three plain-text paragraphs separated "
-            "by one empty line; do not use HTML;\n"
+            "- description: exactly three informative plain-text paragraphs, "
+            "70 to 110 German words total, separated by one empty line; do "
+            "not use HTML;\n"
         )
 
     return UniversalContentRequest(
@@ -283,7 +323,25 @@ def build_universal_content_request(
             "name, correcting spelling mistakes;\n"
             "- do not include prices, delivery promises, guarantees or "
             "claims not present in product data;\n"
-            "- turn a raw seller title into a natural German product title;\n"
+            "- make the title a natural, appealing German product phrase, "
+            "not a bare name or keyword list: always start with a German "
+            "word, never a digit or number. If the product type starts with "
+            "a number (for example, 4-Fußstuhl), put a supported colour or "
+            "product word before it. Then add its clearest supported "
+            "differentiator from the "
+            "photo and one or two useful facts from the product data; aim "
+            "for 45 to 65 characters when facts support it, but never pad, "
+            "exceed 65 characters or append (BD); do not infer material, "
+            "construction, comfort or quality from the photo;\n"
+            "- make descriptions informative and buyer-focused: explain the "
+            "product's visible shape and design in the opening paragraph; "
+            "use the second paragraph to describe its supported material "
+            "and appearance; use the third for supplied dimensions, capacity "
+            "and practical use. Write distinct, flowing paragraphs, not a "
+            "feature list. Modestly praise the visible design, but never "
+            "invent features, performance, comfort or quality. Avoid filler, "
+            "repeated claims and tautologies such as saying a textile cover "
+            "is made of textile twice;\n"
             "- use dimensions and materials only as factual product details."
             f"{set_instructions}"
         ),
@@ -298,13 +356,16 @@ def validate_universal_content(
     data: dict[str, Any],
     *,
     product_snapshot: dict[str, Any] | None = None,
+    validate_description_paragraphs: bool = True,
 ) -> dict[str, Any]:
     """Normalize and validate the one universal AI response."""
 
-    title = str(data.get("title", "")).strip()
-    description = str(data.get("description", "")).strip()
+    title = _ascii_hyphens(str(data.get("title", "")).strip())
+    description = _ascii_hyphens(str(data.get("description", "")).strip())
     bullet_points = [
-        str(item).strip() for item in data.get("bullet_points", []) if str(item).strip()
+        _expand_dimension_abbreviations(_ascii_hyphens(str(item).strip()))
+        for item in data.get("bullet_points", [])
+        if str(item).strip()
     ]
     paragraphs = [
         paragraph.strip()
@@ -315,22 +376,28 @@ def validate_universal_content(
     seller_color = seller_color_from_snapshot(product_snapshot)
     seller_composition = seller_material_composition_from_snapshot(product_snapshot)
     materials = [
-        str(item).strip() for item in data.get("materials", []) if str(item).strip()
+        _ascii_hyphens(str(item).strip())
+        for item in data.get("materials", [])
+        if str(item).strip()
     ][:2]
-    color = str(data.get("color", "")).strip()
-    composition = str(data.get("material_composition", "")).strip()
+    color = _ascii_hyphens(str(data.get("color", "")).strip())
+    composition = _ascii_hyphens(str(data.get("material_composition", "")).strip())
     if not title or len(title) > 65:
         raise GeneratedContentValidationError(
             "AI title must contain 1 to 65 characters."
         )
 
-    max_paragraphs = 6 if snapshot_has_set_parts(product_snapshot) else 3
-    if not 2 <= len(paragraphs) <= max_paragraphs:
-        raise GeneratedContentValidationError(
-            "AI description must contain two or three paragraphs."
-            if max_paragraphs == 3
-            else "AI set description must contain two to six paragraphs."
-        )
+    if not description:
+        raise GeneratedContentValidationError("AI description cannot be empty.")
+
+    if validate_description_paragraphs:
+        max_paragraphs = 6 if snapshot_has_set_parts(product_snapshot) else 3
+        if not 2 <= len(paragraphs) <= max_paragraphs:
+            raise GeneratedContentValidationError(
+                "AI description must contain two or three paragraphs."
+                if max_paragraphs == 3
+                else "AI set description must contain two to six paragraphs."
+            )
 
     if not 3 <= len(bullet_points) <= 5:
         raise GeneratedContentValidationError(
@@ -381,6 +448,33 @@ def validate_universal_content(
         "color": color,
         "material_composition": composition,
     }
+
+
+def _ascii_hyphens(value: str) -> str:
+    """Replace Unicode hyphen characters that Hood may corrupt in text."""
+
+    return value.replace("\u2011", "-").replace("\u2010", "-")
+
+
+def _expand_dimension_abbreviations(value: str) -> str:
+    """Spell out abbreviated German dimensions in generated bullet points."""
+
+    labels = {"B": "Breite", "L": "Länge", "T": "Tiefe", "H": "Höhe"}
+    pattern = re.compile(
+        r"\b([BLTH])\s*(\d+(?:[.,]\d+)?)\s*x\s*"
+        r"([BLTH])\s*(\d+(?:[.,]\d+)?)\s*x\s*"
+        r"([BLTH])\s*(\d+(?:[.,]\d+)?)\s*cm\b",
+        re.IGNORECASE,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        parts = [
+            f"{labels[match.group(index).upper()]}: {match.group(index + 1)} cm"
+            for index in (1, 3, 5)
+        ]
+        return f"{', '.join(parts[:-1])} und {parts[-1]}"
+
+    return pattern.sub(replace, value)
 
 
 def universal_description_to_hood_html(description: str) -> str:

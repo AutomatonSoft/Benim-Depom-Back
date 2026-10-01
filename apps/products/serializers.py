@@ -273,6 +273,8 @@ class ProductGeneratedImageSerializer(serializers.ModelSerializer):
             "id",
             "mode",
             "image",
+            "preview",
+            "thumbnail",
             "created_at",
         )
         read_only_fields = fields
@@ -290,23 +292,31 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "image",
+            "preview",
+            "thumbnail",
             "processed_image",
             "position",
             "is_primary",
             "processing_status",
             "processing_error",
             "processing_result",
+            "xl_cover_status",
+            "xl_cover_error",
             "generated_images",
         )
         read_only_fields = (
             "id",
             "image",
+            "preview",
+            "thumbnail",
             "processed_image",
             "position",
             "is_primary",
             "processing_status",
             "processing_error",
             "processing_result",
+            "xl_cover_status",
+            "xl_cover_error",
         )
 
     def to_representation(self, instance):
@@ -319,6 +329,8 @@ class ProductImageSerializer(serializers.ModelSerializer):
                 "processing_status",
                 "processing_error",
                 "processing_result",
+                "xl_cover_status",
+                "xl_cover_error",
                 "generated_images",
             ):
                 data.pop(field, None)
