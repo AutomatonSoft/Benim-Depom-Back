@@ -1202,6 +1202,10 @@ class ProductImageUploadSerializer(serializers.Serializer):
         return image
 
 
+class ProductGeneratedImageUploadSerializer(ProductImageUploadSerializer):
+    mode = serializers.ChoiceField(choices=ProductGeneratedImage.Mode.choices)
+
+
 @extend_schema_serializer(component_name="ProductsSubmit")
 class ProductSubmitSerializer(serializers.Serializer):
     image_ids = serializers.ListField(

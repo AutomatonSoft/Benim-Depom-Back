@@ -42,6 +42,7 @@ from .serializers import (
     PriceNegotiationSerializer,
     ProductAvailabilitySerializer,
     ProductGeneratedImageSerializer,
+    ProductGeneratedImageUploadSerializer,
     ProductImageReorderSerializer,
     ProductImageSerializer,
     ProductImageUploadSerializer,
@@ -62,6 +63,7 @@ from .services import (
     request_product_deactivation,
     request_product_image_processing,
     respond_to_price_negotiation,
+    upload_generated_product_image,
     upload_product_image,
     withdraw_product_submission,
 )
@@ -602,6 +604,38 @@ class ProductGeneratedImageDeleteView(ManagerMutationThrottleMixin, APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProductGeneratedImageUploadView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = [IsManager]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        request=ProductGeneratedImageUploadSerializer,
+        responses={201: ProductGeneratedImageSerializer},
+    )
+    def post(self, request, product_pk: int, image_pk: int):
+        """Add a manually supplied image to an empty marketplace image slot."""
+        product = get_object_or_404(
+            Product.objects.exclude(status=Product.Status.ARCHIVED), pk=product_pk
+        )
+        source_image = get_object_or_404(
+            ProductImage, pk=image_pk, product=product, is_primary=True
+        )
+        serializer = ProductGeneratedImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        generated = upload_generated_product_image(
+            product=product,
+            source_image=source_image,
+            mode=serializer.validated_data["mode"],
+            image_file=serializer.validated_data["image"],
+        )
+        return Response(
+            ProductGeneratedImageSerializer(
+                generated, context={"request": request}
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class ProductImageReplaceView(ManagerMutationThrottleMixin, APIView):
     permission_classes = [IsManager]
     parser_classes = [MultiPartParser, FormParser]
@@ -681,12 +715,9 @@ class ProductXLCoverGenerateView(ManagerMutationThrottleMixin, APIView):
                 product=product,
                 is_primary=True,
             )
-            if (
-                image.processing_status != ProductImage.ProcessingStatus.SUCCEEDED
-                or not image.generated_images.filter(
-                    mode=ProductGeneratedImage.Mode.WHITE
-                ).exists()
-            ):
+            if not image.generated_images.filter(
+                mode=ProductGeneratedImage.Mode.WHITE
+            ).exists():
                 raise ValidationError(
                     {"detail": "Generate the JV cover before the XL cover."}
                 )
