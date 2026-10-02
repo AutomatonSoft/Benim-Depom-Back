@@ -700,6 +700,56 @@ def upload_product_image(
 
 
 @transaction.atomic
+def upload_generated_product_image(
+    *, product: Product, source_image: ProductImage, mode: str, image_file
+) -> ProductGeneratedImage:
+    """Save a manager-uploaded marketplace image in its selected AI slot."""
+    optimized_image, thumbnail = make_product_image_variants(image_file)
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    ensure_product_is_editable(locked_product, allow_after_approval=True)
+    locked_source = ProductImage.objects.select_for_update().get(
+        pk=source_image.pk, product=locked_product, is_primary=True
+    )
+
+    if locked_source.generated_images.filter(mode=mode).exists():
+        raise ValidationError({"mode": "An image already exists in this slot."})
+
+    generated = ProductGeneratedImage(source_image=locked_source, mode=mode)
+    generated.image.save(optimized_image.name, optimized_image, save=False)
+    generated.thumbnail.save(thumbnail.name, thumbnail, save=False)
+    generated.save()
+
+    if mode == ProductGeneratedImage.Mode.WHITE:
+        locked_source.processed_image = generated.image
+        locked_source.save(update_fields=("processed_image",))
+    elif mode == ProductGeneratedImage.Mode.XL_COVER:
+        locked_source.xl_cover_status = ProductImage.XLCoverStatus.SUCCEEDED
+        locked_source.xl_cover_error = ""
+        locked_source.save(update_fields=("xl_cover_status", "xl_cover_error"))
+
+    external_modes = {
+        ProductGeneratedImage.Mode.WHITE,
+        ProductGeneratedImage.Mode.INTERIOR,
+        ProductGeneratedImage.Mode.HUMAN,
+    }
+    if external_modes.issubset(
+        set(locked_source.generated_images.values_list("mode", flat=True))
+    ):
+        locked_source.processing_status = ProductImage.ProcessingStatus.SUCCEEDED
+        locked_source.processing_error = ""
+        locked_source.processing_finished_at = timezone.now()
+        locked_source.save(
+            update_fields=(
+                "processing_status",
+                "processing_error",
+                "processing_finished_at",
+            )
+        )
+
+    return generated
+
+
+@transaction.atomic
 def delete_product_image(
     *,
     product: Product,
