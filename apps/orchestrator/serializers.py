@@ -230,6 +230,12 @@ class MarketplaceJobFilterSerializer(serializers.Serializer):
 
 
 class MarketplaceJobSerializer(serializers.ModelSerializer):
+    reconciliation_action = serializers.CharField(
+        source="request_payload.reconciliation_action",
+        read_only=True,
+        default="",
+    )
+    requested_by_id = serializers.IntegerField(read_only=True)
     product_id = serializers.IntegerField(read_only=True)
     product_title = serializers.CharField(source="product.title", read_only=True)
     requested_targets = serializers.SerializerMethodField()
@@ -250,6 +256,8 @@ class MarketplaceJobSerializer(serializers.ModelSerializer):
             "product_id",
             "product_title",
             "operation",
+            "reconciliation_action",
+            "requested_by_id",
             "status",
             "in_progress",
             "request_id",
@@ -390,6 +398,26 @@ class MarketplacePublicationFilterSerializer(serializers.Serializer):
         required=False,
     )
     search = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
+
+class MarketplacePublicationReconciliationSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=("check", "confirm_manual", "set_manual"))
+    confirmed = serializers.BooleanField(required=False, default=False)
+    status = serializers.ChoiceField(
+        choices=("active", "deactivated", "failed"),
+        required=False,
+    )
+
+    def validate(self, attrs):
+        if attrs["action"] == "confirm_manual" and not attrs["confirmed"]:
+            raise serializers.ValidationError(
+                "Confirm that you checked the listing on the marketplace."
+            )
+        if attrs["action"] == "set_manual" and "status" not in attrs:
+            raise serializers.ValidationError(
+                {"status": "Select a publication status."}
+            )
+        return attrs
 
 
 @extend_schema_serializer(component_name="MarketplacePublication")
