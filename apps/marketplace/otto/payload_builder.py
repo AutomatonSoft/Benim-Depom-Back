@@ -189,10 +189,9 @@ def _build_category_attributes(
 
         values = _normalize_attribute_values(raw_value)
 
-        # OTTO does not have one universal `color` field.  It is a category
-        # attribute, therefore replace its value only when that category has
-        # an explicitly selected color attribute.
-        if _is_color_attribute(definition):
+        # Only free-text color attributes use the listing color. Catalog
+        # selections must retain their original values, including case.
+        if _is_color_attribute(definition) and not definition.get("allowedValues"):
             if color_error is None and not listing_color_name:
                 listing_color_name, color_error = listing_color(
                     configuration=configuration or {},
