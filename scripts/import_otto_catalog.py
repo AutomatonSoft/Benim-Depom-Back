@@ -52,7 +52,9 @@ def load_all_categories() -> list[dict]:
 
 
 def canonical_hash(attributes: list[dict]) -> str:
-    payload = json.dumps(attributes, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(
+        attributes, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -118,7 +120,9 @@ def main() -> None:
     }
     write_json_atomically(OUTPUT_DIR / "categories.json", categories_payload)
     write_json_atomically(OUTPUT_DIR / "attributes_by_group.json", attributes_payload)
-    print(f"Done: {len(categories)} categories, {len(attributes_by_group)} category groups.")
+    print(
+        f"Done: {len(categories)} categories, {len(attributes_by_group)} category groups."
+    )
 
 
 if __name__ == "__main__":

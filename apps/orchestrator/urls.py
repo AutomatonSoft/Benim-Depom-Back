@@ -5,6 +5,7 @@ from .views import (
     MarketplaceJobDetailView,
     MarketplaceJobListView,
     MarketplacePublicationListView,
+    MarketplacePublicationReconciliationView,
     ProductHoodListingConfigurationView,
     ProductHoodPayloadPreviewView,
     ProductKauflandCreatePayloadPreviewView,
@@ -22,6 +23,11 @@ from .views import (
 app_name = "orchestrator"
 
 urlpatterns = [
+    path(
+        "publications/<int:publication_pk>/reconcile/",
+        MarketplacePublicationReconciliationView.as_view(),
+        name="marketplace-publication-reconcile",
+    ),
     path(
         "products/<int:product_pk>/listing-state/",
         ProductMarketplaceListingStateView.as_view(),

@@ -756,6 +756,22 @@ def execute_marketplace_job(self, job_id: str) -> None:
             )
         )
 
+    if job.request_payload.get("reconciliation_action") == "check":
+        from .publication_reconciliation import check_publication, finish_reconciliation
+
+        try:
+            check_publication(job)
+        except Exception:
+            logger.exception("Publication status check failed for job %s", job.pk)
+            finish_reconciliation(
+                job,
+                confirmed=False,
+                details={
+                    "detail": "Unable to confirm the publication. Try checking again."
+                },
+            )
+        return
+
     payloads = job.request_payload.get("payloads", {})
     stored_target_payloads = job.request_payload.get("target_payloads", {})
     targets = get_targets_for_job(job)
