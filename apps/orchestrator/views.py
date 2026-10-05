@@ -65,6 +65,7 @@ from .serializers import (
     MarketplaceJobSerializer,
     MarketplaceListingStateRequestSerializer,
     MarketplacePublicationFilterSerializer,
+    MarketplacePublicationReconciliationSerializer,
     MarketplacePublicationSerializer,
     OttoListingConfigurationResponseSerializer,
     OttoListingConfigurationSerializer,
@@ -505,6 +506,39 @@ class ProductMarketplacePublicationListView(APIView):
                 publications,
                 many=True,
             ).data
+        )
+
+
+class MarketplacePublicationReconciliationView(ManagerMutationThrottleMixin, APIView):
+    permission_classes = (IsAuthenticated, IsManager)
+
+    @extend_schema(
+        request=MarketplacePublicationReconciliationSerializer,
+        responses={200: MarketplaceJobSerializer, 202: MarketplaceJobSerializer},
+    )
+    def post(self, request, publication_pk):
+        from .publication_reconciliation import create_reconciliation
+
+        get_object_or_404(MarketplacePublication, pk=publication_pk)
+        serializer = MarketplacePublicationReconciliationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        action = serializer.validated_data["action"]
+        with transaction.atomic():
+            job = create_reconciliation(
+                publication_id=publication_pk,
+                user=request.user,
+                action=action,
+                target_status=serializer.validated_data.get("status"),
+            )
+            if action == "check":
+                transaction.on_commit(
+                    lambda: execute_marketplace_job.delay(str(job.pk))
+                )
+        return Response(
+            MarketplaceJobSerializer(job).data,
+            status=status.HTTP_202_ACCEPTED
+            if action == "check"
+            else status.HTTP_200_OK,
         )
 
 
