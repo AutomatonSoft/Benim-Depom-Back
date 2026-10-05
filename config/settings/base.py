@@ -412,8 +412,8 @@ CELERY_TASK_ROUTES = {
 }
 CELERY_TASK_ANNOTATIONS = {
     "apps.orchestrator.tasks.execute_marketplace_job": {
-        "soft_time_limit": 240,
-        "time_limit": 270,
+        "soft_time_limit": 420,
+        "time_limit": 450,
     },
     "apps.orchestrator.tasks.generate_marketplace_content": {
         "soft_time_limit": 270,
@@ -569,7 +569,7 @@ MARKETPLACE_HTTP_CONNECT_TIMEOUT_SECONDS = env.int(
 
 MARKETPLACE_HTTP_READ_TIMEOUT_SECONDS = env.int(
     "MARKETPLACE_HTTP_READ_TIMEOUT_SECONDS",
-    default=25,
+    default=60,
 )
 
 MARKETPLACE_HTTP_RETRY_TOTAL = env.int(
