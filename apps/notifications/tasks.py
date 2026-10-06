@@ -1039,6 +1039,7 @@ def generate_product_xl_cover(image_id: int) -> dict:
             generated_bytes = generate_xl_cover(
                 white_cover=white_cover.image.read(),
                 title=image.product.title,
+                is_set=image.product.set_parts.exists(),
             )
         finally:
             white_cover.image.close()
