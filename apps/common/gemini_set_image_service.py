@@ -257,7 +257,7 @@ def generate_set_listing_images(
     return generated
 
 
-def generate_xl_cover(*, white_cover: bytes, title: str) -> bytes:
+def generate_xl_cover(*, white_cover: bytes, title: str, is_set: bool = False) -> bytes:
     """Create a clearly distinct white-background packshot for the XL account."""
     if not settings.GOOGLE_API_KEY:
         raise ImproperlyConfigured(
@@ -308,6 +308,15 @@ def generate_xl_cover(*, white_cover: bytes, title: str) -> bytes:
                             "on the background; keep natural shading on the product itself "
                             "so its shape and details remain clear. No props, "
                             "text, logos, watermark, extra objects, or people."
+                            + (
+                                " This product is a furniture set. Preserve every item "
+                                "shown in the reference, with the same item count and "
+                                "relative sizes. Show the entire set together, fully "
+                                "visible and uncropped, from the new camera angle. "
+                                "Do not remove, duplicate, merge or add pieces."
+                                if is_set
+                                else ""
+                            )
                         )
                     ),
                     types.Part.from_bytes(data=white_cover, mime_type="image/jpeg"),

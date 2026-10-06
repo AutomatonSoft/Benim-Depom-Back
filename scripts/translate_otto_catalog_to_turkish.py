@@ -290,7 +290,9 @@ Rules:
 """.strip()
 
 
-def batch_line(custom_id: str, entries: list[dict[str, str]], model: str) -> dict[str, Any]:
+def batch_line(
+    custom_id: str, entries: list[dict[str, str]], model: str
+) -> dict[str, Any]:
     return {
         "custom_id": custom_id,
         "method": "POST",
@@ -353,7 +355,13 @@ def prepare(
     entries = build_entries(categories_payload, attributes_payload)
     resolved_entries, unique_entries = deduplicate_entries(entries)
     chunks = chunk_entries(unique_entries)
-    return categories_payload, attributes_payload, resolved_entries, unique_entries, chunks
+    return (
+        categories_payload,
+        attributes_payload,
+        resolved_entries,
+        unique_entries,
+        chunks,
+    )
 
 
 def command_dry_run(args: argparse.Namespace) -> int:
@@ -468,7 +476,8 @@ def extract_output_text(response_body: dict[str, Any]) -> str:
 
 
 def read_batch_translations(
-    *, client: OpenAI,
+    *,
+    client: OpenAI,
     batch_id: str,
     expected_keys_by_request: dict[str, set[str]],
 ) -> tuple[dict[str, str], list[dict[str, Any]]]:
@@ -490,9 +499,7 @@ def read_batch_translations(
         custom_id = record.get("custom_id")
         response = record.get("response")
         if custom_id not in expected_keys_by_request:
-            failures.append(
-                {"custom_id": custom_id, "reason": "unknown request ID"}
-            )
+            failures.append({"custom_id": custom_id, "reason": "unknown request ID"})
             continue
         received_request_ids.add(custom_id)
         expected_keys = expected_keys_by_request[custom_id]
@@ -541,11 +548,7 @@ def read_batch_translations(
 
         if set(received) != expected_keys:
             translations.update(
-                {
-                    key: text
-                    for key, text in received.items()
-                    if key in expected_keys
-                }
+                {key: text for key, text in received.items() if key in expected_keys}
             )
             failures.append(
                 {
@@ -595,7 +598,9 @@ def retry_missing_translations(
     try:
         retry_entries = [entries_by_key[key] for key in retry_keys]
     except KeyError as exc:
-        raise TranslationError("A retry key is absent from the translation input.") from exc
+        raise TranslationError(
+            "A retry key is absent from the translation input."
+        ) from exc
 
     recovered: dict[str, str] = {}
     for offset in range(0, len(retry_entries), 5):
@@ -733,7 +738,9 @@ def command_collect(args: argparse.Namespace) -> int:
         chunks,
     ) = prepare(args.source_dir)
     source = state.get("source", {})
-    if source.get("categories_sha256") != json_sha256(args.source_dir / "categories.json") or (
+    if source.get("categories_sha256") != json_sha256(
+        args.source_dir / "categories.json"
+    ) or (
         source.get("attributes_by_group_sha256")
         != json_sha256(args.source_dir / "attributes_by_group.json")
     ):
@@ -782,8 +789,7 @@ def command_collect(args: argparse.Namespace) -> int:
     if len(unique_translations) != len(unique_entries):
         raise TranslationError("Collection is still missing one or more translations.")
     translations = {
-        entry["key"]: unique_translations[entry["translation_key"]]
-        for entry in entries
+        entry["key"]: unique_translations[entry["translation_key"]] for entry in entries
     }
     categories_output, attributes_output = build_output_payloads(
         categories_payload=categories_payload,

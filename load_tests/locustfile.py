@@ -17,7 +17,9 @@ def env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
-def has_login_creds(*, email_env: str, username_env: str, password_env: str, token_env: str) -> bool:
+def has_login_creds(
+    *, email_env: str, username_env: str, password_env: str, token_env: str
+) -> bool:
     if env(token_env):
         return True
     login_id = env(email_env) or env(username_env)
