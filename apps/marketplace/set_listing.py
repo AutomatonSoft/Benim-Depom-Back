@@ -3,6 +3,8 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from apps.marketplace.materials import contains_source_language
+
 
 def _format_cm(value: Any) -> str:
     """Format a centimetre value without trailing zeros."""
@@ -74,7 +76,7 @@ def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
     variants = product_snapshot.get("variants") or []
     main = variants[0] if variants else {}
     main_label = str(product_snapshot.get("seller_product_type") or "").strip()
-    if not main_label:
+    if not main_label or contains_source_language(main_label):
         main_label = "Hauptartikel"
 
     lines = ["Lieferumfang & Maße:"]
@@ -86,7 +88,9 @@ def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
         f"{main.get('length_cm', '')} cm"
     )
     for index, part in enumerate(parts, start=2):
-        label = str(part.get("description") or "").strip() or f"Teil {index}"
+        label = str(part.get("description") or "").strip()
+        if not label or contains_source_language(label):
+            label = f"Teil {index}"
         lines.append(
             f"{index}. {label}: B/H/T ca. "
             f"{part.get('width_cm', '')} x "
