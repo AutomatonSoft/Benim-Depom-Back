@@ -276,9 +276,27 @@ def build_universal_content_request(
 ) -> UniversalContentRequest:
     """Build a single content-generation request shared by all marketplaces."""
 
+    schema = UNIVERSAL_CONTENT_SCHEMA
     set_instructions = ""
     if snapshot_has_set_parts(product_snapshot):
         piece_count = set_piece_count_from_snapshot(product_snapshot)
+        schema = {
+            **UNIVERSAL_CONTENT_SCHEMA,
+            "properties": {
+                **UNIVERSAL_CONTENT_SCHEMA["properties"],
+                "set_item_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "German names of all set pieces in source order: "
+                        "main item first, then every set_parts entry. "
+                        "Translate the actual names, including distinctions "
+                        "such as Sessel and zweites Sofa; no generic Teil labels."
+                    ),
+                },
+            },
+            "required": (*UNIVERSAL_CONTENT_SCHEMA["required"], "set_item_names"),
+        }
         set_instructions = (
             "\n- this listing is one furniture set sold together, not "
             "separate products;\n"
@@ -290,6 +308,11 @@ def build_universal_content_request(
             "including Lieferumfang and dimension lists. Never copy Russian "
             "words or Cyrillic text from the input; preserve distinctions "
             "such as a second sofa as German wording (zweites Sofa);\n"
+            f"- set_item_names: exactly {piece_count} German names, main "
+            "item first, then each set_parts entry in its original order. "
+            "Translate actual piece names; use Sessel for кресло and zweites "
+            "Sofa for второй диван, not Teil 2 or Teil 3. Keep each name "
+            "associated with its own dimensions;\n"
             "- cover every piece and its given sizes;\n"
             "- bullet_points: first the set, then the most important pieces; "
             "never invent a piece missing from the data."
@@ -309,7 +332,7 @@ def build_universal_content_request(
 
     return UniversalContentRequest(
         schema_name="universal_marketplace_content",
-        schema=UNIVERSAL_CONTENT_SCHEMA,
+        schema=schema,
         instructions=(
             f"{COMMON_INSTRUCTIONS}\n\n"
             "Create one universal German marketplace content draft.\n"
@@ -444,7 +467,7 @@ def validate_universal_content(
     if len(materials) > 2:
         materials = materials[:2]
 
-    return {
+    result = {
         "title": title,
         "description": "\n\n".join(paragraphs),
         "bullet_points": bullet_points,
@@ -452,6 +475,16 @@ def validate_universal_content(
         "color": color,
         "material_composition": composition,
     }
+    if snapshot_has_set_parts(product_snapshot):
+        names = data.get("set_item_names")
+        if isinstance(names, list) and len(names) == set_piece_count_from_snapshot(
+            product_snapshot
+        ):
+            result["set_item_names"] = [
+                _ascii_hyphens(name.strip()) if isinstance(name, str) else ""
+                for name in names
+            ]
+    return result
 
 
 def _ascii_hyphens(value: str) -> str:
@@ -503,7 +536,11 @@ def universal_content_to_marketplace_configuration(
     title = with_listing_brand_mark(content["title"], max_length=70)
     description = content["description"]
     if marketplace in {"otto", "hood"}:
-        description = with_set_dimensions(description, product_snapshot or {})
+        description = with_set_dimensions(
+            description,
+            product_snapshot or {},
+            item_names=content.get("set_item_names"),
+        )
 
     if marketplace == "otto":
         payload = {
