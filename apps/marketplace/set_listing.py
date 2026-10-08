@@ -67,7 +67,9 @@ def set_piece_count_from_snapshot(product_snapshot: dict[str, Any]) -> int:
     return 1 + len(product_snapshot.get("set_parts") or [])
 
 
-def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
+def dimensions_block_from_snapshot(
+    product_snapshot: dict[str, Any], *, item_names: list[str] | None = None
+) -> str:
     """German size list for the main item and every extra piece."""
     parts = product_snapshot.get("set_parts") or []
     if not parts:
@@ -75,7 +77,14 @@ def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
 
     variants = product_snapshot.get("variants") or []
     main = variants[0] if variants else {}
-    main_label = str(product_snapshot.get("seller_product_type") or "").strip()
+    names = (
+        item_names
+        if isinstance(item_names, list) and len(item_names) == 1 + len(parts)
+        else []
+    )
+    main_label = str(
+        names[0] if names else product_snapshot.get("seller_product_type") or ""
+    ).strip()
     if not main_label or contains_source_language(main_label):
         main_label = "Hauptartikel"
 
@@ -88,7 +97,9 @@ def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
         f"{main.get('length_cm', '')} cm"
     )
     for index, part in enumerate(parts, start=2):
-        label = str(part.get("description") or "").strip()
+        label = str(
+            names[index - 1] if names else part.get("description") or ""
+        ).strip()
         if not label or contains_source_language(label):
             label = f"Teil {index}"
         lines.append(
@@ -100,9 +111,14 @@ def dimensions_block_from_snapshot(product_snapshot: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def with_set_dimensions(description: str, product_snapshot: dict[str, Any]) -> str:
+def with_set_dimensions(
+    description: str,
+    product_snapshot: dict[str, Any],
+    *,
+    item_names: list[str] | None = None,
+) -> str:
     """Append the factual size list when the product is a set."""
-    block = dimensions_block_from_snapshot(product_snapshot)
+    block = dimensions_block_from_snapshot(product_snapshot, item_names=item_names)
     if not block:
         return description
     cleaned = description.strip()

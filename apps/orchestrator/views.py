@@ -1153,7 +1153,12 @@ class MarketplaceContentGenerationDetailView(
 
             try:
                 content = validate_universal_content(
-                    serializer.validated_data,
+                    {
+                        "set_item_names": generation.result.get("universal", {})
+                        .get("content", {})
+                        .get("set_item_names"),
+                        **serializer.validated_data,
+                    },
                     product_snapshot=generation.input_snapshot,
                 )
             except GeneratedContentValidationError as error:
