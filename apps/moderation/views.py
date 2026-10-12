@@ -41,6 +41,7 @@ from .serializers import (
     ApproveSellerChangesSerializer,
     ChangeApprovedProductStatusSerializer,
     ManagerDashboardSerializer,
+    ManagerProductListSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
     RejectSellerChangesSerializer,
@@ -210,7 +211,7 @@ class ProductModerationHistoryView(generics.ListAPIView):
 
 
 class ManagerProductListView(generics.ListAPIView):
-    serializer_class = ProductSerializer
+    serializer_class = ManagerProductListSerializer
     permission_classes = [IsManager]
     pagination_class = ManagerProductPagination
 
@@ -232,6 +233,15 @@ class ManagerProductListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = (
             Product.objects.select_related("owner")
+            .annotate(
+                active_listing_count=Count(
+                    "marketplace_publications",
+                    filter=Q(
+                        marketplace_publications__status=MarketplacePublication.Status.ACTIVE
+                    ),
+                    distinct=True,
+                )
+            )
             .prefetch_related(
                 "variants",
                 "set_parts",
