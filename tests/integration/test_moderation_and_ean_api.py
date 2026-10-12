@@ -15,6 +15,46 @@ def authenticate(client, user):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
+@pytest.mark.parametrize("filter_by_seller", [False, True])
+def test_manager_product_list_counts_only_active_listing_channels(
+    api_client, seller, manager, product_factory, filter_by_seller
+):
+    from apps.orchestrator.models import MarketplacePublication
+
+    product = product_factory(owner=seller)
+    empty_product = product_factory(owner=seller)
+    channels = [
+        ("otto", "jv", "active"),
+        ("otto", "xl", "active"),
+        ("hood", "jv", "active"),
+        ("hood", "xl", "failed"),
+        ("kaufland", "jv", "deactivated"),
+        ("kaufland", "xl", "publishing"),
+    ]
+    for marketplace, account, status in channels:
+        MarketplacePublication.objects.create(
+            product=product,
+            marketplace=marketplace,
+            account=account,
+            status=status,
+            ean="4071489789911",
+        )
+    authenticate(api_client, manager)
+    url = "/api/v1/manager/products/"
+    if filter_by_seller:
+        url += f"?owner_id={seller.pk}"
+    response = api_client.get(url)
+
+    assert response.status_code == 200
+    counts = {
+        item["id"]: item["active_listing_count"] for item in response.data["results"]
+    }
+    assert counts[product.pk] == 3
+    assert counts[empty_product.pk] == 0
+
+
+@pytest.mark.integration
 @pytest.mark.django_db(transaction=True)
 def test_product_creation_requires_image_and_notifies_managers_without_reserving_eans(
     api_client, seller, manager, product_type, image_file

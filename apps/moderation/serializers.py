@@ -1,7 +1,17 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
+from apps.products.serializers import ProductSerializer
+
 from .models import ModerationDecision
+
+
+@extend_schema_serializer(component_name="ManagerProductList")
+class ManagerProductListSerializer(ProductSerializer):
+    active_listing_count = serializers.IntegerField(read_only=True)
+
+    class Meta(ProductSerializer.Meta):
+        fields = (*ProductSerializer.Meta.fields, "active_listing_count")
 
 
 @extend_schema_serializer(component_name="ModerationDecision")
