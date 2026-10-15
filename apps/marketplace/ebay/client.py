@@ -74,6 +74,29 @@ def get_ebay_user_id(access_token):
         raise EbayAPIError() from error
 
 
+def get_seller_resource(*, session, access_token, path, params=None):
+    """Читает ресурс продавца, не раскрывая токен или тело ошибки eBay."""
+    try:
+        response = session.get(
+            f"{api_base_url()}{path}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Language": "de-DE",
+            },
+            params=params,
+            timeout=(5, 10),
+        )
+        if not response.ok:
+            raise EbayAPIError(f"eBay request failed (HTTP {response.status_code}).")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise EbayAPIError("eBay returned an invalid resource response.")
+        return payload
+    except (requests.RequestException, ValueError) as error:
+        raise EbayAPIError("eBay resource could not be retrieved.") from error
+
+
 def get_notification_public_key(key_id):
     """Получает ключ проверки подписи eBay и кеширует его на один час."""
     cache_key = f"ebay:notification-key:{settings.EBAY_ENVIRONMENT}:{key_id}"
