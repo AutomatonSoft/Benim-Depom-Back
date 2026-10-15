@@ -9,6 +9,7 @@ from apps.common.permissions import IsManager
 from apps.common.throttles import ManagerMutationThrottleMixin
 
 from .models import EbayConnection
+from .readiness import check_seller_readiness
 from .security import challenge_response, verify_notification
 from .services import (
     complete_authorization,
@@ -19,6 +20,50 @@ from .services import (
 
 class EbayAuthorizeSerializer(serializers.Serializer):
     account = serializers.ChoiceField(choices=EbayConnection.Account.choices)
+
+
+class EbayReadinessSerializer(serializers.Serializer):
+    """Описывает проверенные настройки аккаунта и отдельные ошибки чтения eBay."""
+
+    account = serializers.ChoiceField(choices=EbayConnection.Account.choices)
+    environment = serializers.ChoiceField(choices=EbayConnection.Environment.choices)
+    marketplace_id = serializers.CharField()
+    checked_at = serializers.DateTimeField()
+    checks_complete = serializers.BooleanField()
+    ready_for_listing_setup = serializers.BooleanField()
+    seller_registration_completed = serializers.BooleanField(allow_null=True)
+    selling_limit = serializers.JSONField(allow_null=True)
+    business_policies_enabled = serializers.BooleanField(allow_null=True)
+    policies = serializers.JSONField()
+    inventory_locations = serializers.JSONField(allow_null=True)
+    missing_requirements = serializers.ListField(child=serializers.CharField())
+    errors = serializers.DictField(child=serializers.CharField())
+
+
+class EbayReadinessView(APIView):
+    """Показывает менеджеру готовность подключённого продавца к настройке листинга."""
+
+    permission_classes = (IsManager,)
+
+    @extend_schema(
+        parameters=[EbayAuthorizeSerializer],
+        responses={200: EbayReadinessSerializer},
+        description=(
+            "Проверяет регистрацию, лимиты, политики для EBAY_DE и склады продавца. "
+            "Ошибки отдельных запросов находятся в errors. "
+            "Результат относится к настройкам аккаунта; конкретный товар "
+            "и условия его публикации необходимо проверять отдельно."
+        ),
+        tags=["eBay"],
+    )
+    def get(self, request):
+        """Проверяет аккаунт из query-параметров и возвращает отчёт без токенов."""
+        query = EbayAuthorizeSerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        result = check_seller_readiness(account=query.validated_data["account"])
+        response = Response(EbayReadinessSerializer(result).data)
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class EbayAuthorizationStartView(ManagerMutationThrottleMixin, APIView):
