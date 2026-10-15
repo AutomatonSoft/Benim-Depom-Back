@@ -53,15 +53,19 @@ def token_request(data):
 
 def get_ebay_user_id(access_token):
     """Получает неизменяемый ID продавца для сопоставления уведомлений eBay."""
+    identity_base_url = api_base_url().replace("://api.", "://apiz.", 1)
     try:
         with build_marketplace_session() as session:
             response = session.get(
-                f"{api_base_url()}/commerce/identity/v1/user/",
+                f"{identity_base_url}/commerce/identity/v1/user/",
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=(5, 15),
             )
         if not response.ok:
-            raise EbayAPIError("eBay could not identify the authorized seller.")
+            raise EbayAPIError(
+                "eBay could not identify the authorized seller "
+                f"(HTTP {response.status_code})."
+            )
         user_id = response.json().get("userId")
         if not isinstance(user_id, str) or not user_id or len(user_id) > 255:
             raise EbayAPIError("eBay returned no valid seller identifier.")
