@@ -41,6 +41,7 @@ LOCAL_APPS = [
     "apps.marketplace.hood.apps.HoodConfig",
     "apps.marketplace.otto.apps.OttoConfig",
     "apps.marketplace.kaufland.apps.KauflandConfig",
+    "apps.marketplace.ebay.apps.EbayConfig",
     "apps.idempotency.apps.IdempotencyConfig",
 ]
 
@@ -470,6 +471,22 @@ HOOD_API_DELETE_ENDPOINT = env(
 )
 HOOD_LOGIN = env("HOOD_LOGIN", default="")
 HOOD_PASSWORD = env("HOOD_PASSWORD", default="")
+
+EBAY_ENVIRONMENT = env("EBAY_ENVIRONMENT", default="sandbox")
+EBAY_CLIENT_ID = env(
+    "EBAY_PROD_APP_ID" if EBAY_ENVIRONMENT == "production" else "EBAY_SANDBOX_APP_ID",
+    default="",
+)
+EBAY_CLIENT_SECRET = env(
+    "EBAY_PROD_CERT_ID" if EBAY_ENVIRONMENT == "production" else "EBAY_SANDBOX_CERT_ID",
+    default="",
+)
+EBAY_RUNAME = env("EBAY_RUNAME", default="")
+EBAY_PUBLIC_BASE_URL = env("EBAY_PUBLIC_BASE_URL", default="")
+EBAY_TOKEN_ENCRYPTION_KEY = env("EBAY_TOKEN_ENCRYPTION_KEY", default="")
+EBAY_NOTIFICATION_VERIFICATION_TOKEN = env(
+    "EBAY_NOTIFICATION_VERIFICATION_TOKEN", default=""
+)
 
 KAUFLAND_API_BASE_URL = env(
     "KAUFLAND_API_BASE_URL",

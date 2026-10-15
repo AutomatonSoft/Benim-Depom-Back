@@ -575,7 +575,18 @@ class MarketplacePublicationListView(generics.ListAPIView):
             "last_job",
         ).order_by("-updated_at")
 
-        for field in ("marketplace", "account", "status", "product_id"):
+        publication_status = filters.get("status")
+        if publication_status == "removed":
+            queryset = queryset.filter(
+                status__in=(
+                    MarketplacePublication.Status.DEACTIVATED,
+                    MarketplacePublication.Status.DELETED,
+                )
+            )
+        elif publication_status is not None:
+            queryset = queryset.filter(status=publication_status)
+
+        for field in ("marketplace", "account", "product_id"):
             value = filters.get(field)
 
             if value is not None:
