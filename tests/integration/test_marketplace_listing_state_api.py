@@ -8,6 +8,43 @@ from apps.products.models import Product
 
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("removed", {"deactivated", "deleted"}),
+        ("deactivated", {"deactivated"}),
+        ("deleted", {"deleted"}),
+        ("active", {"active"}),
+    ],
+)
+def test_publication_filter_groups_taken_down_listings(
+    api_client, manager, product_factory, status, expected
+):
+    product = product_factory(owner=manager)
+    for marketplace, publication_status in (
+        ("otto", "deactivated"),
+        ("hood", "deleted"),
+        ("kaufland", "active"),
+    ):
+        MarketplacePublication.objects.create(
+            product=product,
+            marketplace=marketplace,
+            account="jv",
+            ean="4012345678901",
+            status=publication_status,
+        )
+    api_client.force_authenticate(manager)
+    response = api_client.get(
+        "/api/v1/orchestrator/publications/",
+        {"status": status, "product_id": product.pk, "account": "jv"},
+    )
+    assert response.status_code == 200
+    assert response.data["count"] == len(expected)
+    assert {item["status"] for item in response.data["results"]} == expected
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_manager_deactivates_all_active_listings_without_changing_product_status(
     api_client,
     manager,
