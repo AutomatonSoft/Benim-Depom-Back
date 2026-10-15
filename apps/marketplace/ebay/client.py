@@ -75,7 +75,7 @@ def get_ebay_user_id(access_token):
 
 
 def get_seller_resource(*, session, access_token, path, params=None):
-    """Читает ресурс продавца, не раскрывая токен или тело ошибки eBay."""
+    """Читает ресурс продавца, возвращая только код и сообщение ошибки eBay."""
     try:
         response = session.get(
             f"{api_base_url()}{path}",
@@ -88,7 +88,30 @@ def get_seller_resource(*, session, access_token, path, params=None):
             timeout=(5, 10),
         )
         if not response.ok:
-            raise EbayAPIError(f"eBay request failed (HTTP {response.status_code}).")
+            detail = f"eBay request failed (HTTP {response.status_code})."
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = None
+            errors = (
+                error_payload.get("errors") if isinstance(error_payload, dict) else None
+            )
+            if isinstance(errors, list):
+                for error in errors[:3]:
+                    if not isinstance(error, dict):
+                        continue
+                    error_id = error.get("errorId")
+                    message = error.get("message")
+                    if type(error_id) is int:
+                        detail += f" errorId={error_id}."
+                    if isinstance(message, str) and message.strip():
+                        message = (
+                            message.replace(access_token, "[REDACTED]")
+                            if access_token
+                            else message
+                        )
+                        detail += " " + " ".join(message.split())[:500]
+            raise EbayAPIError(detail)
         payload = response.json()
         if not isinstance(payload, dict):
             raise EbayAPIError("eBay returned an invalid resource response.")
