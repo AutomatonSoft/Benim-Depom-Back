@@ -5,6 +5,7 @@ from .views import (
     EbayAuthorizationCallbackView,
     EbayAuthorizationStartView,
     EbayConnectionListView,
+    EbayReadinessView,
 )
 
 app_name = "ebay"
@@ -16,6 +17,7 @@ urlpatterns = [
         name="oauth-callback",
     ),
     path("connections/", EbayConnectionListView.as_view(), name="connections"),
+    path("readiness/", EbayReadinessView.as_view(), name="readiness"),
     path(
         "account-deletion/", EbayAccountDeletionView.as_view(), name="account-deletion"
     ),
