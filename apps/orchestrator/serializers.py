@@ -390,7 +390,7 @@ class MarketplacePublicationFilterSerializer(serializers.Serializer):
         required=False,
     )
     status = serializers.ChoiceField(
-        choices=MarketplacePublication.Status.choices,
+        choices=[*MarketplacePublication.Status.choices, ("removed", "Taken down")],
         required=False,
     )
     product_id = serializers.IntegerField(

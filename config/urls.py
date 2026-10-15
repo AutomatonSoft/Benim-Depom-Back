@@ -59,6 +59,7 @@ urlpatterns = [
     ),
     path("api/v1/manager/eans/", include("apps.ean.urls")),
     path("api/v1/orchestrator/", include("apps.orchestrator.urls")),
+    path("api/v1/ebay/", include("apps.marketplace.ebay.urls")),
     path(
         "api/demo/otto-form/",
         TemplateView.as_view(template_name="otto_form_demo.html"),
