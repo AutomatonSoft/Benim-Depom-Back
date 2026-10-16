@@ -1,4 +1,6 @@
 import hashlib
+import json
+from pathlib import Path
 
 from django.conf import settings
 from django.core.cache import cache
@@ -7,10 +9,49 @@ from urllib3.util.retry import Retry
 
 from apps.common.marketplace_http import build_marketplace_session
 
-from .client import EbayAPIError, api_base_url, get_seller_resource, token_request
+from .client import (
+    EbayAPIError,
+    EbayConfigurationError,
+    api_base_url,
+    get_seller_resource,
+    token_request,
+)
 
 MARKETPLACE = "EBAY_DE"
 CATALOG_CACHE_SECONDS = 86400
+
+
+def _local_payload(relative_path):
+    """Читает справочник Sandbox; изменение файла сразу меняет ключ кеша."""
+    api_base_url()
+    if settings.EBAY_ENVIRONMENT != "sandbox":
+        return None
+    path = Path(settings.BASE_DIR) / "data" / "ebay" / "sandbox" / relative_path
+    try:
+        stat = path.stat()
+        digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
+        key = f"ebay:local:v1:{digest}:{stat.st_mtime_ns}:{stat.st_size}"
+        payload = cache.get(key)
+        if payload is None:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(payload, dict)
+                or payload.get("environment") != "sandbox"
+                or payload.get("marketplace_id") != MARKETPLACE
+                or not isinstance(payload.get("category_tree_id"), str)
+                or not payload["category_tree_id"].isascii()
+                or not payload["category_tree_id"].isdecimal()
+                or not isinstance(payload.get("category_tree_version"), str)
+                or not payload["category_tree_version"]
+            ):
+                raise ValueError("Invalid catalog metadata")
+            cache.set(key, payload, timeout=CATALOG_CACHE_SECONDS)
+        return payload
+    except (OSError, UnicodeError, ValueError) as error:
+        raise EbayConfigurationError(
+            "Local eBay Sandbox catalog is missing or invalid. "
+            "Check data/ebay/sandbox/."
+        ) from error
 
 
 def _cache_key(resource):
@@ -88,18 +129,35 @@ def _children(node):
 
 
 def _category_tree():
-    """Загружает дерево EBAY_DE раз в сутки; версия входит в ключ кеша характеристик."""
-    key = _cache_key("tree")
-    tree = cache.get(key)
-    if tree is not None:
-        return tree
-    identity = _read_taxonomy(
-        "get_default_category_tree_id", {"marketplace_id": MARKETPLACE}
-    )
-    tree_id = identity.get("categoryTreeId")
-    if not isinstance(tree_id, str) or not tree_id.isascii() or not tree_id.isdecimal():
-        raise EbayAPIError("eBay returned an invalid category tree identifier.")
-    tree = _read_taxonomy(f"category_tree/{tree_id}")
+    """Читает мебель Sandbox из JSON, сохраняя загрузку каталога Production через API."""
+    local = _local_payload("categories.json")
+    key = None
+    if local is not None:
+        tree_id = local["category_tree_id"]
+        root = local.get("rootCategoryNode")
+        if not isinstance(root, dict) or _category_summary(root)["id"] != "3197":
+            raise EbayConfigurationError("Local eBay furniture category is invalid.")
+        tree = {
+            "categoryTreeId": tree_id,
+            "categoryTreeVersion": local["category_tree_version"],
+            "rootCategoryNode": {"childCategoryTreeNodes": [root]},
+        }
+    else:
+        key = _cache_key("tree")
+        tree = cache.get(key)
+        if tree is not None:
+            return tree
+        identity = _read_taxonomy(
+            "get_default_category_tree_id", {"marketplace_id": MARKETPLACE}
+        )
+        tree_id = identity.get("categoryTreeId")
+        if (
+            not isinstance(tree_id, str)
+            or not tree_id.isascii()
+            or not tree_id.isdecimal()
+        ):
+            raise EbayAPIError("eBay returned an invalid category tree identifier.")
+        tree = _read_taxonomy(f"category_tree/{tree_id}")
     if (
         tree.get("categoryTreeId") != tree_id
         or not isinstance(tree.get("categoryTreeVersion"), str)
@@ -117,7 +175,8 @@ def _category_tree():
         if not node.get("leafCategoryTreeNode", False) and not children:
             raise EbayAPIError("eBay returned an incomplete category tree.")
         pending.extend(children)
-    cache.set(key, tree, timeout=CATALOG_CACHE_SECONDS)
+    if key is not None:
+        cache.set(key, tree, timeout=CATALOG_CACHE_SECONDS)
     return tree
 
 
@@ -162,11 +221,27 @@ def get_category_aspects(*, category_id):
     category = _category_summary(_find_category(tree, category_id))
     if not category["is_leaf"]:
         raise ValidationError({"category_id": "Choose a leaf eBay category."})
-    key = _cache_key(
-        f"aspects:{tree['categoryTreeId']}:{tree['categoryTreeVersion']}:{category_id}"
-    )
-    aspects = cache.get(key)
-    if aspects is None:
+    local = _local_payload(f"aspects/{category_id}.json")
+    key = None
+    if local is not None:
+        if (
+            local["category_tree_id"] != tree["categoryTreeId"]
+            or local["category_tree_version"] != tree["categoryTreeVersion"]
+            or local.get("category") != category
+        ):
+            raise EbayConfigurationError(
+                "Local eBay category aspects do not match the tree."
+            )
+        aspects = local.get("aspects")
+        if not isinstance(aspects, list):
+            raise EbayConfigurationError("Local eBay category aspects are invalid.")
+    else:
+        key = _cache_key(
+            f"aspects:{tree['categoryTreeId']}:{tree['categoryTreeVersion']}:{category_id}"
+        )
+        aspects = cache.get(key)
+    cache_miss = aspects is None
+    if cache_miss:
         payload = _read_taxonomy(
             f"category_tree/{tree['categoryTreeId']}/get_item_aspects_for_category",
             {"category_id": category_id},
@@ -174,15 +249,16 @@ def get_category_aspects(*, category_id):
         aspects = payload.get("aspects")
         if not isinstance(aspects, list):
             raise EbayAPIError("eBay returned invalid category aspects.")
-        for aspect in aspects:
-            if (
-                not isinstance(aspect, dict)
-                or not isinstance(aspect.get("localizedAspectName"), str)
-                or not aspect["localizedAspectName"].strip()
-                or not isinstance(aspect.get("aspectConstraint"), dict)
-                or type(aspect["aspectConstraint"].get("aspectRequired")) is not bool
-            ):
-                raise EbayAPIError("eBay returned invalid category aspect constraints.")
+    for aspect in aspects:
+        if (
+            not isinstance(aspect, dict)
+            or not isinstance(aspect.get("localizedAspectName"), str)
+            or not aspect["localizedAspectName"].strip()
+            or not isinstance(aspect.get("aspectConstraint"), dict)
+            or type(aspect["aspectConstraint"].get("aspectRequired")) is not bool
+        ):
+            raise EbayAPIError("eBay returned invalid category aspect constraints.")
+    if key is not None and cache_miss:
         cache.set(key, aspects, timeout=CATALOG_CACHE_SECONDS)
     return {
         **_tree_context(tree),

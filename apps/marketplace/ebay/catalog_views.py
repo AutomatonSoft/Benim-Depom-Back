@@ -54,9 +54,10 @@ class EbayCategoriesView(APIView):
         parameters=[EbayCategoriesQuerySerializer],
         responses={200: EbayCategoriesSerializer},
         description=(
-            "Без parent_id возвращает верхний уровень EBAY_DE; с parent_id — "
+            "Без parent_id возвращает верхний уровень доступного каталога EBAY_DE; с parent_id — "
             "непосредственные дочерние категории. is_leaf=true обозначает конечную "
-            "категорию. Использует токен приложения и текущее окружение eBay. "
+            "категорию. Sandbox читает мебель из data/ebay/sandbox/ без внешних запросов; "
+            "Production использует API и токен приложения своего окружения. "
             "Поиск getCategorySuggestions не вызывается: в Sandbox он не поддержан."
         ),
         tags=["eBay"],
