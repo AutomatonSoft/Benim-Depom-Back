@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .catalog_views import EbayCategoriesView, EbayCategoryAspectsView
 from .views import (
     EbayAccountDeletionView,
     EbayAuthorizationCallbackView,
@@ -18,6 +19,12 @@ urlpatterns = [
     ),
     path("connections/", EbayConnectionListView.as_view(), name="connections"),
     path("readiness/", EbayReadinessView.as_view(), name="readiness"),
+    path("catalog/categories/", EbayCategoriesView.as_view(), name="categories"),
+    path(
+        "catalog/categories/<str:category_id>/aspects/",
+        EbayCategoryAspectsView.as_view(),
+        name="category-aspects",
+    ),
     path(
         "account-deletion/", EbayAccountDeletionView.as_view(), name="account-deletion"
     ),
