@@ -7,10 +7,13 @@ from django.core.cache import cache
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from . import catalog
-from .catalog_views import EbayCategoriesView, EbayCategoryAspectsView
-from .client import EbayAPIError
-from .readiness import _policy_summary
+from apps.marketplace.ebay import catalog
+from apps.marketplace.ebay.catalog_views import (
+    EbayCategoriesView,
+    EbayCategoryAspectsView,
+)
+from apps.marketplace.ebay.client import EbayAPIError
+from apps.marketplace.ebay.readiness import _policy_summary
 
 
 @pytest.fixture
