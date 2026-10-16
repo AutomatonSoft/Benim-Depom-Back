@@ -35,7 +35,10 @@ def _policy_summary(policy, id_field):
         "applicable_to_furniture": (
             policy.get("marketplaceId") == MARKETPLACE
             and bool(policy.get(id_field))
-            and any(item.get("name") == "ALL_EXCLUDING_MOTORS" for item in categories)
+            and any(
+                item.get("name") == "ALL_EXCLUDING_MOTORS_VEHICLES"
+                for item in categories
+            )
         ),
     }
 
