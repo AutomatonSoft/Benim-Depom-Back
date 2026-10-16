@@ -1,0 +1,300 @@
+{
+  "environment": "sandbox",
+  "marketplace_id": "EBAY_DE",
+  "category_tree_id": "77",
+  "category_tree_version": "135",
+  "downloaded_at": "2026-10-16T10:08:23.306469+00:00",
+  "root_category_id": "3197",
+  "category_count": 32,
+  "leaf_category_count": 30,
+  "rootCategoryNode": {
+    "category": {
+      "categoryId": "3197",
+      "categoryName": "Möbel"
+    },
+    "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=11700",
+    "childCategoryTreeNodes": [
+      {
+        "category": {
+          "categoryId": "3199",
+          "categoryName": "Regale & Aufbewahrung"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "20480",
+          "categoryName": "Schlafzimmer-Sets"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "20487",
+          "categoryName": "Schränke & Wandschränke"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "20488",
+          "categoryName": "TV-Möbel & Schrankwände"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "20490",
+          "categoryName": "Ottomane & Fußhocker"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "22653",
+          "categoryName": "CD- & Video-Regale"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "32254",
+          "categoryName": "Betten"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "childCategoryTreeNodes": [
+          {
+            "category": {
+              "categoryId": "66737",
+              "categoryName": "Betten- & Wasserbettenzubehör"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=32254",
+            "categoryTreeNodeLevel": 4,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "77508",
+              "categoryName": "Lattenroste"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=32254",
+            "categoryTreeNodeLevel": 4,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "107504",
+              "categoryName": "Wasserbetten"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=32254",
+            "categoryTreeNodeLevel": 4,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "175758",
+              "categoryName": "Betten & Bettgestelle"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=32254",
+            "categoryTreeNodeLevel": 4,
+            "leafCategoryTreeNode": true
+          }
+        ],
+        "categoryTreeNodeLevel": 3
+      },
+      {
+        "category": {
+          "categoryId": "32878",
+          "categoryName": "Schminktische"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "34386",
+          "categoryName": "Möbelzubehör"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "38199",
+          "categoryName": "Nachttische & Nachtkonsolen"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "38204",
+          "categoryName": "Tische & Stehtische"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "38208",
+          "categoryName": "Sofas & Sessel"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "48319",
+          "categoryName": "Sitzsäcke & aufblasbare Sessel"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "54235",
+          "categoryName": "Stühle"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "88057",
+          "categoryName": "Schreibtische & Computermöbel"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "103430",
+          "categoryName": "Kleiderschränke"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "103431",
+          "categoryName": "Hocker & Barhocker"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "107578",
+          "categoryName": "Tisch- & Stuhl-Sets"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "114397",
+          "categoryName": "Kommoden"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "125085",
+          "categoryName": "Truhen & Kisten"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "131579",
+          "categoryName": "Futons"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "166365",
+          "categoryName": "Badmöbelsets"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "175754",
+          "categoryName": "Schonbezüge"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "179690",
+          "categoryName": "Möbelteile"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "183320",
+          "categoryName": "Servierwagen"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "183322",
+          "categoryName": "Anrichten & Buffets"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      },
+      {
+        "category": {
+          "categoryId": "262980",
+          "categoryName": "Sitzbänke"
+        },
+        "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=3197",
+        "categoryTreeNodeLevel": 3,
+        "leafCategoryTreeNode": true
+      }
+    ],
+    "categoryTreeNodeLevel": 2
+  }
+}
