@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from django.core.cache import cache
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from apps.marketplace.ebay import catalog
 from apps.marketplace.ebay.catalog_views import (
@@ -15,6 +15,7 @@ from apps.marketplace.ebay.catalog_views import (
     EbayCategoryAspectsView,
 )
 from apps.marketplace.ebay.client import EbayAPIError, EbayConfigurationError
+from apps.marketplace.ebay.models import EbayDraft
 from apps.marketplace.ebay.readiness import _policy_summary
 
 
@@ -289,3 +290,156 @@ def test_production_does_not_read_sandbox_files(local_catalog, settings):
     assert catalog._local_payload("categories.json") is None
     with pytest.raises(AssertionError, match="Unexpected eBay request"):
         catalog.get_categories()
+
+
+@pytest.fixture
+def draft_api(db, local_catalog):
+    """Создаёт отдельный товар и менеджера для API черновиков без внешней сети."""
+    from django.contrib.auth import get_user_model
+
+    from apps.products.models import Product
+
+    user_model = get_user_model()
+    manager = user_model.objects.create_user(
+        username="ebay-draft-manager", email="draft-manager@example.com", role="manager"
+    )
+    seller = user_model.objects.create_user(
+        username="ebay-draft-seller", email="draft-seller@example.com", role="seller"
+    )
+    product = Product.objects.create(
+        owner=seller,
+        title="Original sofa",
+        product_type="Sofa",
+        unit_price="100.00",
+        currency="EUR",
+    )
+    client = APIClient()
+    client.force_authenticate(manager)
+    return SimpleNamespace(
+        client=client,
+        product=product,
+        seller=seller,
+        url=f"/api/v1/ebay/drafts/jv/{product.pk}/",
+    )
+
+
+def test_draft_create_edit_and_read_do_not_change_product(draft_api, local_catalog):
+    """Черновик остаётся отдельной записью; чтение не создаёт данные, товар не меняется."""
+    from apps.products.models import Product
+
+    api = draft_api
+    before = Product.objects.filter(pk=api.product.pk).values().get()
+    assert api.client.get(api.url).status_code == 404
+    assert (
+        api.client.patch(api.url, {"title": "Draft"}, format="json").status_code == 404
+    )
+    assert not EbayDraft.objects.exists()
+    response = api.client.put(api.url, {}, format="json")
+    assert response.status_code == 201
+    assert "title" in response.data["missing_requirements"]["fields"]
+    data = {
+        "title": "Graues Sofa",
+        "description": "Neues Sofa mit Stoffbezug.",
+        "category_id": "38208",
+        "aspects": {"Farbe": ["Grau"]},
+        "image_urls": ["https://example.com/sofa.jpg"],
+        "price_eur": "2099.00",
+        "quantity": 0,
+    }
+    response = api.client.patch(api.url, data, format="json")
+    assert response.status_code == 200
+    assert response.data["missing_requirements"] == {"fields": [], "aspects": []}
+    assert response.data["account"] == "jv"
+    assert response.data["currency"] == "EUR"
+    assert response.data["marketplace_id"] == "EBAY_DE"
+    assert response.data["category_tree_version"] == "135"
+    assert api.client.get(api.url).data["aspects"] == data["aspects"]
+    assert (
+        api.client.patch(api.url, {"category_id": ""}, format="json").status_code == 400
+    )
+    assert api.client.get(api.url).data["category_id"] == "38208"
+    assert EbayDraft.objects.count() == 1
+    assert Product.objects.filter(pk=api.product.pk).values().get() == before
+    local_catalog.network.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"title": "x" * 81},
+        {"quantity": -1},
+        {"price_eur": "0.00"},
+        {"category_id": "3197"},
+        {"category_id": "../38208"},
+        {"aspects": {"Farbe": ["Grau"]}},
+        {"category_id": "38208", "aspects": {"Unknown": ["value"]}},
+        {"category_id": "38208", "aspects": {"Farbe": ["Grau", "Blau"]}},
+        {"image_urls": ["http://example.com/image.jpg"]},
+    ],
+)
+def test_invalid_draft_does_not_create_records(draft_api, data):
+    """Неверные данные отклоняются до сохранения даже неполного черновика."""
+    response = draft_api.client.put(draft_api.url, data, format="json")
+    assert response.status_code == 400
+    assert not EbayDraft.objects.exists()
+
+
+def test_draft_reports_missing_aspects_and_edits_without_catalog(
+    draft_api, local_catalog
+):
+    """Пропущенные обязательные характеристики не мешают сохранить промежуточную работу."""
+    response = draft_api.client.put(
+        draft_api.url, {"category_id": "38208"}, format="json"
+    )
+    assert response.status_code == 201
+    assert response.data["missing_requirements"]["aspects"] == ["Farbe"]
+    local_catalog.path.unlink()
+    response = draft_api.client.patch(
+        draft_api.url, {"title": "Draft sofa"}, format="json"
+    )
+    assert response.status_code == 200
+    assert draft_api.client.get(draft_api.url).status_code == 200
+
+
+def test_draft_environment_isolation_and_manager_access(draft_api, settings):
+    """Sandbox не виден в Production; продавец и анонимный пользователь не имеют доступа."""
+    api = draft_api
+    assert api.client.put(api.url, {}, format="json").status_code == 201
+    settings.EBAY_ENVIRONMENT = "production"
+    assert api.client.get(api.url).status_code == 404
+    assert (
+        api.client.put(
+            api.url, {"title": "Production draft"}, format="json"
+        ).status_code
+        == 201
+    )
+    assert EbayDraft.objects.count() == 2
+    api.client.force_authenticate(api.seller)
+    for method in (api.client.get, api.client.put, api.client.patch):
+        assert method(api.url).status_code == 403
+    api.client.force_authenticate(None)
+    assert api.client.get(api.url).status_code in {401, 403}
+    assert EbayDraft.objects.count() == 2
+
+
+def test_draft_selection_only_and_length_constraints():
+    """Проверяет списочные значения и длину строк по правилам выбранной категории."""
+    from apps.marketplace.ebay.drafts import _validate_aspects
+
+    schema = {
+        "aspects": [
+            {
+                "localizedAspectName": "Montage erforderlich",
+                "aspectConstraint": {
+                    "aspectMode": "SELECTION_ONLY",
+                    "itemToAspectCardinality": "SINGLE",
+                    "aspectMaxLength": 4,
+                },
+                "aspectValues": [{"localizedValue": "Ja"}, {"localizedValue": "Nein"}],
+            }
+        ]
+    }
+    _validate_aspects({"Montage erforderlich": ["Ja"]}, schema)
+    for values in (["Maybe"], ["No"], ["Ja", "Nein"]):
+        with pytest.raises(ValidationError):
+            _validate_aspects({"Montage erforderlich": values}, schema)
