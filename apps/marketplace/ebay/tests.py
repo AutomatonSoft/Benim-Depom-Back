@@ -1,6 +1,7 @@
 import json
 import os
 from copy import deepcopy
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -609,3 +610,520 @@ def test_draft_can_clear_listing_settings_without_api(draft_api, listing_setting
     assert response.status_code == 200
     assert response.data["merchant_location_key"] == ""
     assert listing_settings_api.resource.call_count == 4
+
+
+@pytest.fixture
+def preview_draft(settings):
+    """Даёт заполненный несохранённый черновик для проверки JSON без базы и сети."""
+    settings.EBAY_ENVIRONMENT = "sandbox"
+    from apps.products.models import Product
+
+    return EbayDraft(
+        product=Product(id=69, ean_jv="4071489789867"),
+        environment="sandbox",
+        account="jv",
+        title="Schwarzes Sofa",
+        description="Sofa mit Lederbezug.",
+        image_urls=[
+            "https://example.com/white.jpg",
+            "https://example.com/interior.jpg",
+        ],
+        price_eur=Decimal("7049.00"),
+        quantity=1,
+        category_id="38208",
+        aspects={"Farbe": ["Schwarz"]},
+        required_aspects=["Farbe"],
+        category_tree_id="77",
+        category_tree_version="135",
+        fulfillment_policy_id="201",
+        payment_policy_id="202",
+        return_policy_id="203",
+        merchant_location_key="DE_88483",
+    )
+
+
+def test_preview_builds_inventory_item_and_offer(preview_draft):
+    """Проверяет NEW, цену, фото, характеристики и совпадение SKU с существующим JV EAN."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    result = build_draft_preview(preview_draft)
+    assert result["preview_only"] is True
+    assert result["draft_complete"] is True
+    assert result["missing_requirements"] == {"fields": [], "aspects": []}
+    assert result["sku"] == result["ean"] == "4071489789867"
+    inventory = result["inventory_item"]
+    assert inventory["method"] == "PUT"
+    assert (
+        inventory["url"]
+        == "https://api.sandbox.ebay.com/sell/inventory/v1/inventory_item/4071489789867"
+    )
+    assert inventory["headers"] == {
+        "Content-Type": "application/json",
+        "Content-Language": "de-DE",
+    }
+    assert inventory["body"] == {
+        "condition": "NEW",
+        "availability": {"shipToLocationAvailability": {"quantity": 1}},
+        "product": {
+            "title": preview_draft.title,
+            "description": preview_draft.description,
+            "imageUrls": preview_draft.image_urls,
+            "aspects": preview_draft.aspects,
+            "ean": ["4071489789867"],
+        },
+    }
+    assert result["offer"]["method"] == "POST"
+    assert result["offer"]["body"] == {
+        "sku": "4071489789867",
+        "marketplaceId": "EBAY_DE",
+        "format": "FIXED_PRICE",
+        "listingDuration": "GTC",
+        "includeCatalogProductDetails": False,
+        "categoryId": "38208",
+        "merchantLocationKey": "DE_88483",
+        "listingDescription": preview_draft.description,
+        "availableQuantity": 1,
+        "pricingSummary": {"price": {"value": "7049.00", "currency": "EUR"}},
+        "listingPolicies": {
+            "fulfillmentPolicyId": "201",
+            "paymentPolicyId": "202",
+            "returnPolicyId": "203",
+        },
+    }
+    assert "sku_and_ean_strategy" not in result["checks_not_performed"]
+    assert "gpsr_and_other_regulatory_requirements" in result["checks_not_performed"]
+    assert "Authorization" not in inventory["headers"]
+    json.dumps(result)
+
+
+def test_preview_does_not_replace_unknown_price_or_quantity_with_zero(preview_draft):
+    """Незаполненный черновик остаётся неполным; неизвестный остаток не превращается в ноль."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    preview_draft.quantity = None
+    preview_draft.price_eur = None
+    preview_draft.aspects = {}
+    result = build_draft_preview(preview_draft)
+    assert result["draft_complete"] is False
+    assert result["missing_requirements"]["aspects"] == ["Farbe"]
+    assert "quantity" in result["missing_requirements"]["fields"]
+    assert "price_eur" in result["missing_requirements"]["fields"]
+    assert "availability" not in result["inventory_item"]["body"]
+    assert "availableQuantity" not in result["offer"]["body"]
+    assert "pricingSummary" not in result["offer"]["body"]
+    preview_draft.quantity = 0
+    result = build_draft_preview(preview_draft)
+    assert result["offer"]["body"]["availableQuantity"] == 0
+    assert "quantity" not in result["missing_requirements"]["fields"]
+
+
+def test_preview_get_is_read_only_and_never_contacts_ebay(
+    draft_api, preview_draft, monkeypatch
+):
+    """GET не создаёт черновик и не меняет товар, EAN или даты сохранённого черновика."""
+    from apps.products.models import Product
+
+    network = MagicMock(side_effect=AssertionError("Unexpected network request"))
+    monkeypatch.setattr("requests.sessions.Session.request", network)
+    url = draft_api.url + "preview/"
+    assert draft_api.client.get(url).status_code == 404
+    assert not EbayDraft.objects.exists()
+    preview_draft.product = draft_api.product
+    draft_api.product.ean_jv = "4071489789867"
+    draft_api.product.save(update_fields=["ean_jv"])
+    preview_draft.save()
+    before_draft = EbayDraft.objects.values().get()
+    before_product = Product.objects.filter(pk=draft_api.product.pk).values().get()
+    response = draft_api.client.get(url)
+    assert response.status_code == 200
+    assert response.data["draft_complete"] is True
+    assert response["Cache-Control"] == "no-store"
+    assert EbayDraft.objects.values().get() == before_draft
+    assert (
+        Product.objects.filter(pk=draft_api.product.pk).values().get() == before_product
+    )
+    assert draft_api.client.post(url, {}, format="json").status_code == 405
+    assert draft_api.client.put(url, {}, format="json").status_code == 405
+    assert draft_api.client.patch(url, {}, format="json").status_code == 405
+    assert draft_api.client.delete(url).status_code == 405
+    network.assert_not_called()
+
+
+def test_preview_isolates_environment_and_account(draft_api, preview_draft, settings):
+    """Черновик Sandbox или другого аккаунта не показывается как Production JV."""
+    draft_api.product.ean_jv = "4071489789867"
+    draft_api.product.save(update_fields=["ean_jv"])
+    preview_draft.product = draft_api.product
+    preview_draft.save()
+    url = draft_api.url + "preview/"
+    settings.EBAY_ENVIRONMENT = "production"
+    assert draft_api.client.get(url).status_code == 404
+    draft = EbayDraft.objects.create(
+        product=draft_api.product, environment="production", account="xl"
+    )
+    assert draft_api.client.get(url).status_code == 404
+    draft.account = "jv"
+    draft.save()
+    response = draft_api.client.get(url)
+    assert response.status_code == 200
+    assert response.data["environment"] == "production"
+    assert response.data["inventory_item"]["url"].startswith("https://api.ebay.com/")
+
+
+def test_preview_requires_manager(draft_api):
+    """Продавец и анонимный пользователь не получают даже содержимое предпросмотра."""
+    url = draft_api.url + "preview/"
+    draft_api.client.force_authenticate(draft_api.seller)
+    assert draft_api.client.get(url).status_code == 403
+    draft_api.client.force_authenticate(None)
+    assert draft_api.client.get(url).status_code in {401, 403}
+
+
+@pytest.mark.parametrize(
+    "ean", ["", "4071489789868", "４０７１４８９７８９８６７", "../12345678"]
+)
+def test_preview_rejects_missing_or_invalid_ean_without_allocating(preview_draft, ean):
+    """Невалидный EAN не превращается в SKU и не заменяется выделенным номером."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    preview_draft.product.ean_jv = ean
+    result = build_draft_preview(preview_draft)
+    assert result["sku"] == ""
+    assert result["inventory_item"]["url"] is None
+    assert "ean_jv" in result["missing_requirements"]["fields"]
+    assert "ean" not in result["inventory_item"]["body"]["product"]
+    assert preview_draft.product.ean_jv == ean
+
+
+@pytest.fixture
+def regulatory_contact():
+    return {
+        "companyName": "Example Manufacturer GmbH",
+        "addressLine1": "Example Street 1",
+        "city": "Berlin",
+        "postalCode": "10115",
+        "country": "DE",
+        "email": "contact@example.com",
+    }
+
+
+def test_gpsr_responsible_person_does_not_become_manufacturer(regulatory_contact):
+    """Ответственный сохраняется отдельно; производителя не выводим из его контактов."""
+    from apps.marketplace.ebay.regulatory import (
+        EbayRegulatorySerializer,
+        missing_regulatory_fields,
+    )
+
+    serializer = EbayRegulatorySerializer(
+        data={"responsiblePersons": [regulatory_contact]}
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert "manufacturer" not in serializer.validated_data
+    assert serializer.validated_data["responsiblePersons"][0]["types"] == [
+        "EUResponsiblePerson"
+    ]
+    assert missing_regulatory_fields(serializer.validated_data) == [
+        "regulatory.manufacturer"
+    ]
+
+
+def test_gpsr_patch_validates_complete_contact(draft_api):
+    """PATCH не позволяет обойти обязательный адрес вложенного контакта."""
+    draft_api.client.put(draft_api.url, {}, format="json")
+    response = draft_api.client.patch(
+        draft_api.url,
+        {"regulatory": {"manufacturer": {"companyName": "Incomplete"}}},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert EbayDraft.objects.get().regulatory == {}
+
+
+@pytest.fixture
+def preparation_api(draft_api, preview_draft, regulatory_contact, monkeypatch):
+    """Изолирует весь сетевой путь подготовки; никакой тест не обращается к eBay."""
+    from apps.marketplace.ebay import preparation
+
+    draft_api.product.ean_jv = "4071489789867"
+    draft_api.product.save(update_fields=["ean_jv"])
+    preview_draft.product = draft_api.product
+    preview_draft.regulatory = {"manufacturer": regulatory_contact}
+    preview_draft.save()
+    monkeypatch.setattr(preparation, "_check_local", MagicMock())
+    monkeypatch.setattr(preparation, "_validate_listing_settings", MagicMock())
+    monkeypatch.setattr(
+        preparation, "get_access_token", lambda **kwargs: "secret-token"
+    )
+    monkeypatch.setattr(
+        preparation,
+        "get_seller_resource",
+        lambda **kwargs: {
+            "itemConditionPolicies": [
+                {"categoryId": "38208", "itemConditions": [{"conditionId": "1000"}]}
+            ]
+        },
+    )
+    session = MagicMock()
+    session.adapters = {}
+    context = MagicMock()
+    context.__enter__.return_value = session
+    monkeypatch.setattr(preparation, "build_marketplace_session", lambda: context)
+
+    def response(status, payload=None):
+        result = MagicMock(status_code=status)
+        result.json.return_value = payload or {}
+        return result
+
+    session.request.side_effect = [
+        response(404),
+        response(404),
+        response(204),
+        response(201, {"offerId": "9001"}),
+    ]
+    return SimpleNamespace(
+        client=draft_api.client,
+        url=draft_api.url + "prepare/",
+        session=session,
+        draft=preview_draft,
+        response=response,
+    )
+
+
+def test_prepare_creates_unpublished_offer_and_repeat_is_noop(preparation_api):
+    """Повтор возвращает offerId без новых запросов; publish и delete не вызываются."""
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = preparation_api
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 200, response.data
+    assert response.data["offer_id"] == "9001"
+    assert response.data["status"] == "prepared"
+    assert response.data["publication_performed"] is False
+    assert EbayOfferPreparation.objects.get().inventory_confirmed is True
+    assert [call.args[0] for call in api.session.request.call_args_list] == [
+        "GET",
+        "GET",
+        "PUT",
+        "POST",
+    ]
+    assert all(
+        "publish" not in call.args[1] for call in api.session.request.call_args_list
+    )
+    assert "secret-token" not in json.dumps(response.data)
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    assert api.session.request.call_count == 4
+    assert api.client.get(api.url).data["offer_id"] == "9001"
+
+
+def test_prepare_refuses_existing_external_offer(preparation_api):
+    """Наличие Offer на любом marketplace запрещает изменение общего Inventory Item."""
+    api = preparation_api
+    api.session.request.side_effect = [
+        api.response(
+            200,
+            {
+                "offers": [
+                    {
+                        "offerId": "external",
+                        "status": "PUBLISHED",
+                        "marketplaceId": "EBAY_US",
+                    }
+                ]
+            },
+        )
+    ]
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 409
+    assert api.session.request.call_count == 1
+
+
+def test_prepare_refuses_unowned_inventory(preparation_api):
+    api = preparation_api
+    api.session.request.side_effect = [
+        api.response(404),
+        api.response(200, {"sku": "4071489789867"}),
+    ]
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert api.session.request.call_count == 2
+
+
+def test_prepare_timeout_blocks_retry_and_edit(preparation_api):
+    """После таймаута createOffer повтор и редактирование блокируются до сверки eBay."""
+    import requests
+
+    api = preparation_api
+    api.session.request.side_effect = [
+        api.response(404),
+        api.response(404),
+        api.response(204),
+        requests.Timeout(),
+    ]
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 502
+    )
+    state = api.client.get(api.url).data
+    assert state["status"] == "uncertain"
+    assert state["inventory_confirmed"] is True
+    assert state["offer_id"] == ""
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert api.session.request.call_count == 4
+    assert (
+        api.client.patch(
+            api.url.removesuffix("prepare/"), {"title": "Changed"}, format="json"
+        ).status_code
+        == 400
+    )
+
+
+def test_prepare_rejects_changed_payload_after_success(preparation_api):
+    api = preparation_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.draft.title = "Changed title"
+    api.draft.save(update_fields=["title"])
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert api.session.request.call_count == 4
+
+
+def test_prepare_requires_stock_confirmation_and_manager(preparation_api, draft_api):
+    api = preparation_api
+    assert api.client.post(api.url, {}, format="json").status_code == 400
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": False}, format="json"
+        ).status_code
+        == 400
+    )
+    api.client.force_authenticate(draft_api.seller)
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 403
+    )
+    assert api.client.get(api.url).status_code == 403
+    api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize("with_responsible_person", [False, True])
+def test_prepare_missing_manufacturer_is_warning(
+    preview_draft, regulatory_contact, monkeypatch, with_responsible_person
+):
+    """Отсутствующий производитель виден в preview, но не блокирует неопубликованный Offer."""
+    from apps.marketplace.ebay.preparation import _check_local
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    preview_draft.regulatory = (
+        {"responsiblePersons": [regulatory_contact]} if with_responsible_person else {}
+    )
+    preview = build_draft_preview(preview_draft)
+    draft = SimpleNamespace(
+        regulatory=preview_draft.regulatory,
+        description=preview_draft.description,
+        quantity=1,
+        category_id=preview_draft.category_id,
+        aspects=preview_draft.aspects,
+        product=SimpleNamespace(
+            status="approved",
+            is_available=True,
+            variants=SimpleNamespace(aggregate=lambda **kwargs: {"total": 1}),
+        ),
+    )
+    monkeypatch.setattr(
+        "apps.marketplace.ebay.preparation.get_category_aspects",
+        lambda **kwargs: {
+            "required_aspects": ["Farbe"],
+            "aspects": [{"localizedAspectName": "Farbe", "aspectConstraint": {}}],
+        },
+    )
+    _check_local(draft, preview)
+    assert "regulatory.manufacturer" in preview["missing_regulatory_fields"]
+    assert "manufacturer" not in preview["offer"]["body"].get("regulatory", {})
+
+
+def test_preparation_preserves_existing_product_delete_behavior(preparation_api):
+    """Локальное состояние отправки не добавляет запрет на существующее удаление товара."""
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = preparation_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.draft.product.delete()
+    assert not EbayOfferPreparation.objects.exists()
+    assert api.session.request.call_count == 4
+
+
+@pytest.mark.parametrize("quantity", [0, 2])
+def test_prepare_local_check_rejects_zero_or_excess_stock(
+    preview_draft, regulatory_contact, quantity
+):
+    """Остаток не берётся из цены или черновика без проверки доступного количества товара."""
+    from apps.marketplace.ebay.preparation import _check_local
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    preview_draft.regulatory = {"manufacturer": regulatory_contact}
+    preview_draft.quantity = quantity
+    preview = build_draft_preview(preview_draft)
+    draft = SimpleNamespace(
+        regulatory=preview_draft.regulatory,
+        description=preview_draft.description,
+        quantity=quantity,
+        product=SimpleNamespace(
+            status="approved",
+            is_available=True,
+            variants=SimpleNamespace(aggregate=lambda **kwargs: {"total": 1}),
+        ),
+    )
+    with pytest.raises(ValidationError, match="quantity"):
+        _check_local(draft, preview)
+
+
+def test_prepare_http_error_stores_only_status_and_codes(preparation_api):
+    """Тело ответа и возможное отражение токена не попадают в локальную ошибку."""
+    api = preparation_api
+    api.session.request.side_effect = [
+        api.response(404),
+        api.response(404),
+        api.response(
+            400,
+            {"errors": [{"errorId": 25002, "message": "secret-token private contact"}]},
+        ),
+    ]
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 502
+    state = api.client.get(api.url).data
+    assert state["status"] == "failed"
+    assert "25002" in state["last_error"]
+    assert "secret-token" not in state["last_error"]
+    assert "private contact" not in state["last_error"]
