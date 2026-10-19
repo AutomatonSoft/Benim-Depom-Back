@@ -17,8 +17,9 @@ from apps.products.models import Product
 
 from .catalog import get_category_aspects
 from .client import api_base_url, get_seller_resource
-from .models import EbayDraft
+from .models import EbayDraft, EbayOfferPreparation
 from .readiness import _location_summary, _policy_summary
+from .regulatory import EbayRegulatorySerializer
 from .services import get_access_token
 
 POLICY_FIELDS = {
@@ -127,6 +128,7 @@ class EbayDraftSerializer(serializers.ModelSerializer):
     currency = serializers.CharField(read_only=True, default="EUR")
     marketplace_id = serializers.CharField(read_only=True, default="EBAY_DE")
     missing_requirements = serializers.SerializerMethodField()
+    regulatory = serializers.JSONField(required=False)
 
     class Meta:
         model = EbayDraft
@@ -151,6 +153,7 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             "payment_policy_id",
             "return_policy_id",
             "merchant_location_key",
+            "regulatory",
             "missing_requirements",
             "created_at",
             "updated_at",
@@ -174,6 +177,12 @@ class EbayDraftSerializer(serializers.ModelSerializer):
         if any(not value.lower().startswith("https://") for value in values):
             raise serializers.ValidationError("Image URLs must use HTTPS.")
         return values
+
+    def validate_regulatory(self, value):
+        """Проверяет контакт целиком даже при PATCH; {} очищает GPSR-блок."""
+        serializer = EbayRegulatorySerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
     def validate_merchant_location_key(self, value):
         """Не допускает специальные сегменты пути в ключе склада для запроса eBay."""
@@ -285,6 +294,15 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
         """Сохраняет только поля черновика; уникальность и конкурентное создание контролирует БД."""
         scope = self._scope(product_id)
         draft = EbayDraft.objects.select_for_update().filter(**scope).first()
+        if (
+            draft
+            and EbayOfferPreparation.objects.filter(
+                draft=draft, status__in=["processing", "uncertain"]
+            ).exists()
+        ):
+            raise serializers.ValidationError(
+                "Preparation is in progress or needs reconciliation; draft is locked."
+            )
         if partial and draft is None:
             raise NotFound("Create the eBay draft with PUT first.")
         serializer = EbayDraftSerializer(draft, data=request.data, partial=partial)
