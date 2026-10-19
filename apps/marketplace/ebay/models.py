@@ -81,6 +81,7 @@ class EbayDraft(models.Model):
     payment_policy_id = models.CharField(max_length=64, blank=True)
     return_policy_id = models.CharField(max_length=64, blank=True)
     merchant_location_key = models.CharField(max_length=50, blank=True)
+    regulatory = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -89,5 +90,38 @@ class EbayDraft(models.Model):
             models.UniqueConstraint(
                 fields=("product", "environment", "account"),
                 name="ebay_draft_product_env_account",
+            )
+        ]
+
+
+class EbayOfferPreparation(models.Model):
+    """Фиксирует владение SKU и результат отправки без публикации и изменения товара."""
+
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Processing"
+        PREPARED = "prepared", "Prepared"
+        FAILED = "failed", "Failed"
+        UNCERTAIN = "uncertain", "Requires reconciliation"
+
+    draft = models.OneToOneField(
+        EbayDraft, on_delete=models.CASCADE, related_name="preparation"
+    )
+    environment = models.CharField(
+        max_length=10, choices=EbayConnection.Environment.choices
+    )
+    account = models.CharField(max_length=7, choices=EbayConnection.Account.choices)
+    sku = models.CharField(max_length=14)
+    payload_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    inventory_confirmed = models.BooleanField(default=False)
+    offer_id = models.CharField(max_length=64, blank=True)
+    last_error = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("environment", "account", "sku"),
+                name="ebay_preparation_env_account_sku",
             )
         ]
