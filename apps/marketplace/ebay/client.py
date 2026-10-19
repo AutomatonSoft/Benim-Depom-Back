@@ -53,21 +53,71 @@ def token_request(data):
 
 def get_ebay_user_id(access_token):
     """Получает неизменяемый ID продавца для сопоставления уведомлений eBay."""
+    identity_base_url = api_base_url().replace("://api.", "://apiz.", 1)
     try:
         with build_marketplace_session() as session:
             response = session.get(
-                f"{api_base_url()}/commerce/identity/v1/user/",
+                f"{identity_base_url}/commerce/identity/v1/user/",
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=(5, 15),
             )
         if not response.ok:
-            raise EbayAPIError("eBay could not identify the authorized seller.")
+            raise EbayAPIError(
+                "eBay could not identify the authorized seller "
+                f"(HTTP {response.status_code})."
+            )
         user_id = response.json().get("userId")
         if not isinstance(user_id, str) or not user_id or len(user_id) > 255:
             raise EbayAPIError("eBay returned no valid seller identifier.")
         return user_id
     except (requests.RequestException, ValueError, AttributeError) as error:
         raise EbayAPIError() from error
+
+
+def get_seller_resource(*, session, access_token, path, params=None):
+    """Читает ресурс продавца, возвращая только код и сообщение ошибки eBay."""
+    try:
+        response = session.get(
+            f"{api_base_url()}{path}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Language": "de-DE",
+            },
+            params=params,
+            timeout=(5, 10),
+        )
+        if not response.ok:
+            detail = f"eBay request failed (HTTP {response.status_code})."
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = None
+            errors = (
+                error_payload.get("errors") if isinstance(error_payload, dict) else None
+            )
+            if isinstance(errors, list):
+                for error in errors[:3]:
+                    if not isinstance(error, dict):
+                        continue
+                    error_id = error.get("errorId")
+                    message = error.get("message")
+                    if type(error_id) is int:
+                        detail += f" errorId={error_id}."
+                    if isinstance(message, str) and message.strip():
+                        message = (
+                            message.replace(access_token, "[REDACTED]")
+                            if access_token
+                            else message
+                        )
+                        detail += " " + " ".join(message.split())[:500]
+            raise EbayAPIError(detail)
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise EbayAPIError("eBay returned an invalid resource response.")
+        return payload
+    except (requests.RequestException, ValueError) as error:
+        raise EbayAPIError("eBay resource could not be retrieved.") from error
 
 
 def get_notification_public_key(key_id):
