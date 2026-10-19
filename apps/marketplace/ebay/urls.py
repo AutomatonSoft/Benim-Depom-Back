@@ -2,6 +2,8 @@ from django.urls import path
 
 from .catalog_views import EbayCategoriesView, EbayCategoryAspectsView
 from .drafts import EbayDraftView
+from .preparation import EbayDraftPreparationView
+from .preview import EbayDraftPreviewView
 from .views import (
     EbayAccountDeletionView,
     EbayAuthorizationCallbackView,
@@ -21,7 +23,17 @@ urlpatterns = [
     path("connections/", EbayConnectionListView.as_view(), name="connections"),
     path("readiness/", EbayReadinessView.as_view(), name="readiness"),
     path("drafts/jv/<int:product_id>/", EbayDraftView.as_view(), name="draft-jv"),
+    path(
+        "drafts/jv/<int:product_id>/preview/",
+        EbayDraftPreviewView.as_view(),
+        name="draft-jv-preview",
+    ),
     path("catalog/categories/", EbayCategoriesView.as_view(), name="categories"),
+    path(
+        "drafts/jv/<int:product_id>/prepare/",
+        EbayDraftPreparationView.as_view(),
+        name="draft-jv-prepare",
+    ),
     path(
         "catalog/categories/<str:category_id>/aspects/",
         EbayCategoryAspectsView.as_view(),
