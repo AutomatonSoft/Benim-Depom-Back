@@ -348,7 +348,15 @@ def test_draft_create_edit_and_read_do_not_change_product(draft_api, local_catal
     }
     response = api.client.patch(api.url, data, format="json")
     assert response.status_code == 200
-    assert response.data["missing_requirements"] == {"fields": [], "aspects": []}
+    assert response.data["missing_requirements"] == {
+        "fields": [
+            "fulfillment_policy_id",
+            "payment_policy_id",
+            "return_policy_id",
+            "merchant_location_key",
+        ],
+        "aspects": [],
+    }
     assert response.data["account"] == "jv"
     assert response.data["currency"] == "EUR"
     assert response.data["marketplace_id"] == "EBAY_DE"
@@ -443,3 +451,161 @@ def test_draft_selection_only_and_length_constraints():
     for values in (["Maybe"], ["No"], ["Ja", "Nein"]):
         with pytest.raises(ValidationError):
             _validate_aspects({"Montage erforderlich": values}, schema)
+
+
+@pytest.fixture
+def listing_settings_api(monkeypatch):
+    """Имитирует чтение политик и склада текущего JV, не обращаясь к eBay."""
+    from apps.marketplace.ebay import drafts
+
+    values = {
+        "fulfillment_policy_id": "201",
+        "payment_policy_id": "202",
+        "return_policy_id": "203",
+        "merchant_location_key": "DE_88483",
+    }
+    payloads = {
+        "/sell/inventory/v1/location/DE_88483": {
+            "merchantLocationKey": "DE_88483",
+            "merchantLocationStatus": "ENABLED",
+            "locationTypes": ["WAREHOUSE"],
+            "location": {"address": {"postalCode": "88483", "country": "DE"}},
+        }
+    }
+    for field, (resource, id_field) in drafts.POLICY_FIELDS.items():
+        payloads[f"/sell/account/v1/{resource}_policy/{values[field]}"] = {
+            id_field: values[field],
+            "marketplaceId": "EBAY_DE",
+            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+        }
+
+    def read_resource(**kwargs):
+        """Возвращает только разрешённые фиктивные ресурсы для проверяемого токена."""
+        assert kwargs["access_token"] == "listing-settings-token"
+        return deepcopy(payloads[kwargs["path"]])
+
+    resource = MagicMock(side_effect=read_resource)
+    token = MagicMock(return_value="listing-settings-token")
+    monkeypatch.setattr(drafts, "get_access_token", token)
+    monkeypatch.setattr(drafts, "get_seller_resource", resource)
+    monkeypatch.setattr(drafts, "build_marketplace_session", MagicMock())
+    return SimpleNamespace(
+        values=values, payloads=payloads, resource=resource, token=token
+    )
+
+
+def test_draft_attaches_listing_settings_without_changing_product(
+    draft_api, listing_settings_api
+):
+    """Ссылки проверяются у JV и сохраняются только в черновике; чтение не вызывает eBay."""
+    from apps.products.models import Product
+
+    before = Product.objects.filter(pk=draft_api.product.pk).values().get()
+    response = draft_api.client.put(
+        draft_api.url, listing_settings_api.values, format="json"
+    )
+    assert response.status_code == 201
+    for field, value in listing_settings_api.values.items():
+        assert response.data[field] == value
+        assert field not in response.data["missing_requirements"]["fields"]
+    listing_settings_api.token.assert_called_once_with(account="jv")
+    assert listing_settings_api.resource.call_count == 4
+    assert draft_api.client.get(draft_api.url).status_code == 200
+    assert (
+        draft_api.client.patch(
+            draft_api.url, {"title": "New draft title"}, format="json"
+        ).status_code
+        == 200
+    )
+    assert (
+        draft_api.client.patch(
+            draft_api.url, listing_settings_api.values, format="json"
+        ).status_code
+        == 200
+    )
+    assert listing_settings_api.resource.call_count == 4
+    assert Product.objects.filter(pk=draft_api.product.pk).values().get() == before
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "marketplace",
+        "motors",
+        "disabled_location",
+        "not_warehouse",
+        "address",
+        "policy_id",
+    ],
+)
+def test_invalid_listing_settings_do_not_change_draft(
+    draft_api, listing_settings_api, failure
+):
+    """Чужая площадка, неверная политика и непригодный склад не заменяют сохранённые ссылки."""
+    values = listing_settings_api.values
+    response = draft_api.client.put(draft_api.url, {}, format="json")
+    assert response.status_code == 201
+    policy = listing_settings_api.payloads["/sell/account/v1/fulfillment_policy/201"]
+    location = listing_settings_api.payloads["/sell/inventory/v1/location/DE_88483"]
+    if failure == "marketplace":
+        policy["marketplaceId"] = "EBAY_US"
+    elif failure == "motors":
+        policy["categoryTypes"] = [{"name": "MOTORS_VEHICLES"}]
+    elif failure == "disabled_location":
+        location["merchantLocationStatus"] = "DISABLED"
+    elif failure == "not_warehouse":
+        location["locationTypes"] = ["STORE"]
+    elif failure == "address":
+        location["location"]["address"] = {"country": "DE"}
+    else:
+        policy["fulfillmentPolicyId"] = "999"
+    response = draft_api.client.patch(draft_api.url, values, format="json")
+    assert response.status_code == 400
+    draft = EbayDraft.objects.get()
+    assert all(getattr(draft, field) == "" for field in values)
+
+
+def test_listing_settings_api_error_keeps_existing_draft(
+    draft_api, listing_settings_api
+):
+    """Ошибка внешнего API не превращается в сохранение непроверенных ссылок."""
+    draft_api.client.put(draft_api.url, {}, format="json")
+    listing_settings_api.resource.side_effect = EbayAPIError("eBay unavailable")
+    response = draft_api.client.patch(
+        draft_api.url, listing_settings_api.values, format="json"
+    )
+    assert response.status_code == 502
+    assert EbayDraft.objects.get().fulfillment_policy_id == ""
+
+
+def test_listing_settings_are_separate_between_environments(
+    draft_api, listing_settings_api, settings
+):
+    """Production-ссылки не копируются в уже существующий Sandbox-черновик."""
+    draft_api.client.put(draft_api.url, {}, format="json")
+    settings.EBAY_ENVIRONMENT = "production"
+    assert (
+        draft_api.client.put(
+            draft_api.url, listing_settings_api.values, format="json"
+        ).status_code
+        == 201
+    )
+    settings.EBAY_ENVIRONMENT = "sandbox"
+    assert draft_api.client.get(draft_api.url).data["merchant_location_key"] == ""
+    assert (
+        EbayDraft.objects.get(environment="production").merchant_location_key
+        == "DE_88483"
+    )
+
+
+def test_draft_can_clear_listing_settings_without_api(draft_api, listing_settings_api):
+    """Явная очистка ссылок сохраняет неполный черновик и не требует токена eBay."""
+    draft_api.client.put(draft_api.url, listing_settings_api.values, format="json")
+    response = draft_api.client.patch(
+        draft_api.url,
+        {field: "" for field in listing_settings_api.values},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["merchant_location_key"] == ""
+    assert listing_settings_api.resource.call_count == 4

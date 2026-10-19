@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -6,14 +8,65 @@ from rest_framework import serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from urllib3.util.retry import Retry
 
+from apps.common.marketplace_http import build_marketplace_session
 from apps.common.permissions import IsManager
 from apps.common.throttles import ManagerMutationThrottleMixin
 from apps.products.models import Product
 
 from .catalog import get_category_aspects
-from .client import api_base_url
+from .client import api_base_url, get_seller_resource
 from .models import EbayDraft
+from .readiness import _location_summary, _policy_summary
+from .services import get_access_token
+
+POLICY_FIELDS = {
+    "fulfillment_policy_id": ("fulfillment", "fulfillmentPolicyId"),
+    "payment_policy_id": ("payment", "paymentPolicyId"),
+    "return_policy_id": ("return", "returnPolicyId"),
+}
+LISTING_SETTINGS_FIELDS = (*POLICY_FIELDS, "merchant_location_key")
+
+
+def _validate_listing_settings(*, account, values):
+    """Проверяет ссылки чтением API текущего продавца; политики и склад не изменяет."""
+    if not values:
+        return
+    access_token = get_access_token(account=account)
+    errors = {}
+    with build_marketplace_session() as session:
+        for adapter in session.adapters.values():
+            adapter.max_retries = Retry(total=0)
+        for field, value in values.items():
+            if field == "merchant_location_key":
+                payload = get_seller_resource(
+                    session=session,
+                    access_token=access_token,
+                    path=f"/sell/inventory/v1/location/{quote(value, safe='')}",
+                )
+                location = _location_summary(payload)
+                if (
+                    location["merchant_location_key"] != value
+                    or not location["usable"]
+                    or not isinstance(location["location_types"], list)
+                    or "WAREHOUSE" not in location["location_types"]
+                ):
+                    errors[field] = "Choose an enabled warehouse with a usable address."
+            else:
+                resource, id_field = POLICY_FIELDS[field]
+                payload = get_seller_resource(
+                    session=session,
+                    access_token=access_token,
+                    path=f"/sell/account/v1/{resource}_policy/{value}",
+                )
+                policy = _policy_summary(payload, id_field)
+                if policy["id"] != value or not policy["applicable_to_furniture"]:
+                    errors[field] = (
+                        "Choose this seller's EBAY_DE policy for non-motor items."
+                    )
+    if errors:
+        raise serializers.ValidationError(errors)
 
 
 def _validate_aspects(aspects, schema):
@@ -62,6 +115,15 @@ class EbayDraftSerializer(serializers.ModelSerializer):
         ),
         required=False,
     )
+    fulfillment_policy_id = serializers.RegexField(
+        r"^[1-9][0-9]*$", max_length=64, allow_blank=True, required=False
+    )
+    payment_policy_id = serializers.RegexField(
+        r"^[1-9][0-9]*$", max_length=64, allow_blank=True, required=False
+    )
+    return_policy_id = serializers.RegexField(
+        r"^[1-9][0-9]*$", max_length=64, allow_blank=True, required=False
+    )
     currency = serializers.CharField(read_only=True, default="EUR")
     marketplace_id = serializers.CharField(read_only=True, default="EBAY_DE")
     missing_requirements = serializers.SerializerMethodField()
@@ -85,6 +147,10 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             "category_tree_id",
             "category_tree_version",
             "required_aspects",
+            "fulfillment_policy_id",
+            "payment_policy_id",
+            "return_policy_id",
+            "merchant_location_key",
             "missing_requirements",
             "created_at",
             "updated_at",
@@ -109,8 +175,22 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Image URLs must use HTTPS.")
         return values
 
+    def validate_merchant_location_key(self, value):
+        """Не допускает специальные сегменты пути в ключе склада для запроса eBay."""
+        if value in {".", ".."}:
+            raise serializers.ValidationError("Invalid merchant location key.")
+        return value
+
     def validate(self, attrs):
-        """Сверяет категорию и характеристики, сохраняя версию использованного справочника."""
+        """Проверяет изменённые ссылки eBay, категорию и характеристики черновика."""
+        changed_settings = {
+            field: attrs[field]
+            for field in LISTING_SETTINGS_FIELDS
+            if attrs.get(field) and attrs[field] != getattr(self.instance, field, "")
+        }
+        _validate_listing_settings(
+            account=getattr(self.instance, "account", "jv"), values=changed_settings
+        )
         if not ({"category_id", "aspects"} & attrs.keys()):
             return attrs
         category_id = attrs.get(
@@ -169,6 +249,7 @@ class EbayDraftSerializer(serializers.ModelSerializer):
                     "price_eur",
                     "quantity",
                     "category_id",
+                    *LISTING_SETTINGS_FIELDS,
                 )
                 if getattr(obj, field) in ("", None, [])
             ],
