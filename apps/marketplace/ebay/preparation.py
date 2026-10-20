@@ -198,8 +198,19 @@ def _check_local(draft, preview):
         raise ValidationError({"aspects": missing})
 
 
+def _payload_hash(preview):
+    """Считает отпечаток отправляемых данных для создания и обновления Offer."""
+    return hashlib.sha256(
+        json.dumps(
+            [preview["inventory_item"]["body"], preview["offer"]["body"]],
+            sort_keys=True,
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+
+
 @transaction.atomic
-def _claim(product_id):
+def _claim(product_id, *, update=False):
     """Блокирует конкурентную отправку и закрепляет существующий EAN за одним черновиком."""
     draft = get_object_or_404(
         EbayDraft.objects.select_for_update().select_related("product"),
@@ -208,14 +219,14 @@ def _claim(product_id):
         account="jv",
     )
     preview = build_draft_preview(draft)
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            [preview["inventory_item"]["body"], preview["offer"]["body"]],
-            sort_keys=True,
-            ensure_ascii=False,
-        ).encode()
-    ).hexdigest()
+    fingerprint = _payload_hash(preview)
     preparation = EbayOfferPreparation.objects.filter(draft=draft).first()
+    if update and (
+        not preparation
+        or not preparation.offer_id
+        or not preparation.inventory_confirmed
+    ):
+        raise PreparationConflict("Create the unpublished Offer with prepare first.")
     if preparation:
         if preparation.status in {"processing", "uncertain"}:
             raise PreparationConflict(
@@ -223,7 +234,16 @@ def _claim(product_id):
             )
         if preparation.sku != preview["sku"]:
             raise PreparationConflict("Product EAN changed after preparation.")
+        if (
+            preparation.environment != draft.environment
+            or preparation.account != draft.account
+        ):
+            raise PreparationConflict("Preparation scope does not match this draft.")
         if preparation.offer_id:
+            if update:
+                _check_local(draft, preview)
+                _save_state(preparation, status="processing", last_error="")
+                return draft, preview, preparation, True
             if preparation.payload_hash != fingerprint:
                 raise PreparationConflict(
                     "Draft changed; updating an existing Offer requires a separate step."
@@ -252,6 +272,32 @@ def _claim(product_id):
     return draft, preview, preparation, True
 
 
+def _check_new_condition(session, token, category_id):
+    """Подтверждает разрешённое NEW по актуальному ответу Metadata API."""
+    conditions = get_seller_resource(
+        session=session,
+        access_token=token,
+        path="/sell/metadata/v1/marketplace/EBAY_DE/get_item_condition_policies",
+        params={"filter": f"categoryIds:{{{category_id}}}"},
+    )
+    policies = conditions.get("itemConditionPolicies")
+    if not isinstance(policies, list) or any(
+        not isinstance(policy, dict)
+        or not isinstance(policy.get("itemConditions"), list)
+        or any(not isinstance(item, dict) for item in policy["itemConditions"])
+        for policy in policies
+    ):
+        raise EbayAPIError("eBay returned invalid condition metadata.")
+    if not any(
+        policy.get("categoryId") == category_id
+        and any(
+            str(item.get("conditionId")) == "1000" for item in policy["itemConditions"]
+        )
+        for policy in policies
+    ):
+        raise ValidationError("Category does not confirm condition NEW.")
+
+
 def prepare_offer(product_id):
     """Создаёт только Inventory Item и неопубликованный Offer; publish/delete отсутствуют."""
     api_base_url()
@@ -268,29 +314,7 @@ def prepare_offer(product_id):
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
-            conditions = get_seller_resource(
-                session=session,
-                access_token=token,
-                path="/sell/metadata/v1/marketplace/EBAY_DE/get_item_condition_policies",
-                params={"filter": f"categoryIds:{{{draft.category_id}}}"},
-            )
-            policies = conditions.get("itemConditionPolicies")
-            if not isinstance(policies, list) or any(
-                not isinstance(policy, dict)
-                or not isinstance(policy.get("itemConditions"), list)
-                or any(not isinstance(item, dict) for item in policy["itemConditions"])
-                for policy in policies
-            ):
-                raise EbayAPIError("eBay returned invalid condition metadata.")
-            if not any(
-                policy.get("categoryId") == draft.category_id
-                and any(
-                    str(item.get("conditionId")) == "1000"
-                    for item in policy.get("itemConditions", [])
-                )
-                for policy in policies
-            ):
-                raise ValidationError("Category does not confirm condition NEW.")
+            _check_new_condition(session, token, draft.category_id)
             inventory_path = (
                 f"/sell/inventory/v1/inventory_item/{quote(preparation.sku, safe='')}"
             )
