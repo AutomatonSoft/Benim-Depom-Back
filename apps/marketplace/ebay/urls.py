@@ -25,6 +25,36 @@ urlpatterns = [
     ),
     path("connections/", EbayConnectionListView.as_view(), name="connections"),
     path("readiness/", EbayReadinessView.as_view(), name="readiness"),
+    path(
+        "drafts/depotum/<int:product_id>/",
+        EbayDraftView.as_view(account="depotum"),
+        name="draft-depotum",
+    ),
+    path(
+        "drafts/depotum/<int:product_id>/preview/",
+        EbayDraftPreviewView.as_view(account="depotum"),
+        name="draft-depotum-preview",
+    ),
+    path(
+        "drafts/depotum/<int:product_id>/prepare/",
+        EbayDraftPreparationView.as_view(account="depotum"),
+        name="draft-depotum-prepare",
+    ),
+    path(
+        "drafts/depotum/<int:product_id>/update/",
+        EbayDraftUpdateView.as_view(account="depotum"),
+        name="draft-depotum-update",
+    ),
+    path(
+        "drafts/depotum/<int:product_id>/remote/",
+        EbayDraftRemoteView.as_view(account="depotum"),
+        name="draft-depotum-remote",
+    ),
+    path(
+        "drafts/depotum/<int:product_id>/publish/",
+        EbayDraftPublishView.as_view(account="depotum"),
+        name="draft-depotum-publish",
+    ),
     path("drafts/jv/<int:product_id>/", EbayDraftView.as_view(), name="draft-jv"),
     path(
         "drafts/jv/<int:product_id>/preview/",

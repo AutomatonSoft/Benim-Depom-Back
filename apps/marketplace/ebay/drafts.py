@@ -100,7 +100,7 @@ def _validate_aspects(aspects, schema):
 
 
 class EbayDraftSerializer(serializers.ModelSerializer):
-    """Проверяет введённые поля и допускает сохранение неполного черновика JV."""
+    """Проверяет введённые поля и допускает сохранение неполного черновика аккаунта."""
 
     category_id = serializers.RegexField(
         r"^[1-9][0-9]*$", max_length=20, allow_blank=True, required=False
@@ -198,7 +198,10 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             if attrs.get(field) and attrs[field] != getattr(self.instance, field, "")
         }
         _validate_listing_settings(
-            account=getattr(self.instance, "account", "jv"), values=changed_settings
+            account=getattr(
+                self.instance, "account", self.context.get("account", "jv")
+            ),
+            values=changed_settings,
         )
         if not ({"category_id", "aspects"} & attrs.keys()):
             return attrs
@@ -269,18 +272,19 @@ class EbayDraftSerializer(serializers.ModelSerializer):
 
 
 class EbayDraftView(ManagerMutationThrottleMixin, APIView):
-    """Даёт менеджеру читать и сохранять локальный черновик JV без публикации."""
+    """Даёт менеджеру читать и сохранять отдельный черновик аккаунта без публикации."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     def _scope(self, product_id):
-        """Привязывает запрос к существующему товару, JV и окружению сервера."""
+        """Привязывает запрос к товару, серверному аккаунту маршрута и окружению."""
         api_base_url()
         product = get_object_or_404(Product.objects.only("pk"), pk=product_id)
         return {
             "product": product,
             "environment": settings.EBAY_ENVIRONMENT,
-            "account": "jv",
+            "account": self.account,
         }
 
     @extend_schema(responses={200: EbayDraftSerializer}, tags=["eBay"])
@@ -305,7 +309,9 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
             )
         if partial and draft is None:
             raise NotFound("Create the eBay draft with PUT first.")
-        serializer = EbayDraftSerializer(draft, data=request.data, partial=partial)
+        serializer = EbayDraftSerializer(
+            draft, data=request.data, partial=partial, context={"account": self.account}
+        )
         serializer.is_valid(raise_exception=True)
         created = draft is None
         if created:
@@ -326,7 +332,7 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
         request=EbayDraftSerializer,
         responses={200: EbayDraftSerializer, 201: EbayDraftSerializer},
         tags=["eBay"],
-        description="Создаёт или обновляет локальный черновик JV. Незаполненные обязательные поля перечислены в missing_requirements; публикация не выполняется.",
+        description="Создаёт или обновляет локальный черновик аккаунта маршрута. Незаполненные обязательные поля перечислены в missing_requirements; публикация не выполняется.",
     )
     def put(self, request, product_id):
         """Создаёт черновик или обновляет переданные поля существующего."""

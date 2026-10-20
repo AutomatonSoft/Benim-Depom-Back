@@ -1598,9 +1598,13 @@ def publish_api(update_api, monkeypatch):
     from apps.marketplace.ebay.preview import build_draft_preview
 
     api = update_api
+    api.draft.account = "depotum"
+    api.draft.save(update_fields=["account"])
+    api.url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
+    api.update_url = api.update_url.replace("/drafts/jv/", "/drafts/depotum/")
     preview = build_draft_preview(api.draft)
     api.fingerprint = _payload_hash(preview)
-    EbayOfferPreparation.objects.update(payload_hash=api.fingerprint)
+    EbayOfferPreparation.objects.update(payload_hash=api.fingerprint, account="depotum")
     api.offer = {
         **deepcopy(preview["offer"]["body"]),
         "offerId": "9001",
@@ -1929,3 +1933,275 @@ def test_publish_checks_image_failure_never_sends_publish(publish_api):
     response = api.client.post(api.publish_url, api.confirmation, format="json")
     assert response.status_code == 400
     assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+def test_depotum_draft_is_separate_and_checks_its_own_policies(
+    draft_api, listing_settings_api
+):
+    """Depotum не использует черновик JV и проверяет ссылки с токеном Depotum уже при создании."""
+    from apps.products.models import Product
+
+    api = draft_api
+    api.client.put(api.url, {"title": "Existing JV draft"}, format="json")
+    before = EbayDraft.objects.filter(account="jv").values().get()
+    before_product = Product.objects.filter(pk=api.product.pk).values().get()
+    url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
+    response = api.client.put(
+        url, {**listing_settings_api.values, "account": "jv"}, format="json"
+    )
+    assert response.status_code == 201, response.data
+    assert response.data["account"] == "depotum"
+    listing_settings_api.token.assert_called_once_with(account="depotum")
+    assert response.data["title"] == ""
+    assert EbayDraft.objects.filter(account="jv").values().get() == before
+    assert Product.objects.filter(pk=api.product.pk).values().get() == before_product
+    assert EbayDraft.objects.count() == 2
+
+
+@pytest.fixture
+def depotum_api(preparation_api, monkeypatch):
+    """Даёт независимые записи JV/Depotum одного товара и перехватывает все токены."""
+    from apps.marketplace.ebay import preparation, publishing, remote, updating
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = preparation_api
+    api.jv_draft_id = api.draft.pk
+    EbayOfferPreparation.objects.create(
+        draft=api.draft,
+        environment="sandbox",
+        account="jv",
+        sku="4071489789867",
+        payload_hash="a" * 64,
+        status="failed",
+        inventory_confirmed=True,
+        offer_id="jv-existing-offer",
+    )
+    api.jv_before = EbayOfferPreparation.objects.filter(account="jv").values().get()
+    api.draft = deepcopy(api.draft)
+    api.draft.pk = None
+    api.draft.account = "depotum"
+    api.draft.save(force_insert=True)
+    api.url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
+    api.token = MagicMock(return_value="depotum-token")
+    context = MagicMock()
+    context.__enter__.return_value = api.session
+    for module in (preparation, updating, publishing, remote):
+        monkeypatch.setattr(module, "get_access_token", api.token)
+        monkeypatch.setattr(module, "build_marketplace_session", lambda: context)
+    for module in (updating, publishing):
+        monkeypatch.setattr(
+            module, "_validate_listing_settings", preparation._validate_listing_settings
+        )
+    monkeypatch.setattr(publishing, "_check_local", preparation._check_local)
+    monkeypatch.setattr(publishing, "_check_images", MagicMock())
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": True},
+    )
+    return api
+
+
+def test_depotum_preview_and_prepare_use_jv_ean_and_depotum_token(depotum_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = depotum_api
+    preview_url = api.url.removesuffix("prepare/") + "preview/"
+    preview = api.client.get(preview_url)
+    assert preview.status_code == 200
+    assert preview.data["account"] == "depotum"
+    assert preview.data["sku"] == preview.data["ean"] == "4071489789867"
+    api.token.assert_not_called()
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 200, response.data
+    assert response.data["account"] == "depotum"
+    assert response.data["offer_id"] == "9001"
+    api.token.assert_called_once_with(account="depotum")
+    assert all(
+        call.kwargs["headers"]["Authorization"] == "Bearer depotum-token"
+        for call in api.session.request.call_args_list
+    )
+    assert (
+        EbayOfferPreparation.objects.filter(account="jv").values().get()
+        == api.jv_before
+    )
+    assert EbayOfferPreparation.objects.count() == 2
+
+
+def test_depotum_update_publish_and_read_keep_jv_untouched(depotum_api, monkeypatch):
+    from apps.marketplace.ebay import remote
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    api = depotum_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.draft.description += " Updated for Depotum."
+    api.draft.save(update_fields=["description"])
+    preview = build_draft_preview(api.draft)
+    offer = {
+        **deepcopy(preview["offer"]["body"]),
+        "offerId": "9001",
+        "status": "UNPUBLISHED",
+    }
+    inventory = {**deepcopy(preview["inventory_item"]["body"]), "sku": "4071489789867"}
+
+    def listing():
+        return api.response(200, {"offers": [offer], "total": 1})
+
+    api.session.request.side_effect = [
+        listing(),
+        api.response(200, offer),
+        api.response(200, inventory),
+        api.response(204),
+        listing(),
+        api.response(200, offer),
+        api.response(204),
+    ]
+    base = api.url.removesuffix("prepare/")
+    response = api.client.post(
+        base + "update/", {"confirm_stock_location": True}, format="json"
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["account"] == "depotum"
+    assert response.data["offer_id"] == "9001"
+
+    resource = MagicMock(side_effect=[inventory, offer])
+    monkeypatch.setattr(remote, "get_seller_resource", resource)
+    snapshot = api.client.get(base + "remote/")
+    assert snapshot.status_code == 200
+    assert snapshot.data["account"] == "depotum"
+    assert all(
+        call.kwargs["access_token"] == "depotum-token"
+        for call in resource.call_args_list
+    )
+
+    api.session.request.side_effect = [
+        listing(),
+        api.response(200, offer),
+        api.response(200, inventory),
+    ]
+    checks = api.client.get(base + "publish/")
+    assert checks.status_code == 200, checks.data
+    assert checks.data["ready"] is True
+    api.session.request.side_effect = [
+        listing(),
+        api.response(200, offer),
+        api.response(200, inventory),
+        listing(),
+        api.response(200, offer),
+        api.response(200, {"listingId": "depotum-listing"}),
+    ]
+    response = api.client.post(
+        base + "publish/",
+        {
+            "confirm_publication": True,
+            "confirm_stock_location": True,
+            "preview_hash": checks.data["preview_hash"],
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["listing_id"] == "depotum-listing"
+    assert response.data["account"] == "depotum"
+    assert all(
+        call.kwargs == {"account": "depotum"} for call in api.token.call_args_list
+    )
+    assert (
+        EbayOfferPreparation.objects.filter(account="jv").values().get()
+        == api.jv_before
+    )
+    assert (
+        EbayDraft.objects.get(pk=api.jv_draft_id).description != api.draft.description
+    )
+
+
+@pytest.mark.parametrize("account", ["jv", "xl"])
+def test_publish_service_refuses_non_depotum_before_network(
+    draft_api, monkeypatch, account
+):
+    from apps.marketplace.ebay.preparation import PreparationConflict
+    from apps.marketplace.ebay.publishing import publish_offer
+
+    network = MagicMock(side_effect=AssertionError("Unexpected network"))
+    monkeypatch.setattr("requests.sessions.Session.request", network)
+    with pytest.raises(PreparationConflict, match="only for Depotum"):
+        publish_offer(draft_api.product.pk, "0" * 64, account=account)
+    network.assert_not_called()
+
+
+def test_jv_publish_route_is_blocked_without_touching_state(preparation_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+    from apps.marketplace.ebay.preparation import _payload_hash
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    api = preparation_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.session.request.reset_mock()
+    before = EbayOfferPreparation.objects.values().get()
+    url = api.url.removesuffix("prepare/") + "publish/"
+    checks = api.client.get(url)
+    assert checks.status_code == 200 and checks.data["ready"] is False
+    assert "Publication is enabled only for Depotum." in checks.data["blocking_reasons"]
+    response = api.client.post(
+        url,
+        {
+            "confirm_publication": True,
+            "confirm_stock_location": True,
+            "preview_hash": _payload_hash(build_draft_preview(api.draft)),
+        },
+        format="json",
+    )
+    assert response.status_code == 409
+    api.session.request.assert_not_called()
+    assert EbayOfferPreparation.objects.values().get() == before
+
+
+def test_depotum_never_falls_back_to_jv_draft_or_offer(preparation_api):
+    api = preparation_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.session.request.reset_mock()
+    base = api.url.replace("/drafts/jv/", "/drafts/depotum/").removesuffix("prepare/")
+    for suffix in ("", "preview/", "remote/", "prepare/", "publish/"):
+        assert api.client.get(base + suffix).status_code == 404
+    for suffix in ("prepare/", "update/"):
+        assert (
+            api.client.post(
+                base + suffix, {"confirm_stock_location": True}, format="json"
+            ).status_code
+            == 404
+        )
+    api.session.request.assert_not_called()
+
+
+def test_depotum_without_its_connection_does_not_use_jv_token(depotum_api, monkeypatch):
+    from apps.marketplace.ebay import preparation
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = depotum_api
+    token = MagicMock(
+        side_effect=EbayConfigurationError("Connect this eBay account first.")
+    )
+    monkeypatch.setattr(preparation, "get_access_token", token)
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 503
+    token.assert_called_once_with(account="depotum")
+    api.session.request.assert_not_called()
+    assert (
+        EbayOfferPreparation.objects.filter(account="jv").values().get()
+        == api.jv_before
+    )

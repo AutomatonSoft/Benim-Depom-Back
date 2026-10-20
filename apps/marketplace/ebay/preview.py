@@ -16,7 +16,11 @@ from .regulatory import EbayRegulatorySerializer, missing_regulatory_fields
 def draft_ean(draft):
     """Читает существующий JV EAN; новые номера не выделяет и товар не изменяет."""
     value = draft.product.ean_jv
-    if draft.account != "jv" or not value.isascii() or not value.isdigit():
+    if (
+        draft.account not in {"jv", "depotum"}
+        or not value.isascii()
+        or not value.isdigit()
+    ):
         return ""
     if len(value) not in (8, 13):
         return ""
@@ -149,15 +153,16 @@ class EbayDraftPreviewSerializer(serializers.Serializer):
 
 
 class EbayDraftPreviewView(APIView):
-    """Показывает менеджеру предпросмотр JV текущего окружения, не отправляя товар в eBay."""
+    """Показывает предпросмотр аккаунта маршрута, не отправляя товар в eBay."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     @extend_schema(
         responses={200: EbayDraftPreviewSerializer},
         tags=["eBay"],
         description=(
-            "Формирует JSON будущих Inventory Item и Offer из сохранённого черновика JV. "
+            "Формирует JSON будущих Inventory Item и Offer из черновика аккаунта маршрута. "
             "Все товары новые: condition=NEW. API eBay, OAuth и загрузка изображений "
             "не вызываются, записи не создаются и не изменяются. SKU равен существующему JV EAN; "
             "draft_complete отражает заполненность, а checks_not_performed — "
@@ -170,7 +175,7 @@ class EbayDraftPreviewView(APIView):
         draft = get_object_or_404(
             EbayDraft.objects.select_related("product"),
             product_id=product_id,
-            account="jv",
+            account=self.account,
             environment=settings.EBAY_ENVIRONMENT,
         )
         result = build_draft_preview(draft)

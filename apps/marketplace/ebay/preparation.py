@@ -214,13 +214,13 @@ def _payload_hash(preview):
 
 
 @transaction.atomic
-def _claim(product_id, *, update=False):
+def _claim(product_id, *, update=False, account="jv"):
     """Блокирует конкурентную отправку и закрепляет существующий EAN за одним черновиком."""
     draft = get_object_or_404(
         EbayDraft.objects.select_for_update().select_related("product"),
         product_id=product_id,
         environment=settings.EBAY_ENVIRONMENT,
-        account="jv",
+        account=account,
     )
     preview = build_draft_preview(draft)
     fingerprint = _payload_hash(preview)
@@ -306,19 +306,19 @@ def _check_new_condition(session, token, category_id):
         raise ValidationError("Category does not confirm condition NEW.")
 
 
-def prepare_offer(product_id):
+def prepare_offer(product_id, *, account="jv"):
     """Создаёт только Inventory Item и неопубликованный Offer; publish/delete отсутствуют."""
     api_base_url()
-    draft, preview, preparation, send = _claim(product_id)
+    draft, preview, preparation, send = _claim(product_id, account=account)
     if not send:
         return preparation
     writing = False
     try:
         _validate_listing_settings(
-            account="jv",
+            account=draft.account,
             values={field: getattr(draft, field) for field in LISTING_SETTINGS_FIELDS},
         )
-        token = get_access_token(account="jv")
+        token = get_access_token(account=draft.account)
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
@@ -397,6 +397,7 @@ class EbayDraftPreparationView(ManagerMutationThrottleMixin, APIView):
     """Позволяет менеджеру отправить черновик без публикации и прочитать результат."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     @extend_schema(responses={200: PreparationSerializer}, tags=["eBay"])
     def get(self, request, product_id):
@@ -404,7 +405,9 @@ class EbayDraftPreparationView(ManagerMutationThrottleMixin, APIView):
             EbayOfferPreparation,
             draft__product_id=product_id,
             environment=settings.EBAY_ENVIRONMENT,
-            account="jv",
+            account=self.account,
+            draft__account=self.account,
+            draft__environment=settings.EBAY_ENVIRONMENT,
         )
         response = Response(PreparationSerializer(preparation).data)
         response["Cache-Control"] = "no-store"
@@ -419,7 +422,7 @@ class EbayDraftPreparationView(ManagerMutationThrottleMixin, APIView):
     def post(self, request, product_id):
         serializer = PreparationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        preparation = prepare_offer(product_id)
+        preparation = prepare_offer(product_id, account=self.account)
         response = Response(PreparationSerializer(preparation).data)
         response["Cache-Control"] = "no-store"
         return response
