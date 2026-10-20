@@ -4,6 +4,7 @@ from .catalog_views import EbayCategoriesView, EbayCategoryAspectsView
 from .drafts import EbayDraftView
 from .preparation import EbayDraftPreparationView
 from .preview import EbayDraftPreviewView
+from .publishing import EbayDraftPublishView
 from .remote import EbayDraftRemoteView
 from .updating import EbayDraftUpdateView
 from .views import (
@@ -31,6 +32,11 @@ urlpatterns = [
         name="draft-jv-preview",
     ),
     path("catalog/categories/", EbayCategoriesView.as_view(), name="categories"),
+    path(
+        "drafts/jv/<int:product_id>/publish/",
+        EbayDraftPublishView.as_view(),
+        name="draft-jv-publish",
+    ),
     path(
         "drafts/jv/<int:product_id>/remote/",
         EbayDraftRemoteView.as_view(),

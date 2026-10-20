@@ -100,6 +100,7 @@ class EbayOfferPreparation(models.Model):
     class Status(models.TextChoices):
         PROCESSING = "processing", "Processing"
         PREPARED = "prepared", "Prepared"
+        PUBLISHED = "published", "Published"
         FAILED = "failed", "Failed"
         UNCERTAIN = "uncertain", "Requires reconciliation"
 
@@ -115,6 +116,7 @@ class EbayOfferPreparation(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices)
     inventory_confirmed = models.BooleanField(default=False)
     offer_id = models.CharField(max_length=64, blank=True)
+    listing_id = models.CharField(max_length=64, blank=True)
     last_error = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
