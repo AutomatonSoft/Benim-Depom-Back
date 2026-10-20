@@ -4,6 +4,7 @@ from .catalog_views import EbayCategoriesView, EbayCategoryAspectsView
 from .drafts import EbayDraftView
 from .preparation import EbayDraftPreparationView
 from .preview import EbayDraftPreviewView
+from .updating import EbayDraftUpdateView
 from .views import (
     EbayAccountDeletionView,
     EbayAuthorizationCallbackView,
@@ -29,6 +30,11 @@ urlpatterns = [
         name="draft-jv-preview",
     ),
     path("catalog/categories/", EbayCategoriesView.as_view(), name="categories"),
+    path(
+        "drafts/jv/<int:product_id>/update/",
+        EbayDraftUpdateView.as_view(),
+        name="draft-jv-update",
+    ),
     path(
         "drafts/jv/<int:product_id>/prepare/",
         EbayDraftPreparationView.as_view(),

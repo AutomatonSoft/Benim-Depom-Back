@@ -1218,3 +1218,248 @@ def test_error_reason_is_visible_and_redacted(regulatory_contact):
     assert "reason: Invalid responsiblePersons.types EUResponsiblePerson" in message
     assert regulatory_contact["addressLine1"] not in message
     assert "secret-token" not in message
+
+
+@pytest.fixture
+def update_api(preparation_api, monkeypatch):
+    """Создаёт локально подготовленный Offer и подменяет все ответы обновления."""
+    from apps.marketplace.ebay import preparation, updating
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    api = preparation_api
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 200
+    )
+    api.session.request.reset_mock()
+    context = MagicMock()
+    context.__enter__.return_value = api.session
+    monkeypatch.setattr(updating, "build_marketplace_session", lambda: context)
+    monkeypatch.setattr(updating, "get_access_token", preparation.get_access_token)
+    monkeypatch.setattr(
+        updating, "_validate_listing_settings", preparation._validate_listing_settings
+    )
+    preview = build_draft_preview(api.draft)
+    api.offer = {
+        **preview["offer"]["body"],
+        "offerId": "9001",
+        "status": "UNPUBLISHED",
+        "tax": {"vatPercentage": 19.0},
+    }
+    api.inventory = {
+        **preview["inventory_item"]["body"],
+        "sku": "4071489789867",
+        "locale": "de_DE",
+        "packageWeightAndSize": {"weight": {"value": 30, "unit": "KILOGRAM"}},
+    }
+    api.update_url = api.url.removesuffix("prepare/") + "update/"
+    api.draft.price_eur = Decimal("7050.00")
+    api.draft.save(update_fields=["price_eur"])
+
+    def replies():
+        return [
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(200, deepcopy(api.inventory)),
+            api.response(204),
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(204),
+        ]
+
+    api.replies = replies
+    api.session.request.side_effect = replies()
+    return api
+
+
+def test_update_unpublished_offer_preserves_id_and_additional_fields(update_api):
+    """PUT сохраняет настройки eBay и offerId; POST create/publish не выполняются."""
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = update_api
+    before_product = (
+        type(api.draft.product).objects.filter(pk=api.draft.product_id).values().get()
+    )
+    response = api.client.post(
+        api.update_url, {"confirm_stock_location": True}, format="json"
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["offer_id"] == "9001"
+    assert response.data["status"] == "prepared"
+    assert response.data["publication_performed"] is False
+    calls = api.session.request.call_args_list
+    assert [call.args[0] for call in calls] == [
+        "GET",
+        "GET",
+        "GET",
+        "PUT",
+        "GET",
+        "GET",
+        "PUT",
+    ]
+    assert calls[-1].args[1].endswith("/offer/9001")
+    inventory_body = calls[3].kwargs["json"]
+    offer_body = calls[-1].kwargs["json"]
+    assert (
+        inventory_body["packageWeightAndSize"] == api.inventory["packageWeightAndSize"]
+    )
+    assert "sku" not in inventory_body and "locale" not in inventory_body
+    assert offer_body["tax"] == api.offer["tax"]
+    assert offer_body["pricingSummary"]["price"]["value"] == "7050.00"
+    assert not (
+        {"offerId", "status", "sku", "marketplaceId", "format"} & offer_body.keys()
+    )
+    assert (
+        type(api.draft.product).objects.filter(pk=api.draft.product_id).values().get()
+        == before_product
+    )
+    assert EbayOfferPreparation.objects.count() == 1
+    api.session.request.side_effect = api.replies()
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).data["offer_id"]
+        == "9001"
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"status": "PUBLISHED"},
+        {"listing": {"listingId": "active"}},
+        {"sku": "another"},
+        {"marketplaceId": "EBAY_US"},
+        {"offerId": "other"},
+        {"listingStartDate": "2030-01-01T00:00:00Z"},
+    ],
+)
+def test_update_refuses_live_or_mismatched_offer(update_api, changes):
+    api = update_api
+    api.offer.update(changes)
+    api.session.request.side_effect = api.replies()
+    response = api.client.post(
+        api.update_url, {"confirm_stock_location": True}, format="json"
+    )
+    assert response.status_code == 409
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+def test_update_refuses_another_offer_using_same_inventory(update_api):
+    api = update_api
+    api.session.request.side_effect = [
+        api.response(
+            200,
+            {
+                "offers": [api.offer, {"offerId": "external", "status": "PUBLISHED"}],
+                "total": 2,
+            },
+        )
+    ]
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert api.session.request.call_count == 1
+
+
+def test_update_rechecks_offer_after_inventory_put(update_api):
+    """Если Offer опубликован извне между шагами, второй PUT не отправляется."""
+    api = update_api
+    replies = api.replies()
+    replies[5] = api.response(200, {**api.offer, "status": "PUBLISHED"})
+    api.session.request.side_effect = replies
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert [call.args[0] for call in api.session.request.call_args_list].count(
+        "PUT"
+    ) == 1
+    state = api.client.get(api.url).data
+    assert state["status"] == "failed"
+    assert "Inventory Item was updated" in state["last_error"]
+
+
+def test_update_timeout_keeps_old_hash_and_locks_retry(update_api):
+    import requests
+
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = update_api
+    old_hash = EbayOfferPreparation.objects.get().payload_hash
+    replies = api.replies()
+    replies[-1] = requests.Timeout()
+    api.session.request.side_effect = replies
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 502
+    )
+    preparation = EbayOfferPreparation.objects.get()
+    assert preparation.status == "uncertain"
+    assert preparation.offer_id == "9001"
+    assert preparation.payload_hash == old_hash
+    count = api.session.request.call_count
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert api.session.request.call_count == count
+
+
+def test_update_requires_existing_offer(draft_api, preview_draft):
+    preview_draft.product = draft_api.product
+    preview_draft.save()
+    assert (
+        draft_api.client.post(
+            draft_api.url + "update/", {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+
+
+def test_update_requires_manager_and_stock_confirmation(update_api, draft_api):
+    api = update_api
+    assert api.client.post(api.update_url, {}, format="json").status_code == 400
+    api.client.force_authenticate(draft_api.seller)
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 403
+    )
+    api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "extra_inventory,extra_offer",
+    [
+        ({"inventoryItemGroupKeys": ["group"]}, {}),
+        ({"newUnsupportedField": True}, {}),
+        ({}, {"newUnsupportedField": True}),
+    ],
+)
+def test_update_does_not_drop_unknown_remote_fields(
+    update_api, extra_inventory, extra_offer
+):
+    api = update_api
+    api.inventory.update(extra_inventory)
+    api.offer.update(extra_offer)
+    api.session.request.side_effect = api.replies()
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
