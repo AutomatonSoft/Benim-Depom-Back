@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from urllib.parse import quote
 
 import requests
@@ -69,6 +70,35 @@ class PreparationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def _error_messages(errors, token, body):
+    """Оставляет диагностику eBay, скрывая токен и отражённые GPSR-контакты."""
+    private_values = [token] if token else []
+    pending = [(body or {}).get("regulatory", {})]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, str) and len(value) > 2:
+            private_values.append(value)
+    messages = []
+    for error in errors[:3]:
+        if not isinstance(error, dict):
+            continue
+        for field in ("message", "longMessage"):
+            message = error.get(field)
+            if not isinstance(message, str):
+                continue
+            for value in sorted(private_values, key=len, reverse=True):
+                message = message.replace(value, "[REDACTED]")
+            message = re.sub(r"https?://\S+|[\w.+-]+@[\w.-]+", "[REDACTED]", message)
+            message = " ".join(message.split())[:1000]
+            if message and message not in messages:
+                messages.append(message)
+    return " ".join(messages)
+
+
 def _request(session, token, method, path, *, body=None, params=None):
     """Выполняет один запрос без редиректов и повторов; не сохраняет сырой ответ eBay."""
     try:
@@ -94,10 +124,12 @@ def _request(session, token, method, path, *, body=None, params=None):
         return None
     if response.status_code not in {200, 201, 204}:
         codes = []
+        messages = ""
         try:
             payload = response.json()
             errors = payload.get("errors", []) if isinstance(payload, dict) else []
             if isinstance(errors, list):
+                messages = _error_messages(errors, token, body)
                 codes = [
                     str(item["errorId"])
                     for item in errors[:3]
@@ -106,7 +138,8 @@ def _request(session, token, method, path, *, body=None, params=None):
         except ValueError:
             pass
         error = EbayAPIError(
-            f"eBay HTTP {response.status_code}; errorIds={','.join(codes) or 'unknown'}."
+            f"eBay HTTP {response.status_code}; errorIds={','.join(codes) or 'unknown'}. "
+            f"{method} {path}. {messages}".rstrip()
         )
         # Только явный отказ позволяет безопасно повторить операцию записи.
         error.definite_rejection = response.status_code in {400, 401, 403, 404, 422}
