@@ -820,7 +820,7 @@ def test_gpsr_responsible_person_does_not_become_manufacturer(regulatory_contact
     assert serializer.is_valid(), serializer.errors
     assert "manufacturer" not in serializer.validated_data
     assert serializer.validated_data["responsiblePersons"][0]["types"] == [
-        "EUResponsiblePerson"
+        "EU_RESPONSIBLE_PERSON"
     ]
     assert missing_regulatory_fields(serializer.validated_data) == [
         "regulatory.manufacturer"
@@ -1173,3 +1173,48 @@ def test_offer_error_redacts_gpsr_contacts_and_identifies_post(preparation_api):
     for field, value in contact.items():
         if field != "country":
             assert value not in state["last_error"]
+
+
+@pytest.mark.parametrize(
+    "person_type", ["EUResponsiblePerson", "EU_RESPONSIBLE_PERSON"]
+)
+def test_preview_normalizes_responsible_person_for_rest_without_changing_draft(
+    preview_draft, regulatory_contact, person_type
+):
+    """Сохранённое старое значение не уходит в REST и не требует изменения базы."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    contact = {**regulatory_contact, "types": [person_type]}
+    preview_draft.regulatory = {"responsiblePersons": [contact]}
+    before = deepcopy(preview_draft.regulatory)
+    result = build_draft_preview(preview_draft)
+    assert result["offer"]["body"]["regulatory"]["responsiblePersons"][0]["types"] == [
+        "EU_RESPONSIBLE_PERSON"
+    ]
+    assert preview_draft.regulatory == before
+
+
+def test_error_reason_is_visible_and_redacted(regulatory_contact):
+    """Причина ошибки десериализации не теряется вместе с общим сообщением 2004."""
+    from apps.marketplace.ebay.preparation import _error_messages
+
+    reason = (
+        "Invalid responsiblePersons.types EUResponsiblePerson; "
+        + regulatory_contact["addressLine1"]
+    )
+    message = _error_messages(
+        [
+            {
+                "message": "Invalid request",
+                "parameters": [
+                    {"name": "reason", "value": reason + " secret-token"},
+                    None,
+                ],
+            }
+        ],
+        "secret-token",
+        {"regulatory": {"responsiblePersons": [regulatory_contact]}},
+    )
+    assert "reason: Invalid responsiblePersons.types EUResponsiblePerson" in message
+    assert regulatory_contact["addressLine1"] not in message
+    assert "secret-token" not in message
