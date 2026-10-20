@@ -1587,3 +1587,345 @@ def test_remote_propagates_ebay_error_without_changing_state(remote_api):
     api.resource.side_effect = EbayAPIError("eBay unavailable.")
     assert api.client.get(api.remote_url).status_code == 502
     assert EbayOfferPreparation.objects.values().get() == before
+
+
+@pytest.fixture
+def publish_api(update_api, monkeypatch):
+    """Изолирует публикацию моками; реальные eBay/FTP недоступны из тестов."""
+    from apps.marketplace.ebay import publishing
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+    from apps.marketplace.ebay.preparation import _payload_hash
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    api = update_api
+    preview = build_draft_preview(api.draft)
+    api.fingerprint = _payload_hash(preview)
+    EbayOfferPreparation.objects.update(payload_hash=api.fingerprint)
+    api.offer = {
+        **deepcopy(preview["offer"]["body"]),
+        "offerId": "9001",
+        "status": "UNPUBLISHED",
+    }
+    api.inventory = {
+        **deepcopy(preview["inventory_item"]["body"]),
+        "sku": "4071489789867",
+    }
+    api.publish_url = api.url.removesuffix("prepare/") + "publish/"
+    api.confirmation = {
+        "confirm_stock_location": True,
+        "confirm_publication": True,
+        "preview_hash": api.fingerprint,
+    }
+    context = MagicMock()
+    context.__enter__.return_value = api.session
+    monkeypatch.setattr(publishing, "build_marketplace_session", lambda: context)
+    monkeypatch.setattr(publishing, "get_access_token", lambda **kwargs: "secret-token")
+    monkeypatch.setattr(publishing, "_check_local", MagicMock())
+    monkeypatch.setattr(publishing, "_validate_listing_settings", MagicMock())
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": True},
+    )
+    api.images = MagicMock()
+    monkeypatch.setattr(publishing, "_check_images", api.images)
+
+    def replies():
+        return [
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(200, deepcopy(api.inventory)),
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(200, {"listingId": "123456789012"}),
+        ]
+
+    api.publish_replies = replies
+    api.session.request.side_effect = replies()
+    return api
+
+
+def test_publish_checks_read_only_and_accept_equivalent_price(publish_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = publish_api
+    api.offer["pricingSummary"]["price"]["value"] = "7050.0"
+    api.session.request.side_effect = api.publish_replies()
+    before = EbayOfferPreparation.objects.values().get()
+    response = api.client.get(api.publish_url)
+    assert response.status_code == 200, response.data
+    assert response.data["ready"] is True
+    assert response.data["preview_hash"] == api.fingerprint
+    assert response.data["blocking_reasons"] == []
+    assert response["Cache-Control"] == "no-store"
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+    assert EbayOfferPreparation.objects.values().get() == before
+    api.images.assert_called_once()
+
+
+def test_publish_requires_manufacturer_but_does_not_invent_it(publish_api):
+    api = publish_api
+    contact = api.draft.regulatory["manufacturer"]
+    api.draft.regulatory = {
+        "responsiblePersons": [{**contact, "types": ["EU_RESPONSIBLE_PERSON"]}]
+    }
+    api.draft.save(update_fields=["regulatory"])
+    response = api.client.get(api.publish_url)
+    assert response.status_code == 200
+    assert response.data["ready"] is False
+    assert "regulatory.manufacturer" in response.data["blocking_reasons"]
+    api.session.request.assert_not_called()
+    api.images.assert_not_called()
+
+
+def test_publish_once_saves_listing_id_and_repeat_is_noop(publish_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = publish_api
+    before_product = (
+        type(api.draft.product).objects.filter(pk=api.draft.product_id).values().get()
+    )
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == "published"
+    assert response.data["listing_id"] == "123456789012"
+    assert response.data["offer_id"] == "9001"
+    assert response.data["publication_performed"] is True
+    preparation = EbayOfferPreparation.objects.get()
+    assert preparation.listing_id == "123456789012"
+    assert preparation.status == "published"
+    calls = api.session.request.call_args_list
+    assert [call.args[0] for call in calls] == ["GET"] * 5 + ["POST"]
+    assert calls[-1].args[1].endswith("/offer/9001/publish")
+    assert calls[-1].kwargs["json"] is None
+    count = api.session.request.call_count
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").data[
+            "listing_id"
+        ]
+        == "123456789012"
+    )
+    assert api.session.request.call_count == count
+    assert (
+        type(api.draft.product).objects.filter(pk=api.draft.product_id).values().get()
+        == before_product
+    )
+    assert (
+        api.client.post(
+            api.update_url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 409
+    )
+
+
+@pytest.mark.parametrize(
+    "field", ["confirm_publication", "confirm_stock_location", "preview_hash"]
+)
+def test_publish_requires_explicit_confirmation_and_hash(publish_api, field):
+    api = publish_api
+    data = dict(api.confirmation)
+    data.pop(field)
+    assert api.client.post(api.publish_url, data, format="json").status_code == 400
+    api.session.request.assert_not_called()
+
+
+def test_publish_rejects_stale_review_without_changing_state(publish_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = publish_api
+    before = EbayOfferPreparation.objects.values().get()
+    api.confirmation["preview_hash"] = "0" * 64
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 409
+    )
+    assert EbayOfferPreparation.objects.values().get() == before
+    api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"status": "PUBLISHED"}, {"sku": "wrong"}, {"listing": {"listingId": "external"}}],
+)
+def test_publish_refuses_live_or_mismatched_offer(publish_api, changes):
+    api = publish_api
+    api.offer.update(changes)
+    api.session.request.side_effect = api.publish_replies()
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == 400
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+def test_publish_refuses_remote_price_change(publish_api):
+    api = publish_api
+    api.offer["pricingSummary"]["price"]["value"] = "9999.00"
+    api.session.request.side_effect = api.publish_replies()
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == 400
+    assert "offer.pricingSummary.price.value" in str(response.data)
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "missing_id"])
+def test_publish_uncertain_result_blocks_retry(publish_api, failure):
+    import requests
+
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = publish_api
+    replies = api.publish_replies()
+    replies[-1] = requests.Timeout() if failure == "timeout" else api.response(200, {})
+    api.session.request.side_effect = replies
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 502
+    )
+    state = EbayOfferPreparation.objects.get()
+    assert state.status == "uncertain" and state.listing_id == ""
+    count = api.session.request.call_count
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 409
+    )
+    assert api.session.request.call_count == count
+
+
+def test_publish_definite_rejection_is_failed(publish_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = publish_api
+    replies = api.publish_replies()
+    replies[-1] = api.response(
+        400, {"errors": [{"errorId": 25002, "message": "Invalid request"}]}
+    )
+    api.session.request.side_effect = replies
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 502
+    )
+    state = EbayOfferPreparation.objects.get()
+    assert state.status == "failed" and state.listing_id == ""
+
+
+def test_publish_requires_manager_and_scopes_environment(
+    publish_api, draft_api, settings
+):
+    api = publish_api
+    settings.EBAY_ENVIRONMENT = "production"
+    assert api.client.get(api.publish_url).status_code == 404
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 404
+    )
+    settings.EBAY_ENVIRONMENT = "sandbox"
+    api.client.force_authenticate(draft_api.seller)
+    assert api.client.get(api.publish_url).status_code == 403
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 403
+    )
+    api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://media.example.com/a.jpg",
+        "https://other.example.com/a.jpg",
+        "https://media.example.com:444/a.jpg",
+        "https://user:pass@media.example.com/a.jpg",
+    ],
+)
+def test_publish_image_check_refuses_unsafe_origin(settings, monkeypatch, url):
+    from apps.marketplace.ebay import publishing
+
+    settings.FTP_MEDIA_PUBLIC_BASE_URL = "https://media.example.com/api-media/"
+    session = MagicMock()
+    context = MagicMock()
+    context.__enter__.return_value = session
+    monkeypatch.setattr(publishing, "build_marketplace_session", lambda: context)
+    with pytest.raises(ValidationError):
+        publishing._check_images([url])
+    session.head.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "status,content_type,valid",
+    [
+        (200, "image/jpeg", True),
+        (302, "image/jpeg", False),
+        (200, "text/html", False),
+        (404, "text/html", False),
+    ],
+)
+def test_publish_image_availability_uses_head_without_redirects(
+    settings, monkeypatch, status, content_type, valid
+):
+    from apps.marketplace.ebay import publishing
+
+    settings.FTP_MEDIA_PUBLIC_BASE_URL = "https://media.example.com/api-media/"
+    session = MagicMock()
+    context = MagicMock()
+    context.__enter__.return_value = session
+    image_response = MagicMock(
+        status_code=status, headers={"Content-Type": content_type}
+    )
+    session.head.return_value.__enter__.return_value = image_response
+    monkeypatch.setattr(publishing, "build_marketplace_session", lambda: context)
+    monkeypatch.setattr(publishing, "_validate_public_host", lambda host: None)
+    if valid:
+        publishing._check_images(["https://media.example.com/api-media/a.jpg"])
+    else:
+        with pytest.raises(ValidationError):
+            publishing._check_images(["https://media.example.com/api-media/a.jpg"])
+    assert session.head.call_args.kwargs["allow_redirects"] is False
+    session.post.assert_not_called()
+
+
+def test_publish_image_check_refuses_private_dns(settings, monkeypatch):
+    from apps.common.safe_image_download import GeneratedImageDownloadError
+    from apps.marketplace.ebay import publishing
+
+    settings.FTP_MEDIA_PUBLIC_BASE_URL = "https://media.example.com/api-media/"
+    session = MagicMock()
+    context = MagicMock()
+    context.__enter__.return_value = session
+    monkeypatch.setattr(publishing, "build_marketplace_session", lambda: context)
+    monkeypatch.setattr(
+        publishing,
+        "_validate_public_host",
+        MagicMock(side_effect=GeneratedImageDownloadError("private")),
+    )
+    with pytest.raises(ValidationError):
+        publishing._check_images(["https://media.example.com/api-media/a.jpg"])
+    session.head.assert_not_called()
+
+
+def test_publish_blocks_incomplete_seller_registration(publish_api, monkeypatch):
+    from apps.marketplace.ebay import publishing
+
+    api = publish_api
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": False},
+    )
+    response = api.client.get(api.publish_url)
+    assert response.status_code == 200
+    assert response.data["ready"] is False
+    assert "Seller registration" in str(response.data["blocking_reasons"])
+    api.session.request.assert_not_called()
+
+
+def test_publish_checks_image_failure_never_sends_publish(publish_api):
+    api = publish_api
+    api.images.side_effect = ValidationError("Image is unavailable.")
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == 400
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)

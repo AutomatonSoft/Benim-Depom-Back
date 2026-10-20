@@ -52,7 +52,10 @@ class PreparationRequestSerializer(serializers.Serializer):
 class PreparationSerializer(serializers.ModelSerializer):
     """Показывает сохранённый результат без токенов и персональных данных GPSR."""
 
-    publication_performed = serializers.BooleanField(read_only=True, default=False)
+    publication_performed = serializers.SerializerMethodField()
+
+    def get_publication_performed(self, obj) -> bool:
+        return bool(obj.listing_id)
 
     class Meta:
         model = EbayOfferPreparation
@@ -63,6 +66,7 @@ class PreparationSerializer(serializers.ModelSerializer):
             "status",
             "inventory_confirmed",
             "offer_id",
+            "listing_id",
             "last_error",
             "updated_at",
             "publication_performed",
@@ -228,6 +232,10 @@ def _claim(product_id, *, update=False):
     ):
         raise PreparationConflict("Create the unpublished Offer with prepare first.")
     if preparation:
+        if preparation.listing_id or preparation.status == "published":
+            raise PreparationConflict(
+                "Offer has already been published; prepare/update are disabled."
+            )
         if preparation.status in {"processing", "uncertain"}:
             raise PreparationConflict(
                 "Previous request requires reconciliation; no repeat was sent."
