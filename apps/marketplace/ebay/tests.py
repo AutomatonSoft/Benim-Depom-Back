@@ -1109,15 +1109,24 @@ def test_prepare_local_check_rejects_zero_or_excess_stock(
         _check_local(draft, preview)
 
 
-def test_prepare_http_error_stores_only_status_and_codes(preparation_api):
-    """Тело ответа и возможное отражение токена не попадают в локальную ошибку."""
+def test_prepare_http_error_stores_sanitized_diagnostics(preparation_api):
+    """Ошибка содержит этап и причину, но не токен, сырой ответ или контакты."""
     api = preparation_api
     api.session.request.side_effect = [
         api.response(404),
         api.response(404),
         api.response(
             400,
-            {"errors": [{"errorId": 25002, "message": "secret-token private contact"}]},
+            {
+                "errors": [
+                    {
+                        "errorId": 25002,
+                        "message": "Invalid request secret-token",
+                        "longMessage": "Missing field inventoryItemGroupKey; email user@example.com",
+                    }
+                ],
+                "private_payload": "do not store this",
+            },
         ),
     ]
     response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
@@ -1126,4 +1135,41 @@ def test_prepare_http_error_stores_only_status_and_codes(preparation_api):
     assert state["status"] == "failed"
     assert "25002" in state["last_error"]
     assert "secret-token" not in state["last_error"]
-    assert "private contact" not in state["last_error"]
+    assert "user@example.com" not in state["last_error"]
+    assert "private_payload" not in state["last_error"]
+    assert "PUT /sell/inventory/v1/inventory_item/" in state["last_error"]
+    assert "Missing field inventoryItemGroupKey" in state["last_error"]
+
+
+def test_offer_error_redacts_gpsr_contacts_and_identifies_post(preparation_api):
+    """Причина отказа createOffer доступна без отражённых адресов из regulatory."""
+    api = preparation_api
+    contact = api.draft.regulatory["manufacturer"]
+    api.session.request.side_effect = [
+        api.response(404),
+        api.response(404),
+        api.response(204),
+        api.response(
+            400,
+            {
+                "errors": [
+                    {
+                        "errorId": 2004,
+                        "message": "Invalid request",
+                        "longMessage": "Invalid regulatory field: "
+                        + " | ".join(contact.values()),
+                    }
+                ]
+            },
+        ),
+    ]
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 502
+    state = api.client.get(api.url).data
+    assert state["status"] == "failed"
+    assert state["inventory_confirmed"] is True
+    assert "POST /sell/inventory/v1/offer" in state["last_error"]
+    assert "Invalid regulatory field" in state["last_error"]
+    for field, value in contact.items():
+        if field != "country":
+            assert value not in state["last_error"]
