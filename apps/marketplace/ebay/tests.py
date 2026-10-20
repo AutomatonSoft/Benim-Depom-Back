@@ -1463,3 +1463,127 @@ def test_update_does_not_drop_unknown_remote_fields(
         == 409
     )
     assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+@pytest.fixture
+def remote_api(update_api, monkeypatch):
+    """Изолирует обратное чтение от сети и штатного обновления OAuth-токена."""
+    from apps.marketplace.ebay import remote
+
+    api = update_api
+    api.remote_url = api.url.removesuffix("prepare/") + "remote/"
+    api.resource = MagicMock(side_effect=[deepcopy(api.inventory), deepcopy(api.offer)])
+    api.token = MagicMock(return_value="remote-secret")
+    monkeypatch.setattr(remote, "get_seller_resource", api.resource)
+    monkeypatch.setattr(remote, "get_access_token", api.token)
+    context = MagicMock()
+    context.__enter__.return_value = api.session
+    monkeypatch.setattr(remote, "build_marketplace_session", lambda: context)
+    monkeypatch.setattr(
+        "requests.sessions.Session.request",
+        MagicMock(side_effect=AssertionError("Unexpected network")),
+    )
+    return api
+
+
+def test_remote_reads_actual_resources_and_preserves_local_state(remote_api):
+    """GET читает eBay, сверяет описание и не меняет Product, черновик или подготовку."""
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = remote_api
+    before_preparation = EbayOfferPreparation.objects.values().get()
+    before_draft = EbayDraft.objects.values().get()
+    response = api.client.get(api.remote_url)
+    assert response.status_code == 200, response.data
+    assert response.data["offer_id"] == "9001"
+    assert response.data["description_matches"] == {
+        "inventory_item": True,
+        "offer": True,
+    }
+    assert response.data["inventory_item"] == api.inventory
+    assert response.data["offer"] == api.offer
+    assert response["Cache-Control"] == "no-store"
+    assert "remote-secret" not in json.dumps(response.data)
+    assert [call.kwargs["path"] for call in api.resource.call_args_list] == [
+        "/sell/inventory/v1/inventory_item/4071489789867",
+        "/sell/inventory/v1/offer/9001",
+    ]
+    assert EbayOfferPreparation.objects.values().get() == before_preparation
+    assert EbayDraft.objects.values().get() == before_draft
+    api.session.request.assert_not_called()
+
+
+def test_remote_reports_mismatch_without_overwriting_description(remote_api):
+    api = remote_api
+    api.offer["listingDescription"] = "Old description"
+    api.inventory["product"].pop("description")
+    api.resource.side_effect = [api.inventory, api.offer]
+    response = api.client.get(api.remote_url)
+    assert response.status_code == 200
+    assert response.data["description_matches"] == {
+        "inventory_item": False,
+        "offer": False,
+    }
+    assert response.data["offer"]["listingDescription"] == "Old description"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("sku", "wrong"), ("offerId", "other"), ("marketplaceId", "EBAY_US")],
+)
+def test_remote_refuses_mismatched_resource(remote_api, field, value):
+    api = remote_api
+    api.offer[field] = value
+    api.resource.side_effect = [api.inventory, api.offer]
+    assert api.client.get(api.remote_url).status_code == 502
+
+
+def test_remote_preserves_uncertain_state_and_can_read_published_offer(remote_api):
+    """Диагностика не присваивает prepared и не скрывает внешнюю публикацию."""
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = remote_api
+    EbayOfferPreparation.objects.update(status="uncertain")
+    api.offer["status"] = "PUBLISHED"
+    api.resource.side_effect = [api.inventory, api.offer]
+    assert api.client.get(api.remote_url).data["offer"]["status"] == "PUBLISHED"
+    assert EbayOfferPreparation.objects.get().status == "uncertain"
+
+
+def test_remote_scopes_environment_and_requires_offer_id(remote_api, settings):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = remote_api
+    settings.EBAY_ENVIRONMENT = "production"
+    assert api.client.get(api.remote_url).status_code == 404
+    settings.EBAY_ENVIRONMENT = "sandbox"
+    EbayOfferPreparation.objects.update(offer_id="")
+    assert api.client.get(api.remote_url).status_code == 400
+    api.resource.assert_not_called()
+    api.token.assert_not_called()
+
+
+def test_remote_requires_manager_and_rejects_mutations(remote_api, draft_api):
+    api = remote_api
+    for method in (
+        api.client.post,
+        api.client.put,
+        api.client.patch,
+        api.client.delete,
+    ):
+        assert method(api.remote_url, {}, format="json").status_code == 405
+    api.client.force_authenticate(draft_api.seller)
+    assert api.client.get(api.remote_url).status_code == 403
+    api.client.force_authenticate(None)
+    assert api.client.get(api.remote_url).status_code in {401, 403}
+    api.resource.assert_not_called()
+
+
+def test_remote_propagates_ebay_error_without_changing_state(remote_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = remote_api
+    before = EbayOfferPreparation.objects.values().get()
+    api.resource.side_effect = EbayAPIError("eBay unavailable.")
+    assert api.client.get(api.remote_url).status_code == 502
+    assert EbayOfferPreparation.objects.values().get() == before
