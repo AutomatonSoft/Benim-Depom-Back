@@ -30,11 +30,17 @@ class ResponsiblePersonSerializer(RegulatoryContactSerializer):
     """Описывает подтверждённую ответственную компанию в ЕС."""
 
     types = serializers.ListField(
-        child=serializers.ChoiceField(choices=["EUResponsiblePerson"]),
+        child=serializers.ChoiceField(
+            choices=["EU_RESPONSIBLE_PERSON", "EUResponsiblePerson"]
+        ),
         min_length=1,
         max_length=1,
-        default=lambda: ["EUResponsiblePerson"],
+        default=lambda: ["EU_RESPONSIBLE_PERSON"],
     )
+
+    def validate_types(self, value):
+        """Нормализует старое значение Trading API в формат REST Inventory API."""
+        return ["EU_RESPONSIBLE_PERSON"]
 
     def validate_country(self, value):
         if value not in EU_COUNTRIES:

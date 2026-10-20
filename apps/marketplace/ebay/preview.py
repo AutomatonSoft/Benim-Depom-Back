@@ -10,7 +10,7 @@ from apps.common.permissions import IsManager
 from .client import api_base_url
 from .drafts import EbayDraftSerializer
 from .models import EbayDraft
-from .regulatory import missing_regulatory_fields
+from .regulatory import EbayRegulatorySerializer, missing_regulatory_fields
 
 
 def draft_ean(draft):
@@ -65,7 +65,9 @@ def build_draft_preview(draft):
         },
     }
     if draft.regulatory:
-        offer["regulatory"] = draft.regulatory
+        regulatory = EbayRegulatorySerializer(data=draft.regulatory)
+        regulatory.is_valid(raise_exception=True)
+        offer["regulatory"] = regulatory.validated_data
     for key, value in {
         "categoryId": draft.category_id,
         "merchantLocationKey": draft.merchant_location_key,
