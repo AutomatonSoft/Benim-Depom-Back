@@ -59,6 +59,7 @@ class PublishChecksSerializer(serializers.Serializer):
 
     ready = serializers.BooleanField()
     product = serializers.IntegerField()
+    account = serializers.CharField()
     sku = serializers.CharField()
     offer_id = serializers.CharField()
     environment = serializers.CharField()
@@ -67,13 +68,13 @@ class PublishChecksSerializer(serializers.Serializer):
     manual_checks = serializers.ListField(child=serializers.CharField())
 
 
-def _get_preparation(product_id):
-    """Выбирает только сохранённую подготовку JV текущего окружения."""
+def _get_preparation(product_id, *, account="jv"):
+    """Выбирает подготовку заданного сервером аккаунта текущего окружения."""
     return get_object_or_404(
         EbayOfferPreparation.objects.select_related("draft__product"),
         draft__product_id=product_id,
-        draft__account="jv",
-        account="jv",
+        draft__account=account,
+        account=account,
         environment=settings.EBAY_ENVIRONMENT,
         draft__environment=settings.EBAY_ENVIRONMENT,
     )
@@ -152,6 +153,8 @@ def _publication_checks(preparation, *, claimed=False):
     preview = build_draft_preview(draft)
     fingerprint = _payload_hash(preview)
     reasons = list(preview["missing_regulatory_fields"])
+    if preparation.account != "depotum":
+        reasons.append("Publication is enabled only for Depotum.")
     if not preparation.offer_id or not preparation.inventory_confirmed:
         reasons.append("Prepare the Offer first.")
     if preparation.listing_id or preparation.status == "published":
@@ -167,6 +170,7 @@ def _publication_checks(preparation, *, claimed=False):
     report = {
         "ready": False,
         "product": draft.product_id,
+        "account": preparation.account,
         "sku": preparation.sku,
         "offer_id": preparation.offer_id,
         "environment": preparation.environment,
@@ -183,10 +187,10 @@ def _publication_checks(preparation, *, claimed=False):
     try:
         _check_local(draft, preview)
         _validate_listing_settings(
-            account="jv",
+            account=draft.account,
             values={field: getattr(draft, field) for field in LISTING_SETTINGS_FIELDS},
         )
-        token = get_access_token(account="jv")
+        token = get_access_token(account=draft.account)
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
@@ -226,14 +230,16 @@ def _publication_checks(preparation, *, claimed=False):
 
 
 @transaction.atomic
-def _claim_publication(product_id, fingerprint):
+def _claim_publication(product_id, fingerprint, *, account="jv"):
     """Повтор после успеха возвращает listingId; остальные операции сериализует блокировка черновика."""
-    preparation = _get_preparation(product_id)
+    if account != "depotum":
+        raise PreparationConflict("Publication is enabled only for Depotum.")
+    preparation = _get_preparation(product_id, account=account)
     type(preparation.draft).objects.select_for_update().get(pk=preparation.draft_id)
     preparation.refresh_from_db()
     if preparation.listing_id:
         return preparation, False
-    draft, _, preparation, _ = _claim(product_id, update=True)
+    draft, _, preparation, _ = _claim(product_id, update=True, account=account)
     if (
         preparation.payload_hash != fingerprint
         or _payload_hash(build_draft_preview(draft)) != fingerprint
@@ -244,9 +250,9 @@ def _claim_publication(product_id, fingerprint):
     return preparation, True
 
 
-def publish_offer(product_id, fingerprint):
+def publish_offer(product_id, fingerprint, *, account="jv"):
     """Публикует один проверенный Offer без автоматического повтора при неопределённом результате."""
-    preparation, send = _claim_publication(product_id, fingerprint)
+    preparation, send = _claim_publication(product_id, fingerprint, account=account)
     if not send:
         return preparation
     writing = False
@@ -254,7 +260,7 @@ def publish_offer(product_id, fingerprint):
         checks = _publication_checks(preparation, claimed=True)
         if not checks["ready"]:
             raise ValidationError({"blocking_reasons": checks["blocking_reasons"]})
-        token = get_access_token(account="jv")
+        token = get_access_token(account=preparation.account)
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
@@ -302,10 +308,11 @@ class EbayDraftPublishView(ManagerMutationThrottleMixin, APIView):
     """Разделяет чтение готовности и явно подтверждённую публикацию реального объявления."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     @extend_schema(responses={200: PublishChecksSerializer}, tags=["eBay"])
     def get(self, request, product_id):
-        result = _publication_checks(_get_preparation(product_id))
+        result = _publication_checks(_get_preparation(product_id, account=self.account))
         response = Response(PublishChecksSerializer(result).data)
         response["Cache-Control"] = "no-store"
         return response
@@ -320,7 +327,7 @@ class EbayDraftPublishView(ManagerMutationThrottleMixin, APIView):
         serializer = PublishRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         preparation = publish_offer(
-            product_id, serializer.validated_data["preview_hash"]
+            product_id, serializer.validated_data["preview_hash"], account=self.account
         )
         response = Response(PreparationSerializer(preparation).data)
         response["Cache-Control"] = "no-store"

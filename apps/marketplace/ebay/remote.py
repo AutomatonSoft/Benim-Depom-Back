@@ -35,6 +35,7 @@ class EbayDraftRemoteView(APIView):
     """Читает ресурсы по сохранённым SKU/offerId, не изменяя черновик и состояние подготовки."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     @extend_schema(
         responses={200: EbayRemoteSnapshotSerializer},
@@ -42,21 +43,21 @@ class EbayDraftRemoteView(APIView):
         description="Reads the saved Inventory Item and Offer directly from eBay. Compares descriptions with the local draft. Does not publish, update, or reconcile preparation state.",
     )
     def get(self, request, product_id):
-        """Читает два ресурса текущего JV; OAuth-токен при необходимости обновляется штатно."""
+        """Читает ресурсы выбранного аккаунта; OAuth-токен обновляется штатно."""
         api_base_url()
         preparation = get_object_or_404(
             EbayOfferPreparation.objects.select_related("draft"),
             draft__product_id=product_id,
             draft__environment=settings.EBAY_ENVIRONMENT,
-            draft__account="jv",
+            draft__account=self.account,
             environment=settings.EBAY_ENVIRONMENT,
-            account="jv",
+            account=self.account,
         )
         if not preparation.offer_id:
             raise serializers.ValidationError(
                 "Preparation has no saved offerId to read."
             )
-        token = get_access_token(account="jv")
+        token = get_access_token(account=preparation.account)
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
@@ -76,12 +77,14 @@ class EbayDraftRemoteView(APIView):
             or offer.get("sku") != preparation.sku
             or offer.get("marketplaceId") != "EBAY_DE"
         ):
-            raise EbayAPIError("eBay resources do not match the saved JV preparation.")
+            raise EbayAPIError(
+                "eBay resources do not match the saved account preparation."
+            )
         product = inventory.get("product")
         expected = preparation.draft.description
         result = {
             "product": product_id,
-            "account": "jv",
+            "account": preparation.account,
             "environment": preparation.environment,
             "sku": preparation.sku,
             "offer_id": preparation.offer_id,

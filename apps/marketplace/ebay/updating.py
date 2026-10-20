@@ -154,19 +154,19 @@ def _update_bodies(inventory, offer, preview):
     return inventory_body, offer_body
 
 
-def update_unpublished_offer(product_id):
+def update_unpublished_offer(product_id, *, account="jv"):
     """Обновляет только ранее созданный Offer; частичный результат не откатывает и не публикует."""
     api_base_url()
-    draft, preview, preparation, _ = _claim(product_id, update=True)
+    draft, preview, preparation, _ = _claim(product_id, update=True, account=account)
     fingerprint = _payload_hash(preview)
     writing = False
     inventory_updated = False
     try:
         _validate_listing_settings(
-            account="jv",
+            account=draft.account,
             values={field: getattr(draft, field) for field in LISTING_SETTINGS_FIELDS},
         )
-        token = get_access_token(account="jv")
+        token = get_access_token(account=draft.account)
         with build_marketplace_session() as session:
             for adapter in session.adapters.values():
                 adapter.max_retries = Retry(total=0)
@@ -227,6 +227,7 @@ class EbayDraftUpdateView(ManagerMutationThrottleMixin, APIView):
     """Применяет сохранённый черновик к неопубликованному Offer без создания нового."""
 
     permission_classes = (IsManager,)
+    account = "jv"
 
     @extend_schema(
         request=PreparationRequestSerializer,
@@ -237,7 +238,7 @@ class EbayDraftUpdateView(ManagerMutationThrottleMixin, APIView):
     def post(self, request, product_id):
         serializer = PreparationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        preparation = update_unpublished_offer(product_id)
+        preparation = update_unpublished_offer(product_id, account=self.account)
         response = Response(PreparationSerializer(preparation).data)
         response["Cache-Control"] = "no-store"
         return response
