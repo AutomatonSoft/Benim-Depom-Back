@@ -410,7 +410,7 @@ PATCH /api/v1/ebay/drafts/jv/69/
         "country": "DE",
         "email": "info@jvmoebel.de",
         "phone": "+49 7392 9378440",
-        "types": ["EUResponsiblePerson"]
+        "types": ["EU_RESPONSIBLE_PERSON"]
       }
     ]
   }
@@ -474,7 +474,8 @@ GET /api/v1/ebay/drafts/jv/69/prepare/
 
 При `uncertain`/зависшем `processing` сначала вручную сверить eBay по SKU и локальные этапы;
 не очищать состояние и не повторять POST вслепую. Автоматической сверки/присвоения чужого Offer нет.
-HTTP-статус, числовые errorId, метод/путь запроса и сообщения `message`/`longMessage`
+HTTP-статус, числовые errorId, метод/путь запроса, сообщения `message`/`longMessage`
+и уточнения из `parameters` (включая `reason`)
 сохраняются без сырого тела ответа. Токен, отражённые значения GPSR-контактов,
 email и ссылки удаляются из сообщений; длина сообщений ограничена.
 Черновик заблокирован для редактирования при `processing`/`uncertain`.

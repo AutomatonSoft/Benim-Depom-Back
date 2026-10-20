@@ -86,8 +86,15 @@ def _error_messages(errors, token, body):
     for error in errors[:3]:
         if not isinstance(error, dict):
             continue
-        for field in ("message", "longMessage"):
-            message = error.get(field)
+        details = [error.get("message"), error.get("longMessage")]
+        parameters = error.get("parameters")
+        if isinstance(parameters, list):
+            for parameter in parameters[:5]:
+                if isinstance(parameter, dict):
+                    name, value = parameter.get("name"), parameter.get("value")
+                    if isinstance(name, str) and isinstance(value, str):
+                        details.append(f"{name}: {value}")
+        for message in details:
             if not isinstance(message, str):
                 continue
             for value in sorted(private_values, key=len, reverse=True):
