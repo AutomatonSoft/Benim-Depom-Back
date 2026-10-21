@@ -39,6 +39,7 @@ def test_create_enqueues_after_commit_once_even_on_replay(
             enqueue.assert_not_called()
         assert callbacks
         enqueue.assert_called_once_with(
+            product_id=first.data["id"],
             seller_name=seller.username,
             seller_email=seller.email,
             title=first.data["title"],

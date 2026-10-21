@@ -13,27 +13,50 @@ from apps.products.tasks import (
 pytestmark = pytest.mark.unit
 
 PAYLOAD = {
+    "product_id": 42,
     "seller_name": 'Seller <b> & "Co"',
     "seller_email": "seller@example.com",
     "title": "Chair <script>alert(1)</script>",
 }
 
 
-def test_product_email_content_and_html_escaping(settings):
+@pytest.mark.parametrize(
+    "base_url", ["https://benimdepom.info", "https://stage.benimdepom.info"]
+)
+def test_product_email_content_and_html_escaping(settings, base_url):
+    settings.PUBLIC_BASE_URL = base_url
     settings.PRODUCT_CREATE_EMAIL = "info@jvmoebel.de"
     send_product_created_email.run(**PAYLOAD)
 
     message = mail.outbox[-1]
     assert message.to == ["info@jvmoebel.de"]
     assert message.from_email == settings.DEFAULT_FROM_EMAIL
-    assert all(value in message.body for value in PAYLOAD.values())
+    assert all(str(value) in message.body for value in PAYLOAD.values())
     html, content_type = message.alternatives[0]
     assert content_type == "text/html"
     assert "Seller &lt;b&gt; &amp; &quot;Co&quot;" in html
     assert "Chair &lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "seller@example.com" in html
     assert "<script>" not in html
-    assert 'href="https://benimdepom.info/manager/"' in html
+    assert f'href="{base_url}/manager/products/42"' in html
+    assert f"{base_url}/manager/products/42" in message.body
+    assert "a seller created a new product" in message.subject
+    assert "Please view the product" in message.body
+    assert "View product" in html
+    assert '<html lang="en">' in html
+    assert html.count("href=") == 1
+
+
+@pytest.mark.parametrize(
+    "base_url", ["https://benimdepom.info", "https://stage.benimdepom.info"]
+)
+def test_older_queued_product_email_without_id_still_sends(settings, base_url):
+    settings.PUBLIC_BASE_URL = base_url
+    settings.PRODUCT_CREATE_EMAIL = "info@jvmoebel.de"
+    send_product_created_email.run(
+        **{key: value for key, value in PAYLOAD.items() if key != "product_id"}
+    )
+    assert f"{base_url}/manager/" in mail.outbox[-1].body
 
 
 def test_product_email_disabled_without_recipient(settings):
@@ -75,7 +98,7 @@ def test_enqueue_failure_is_logged_and_suppressed(settings, caplog):
         side_effect=OSError("Broker unavailable"),
     ):
         enqueue_product_created_email(**PAYLOAD)
-    assert "Could not enqueue product-created email" in caplog.text
+    assert "Could not enqueue email task" in caplog.text
 
 
 def test_smtp_failure_is_retried_in_worker(settings):

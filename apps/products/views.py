@@ -351,6 +351,7 @@ class ProductListCreateView(
         transaction.on_commit(
             partial(
                 enqueue_product_created_email,
+                product_id=response.data["id"],
                 seller_name=request.user.username,
                 seller_email=request.user.email,
                 title=response.data["title"],

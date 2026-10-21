@@ -3,8 +3,58 @@ from smtplib import SMTPException
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+
+from apps.common.tasks import enqueue_email_task
 
 from .emails import build_email_verification_message
+
+
+@shared_task(
+    autoretry_for=(OSError, SMTPException),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=3,
+    ignore_result=True,
+)
+def send_seller_registered_email(*, seller_name: str, seller_email: str) -> None:
+    recipient = settings.PRODUCT_CREATE_EMAIL
+    if not recipient:
+        return
+
+    manager_url = f"{settings.PUBLIC_BASE_URL}/manager/sellers"
+    message = EmailMultiAlternatives(
+        subject="Benim Depom — a new seller has registered",
+        body=(
+            f"A new seller has registered: {seller_name} ({seller_email}).\n\n"
+            "The seller has verified their email and completed registration.\n\n"
+            "Please open the manager panel to view the seller:\n"
+            f"{manager_url}"
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[recipient],
+    )
+    message.attach_alternative(
+        render_to_string(
+            "emails/seller_registered.html",
+            {
+                "seller_name": seller_name,
+                "seller_email": seller_email,
+                "manager_url": manager_url,
+            },
+        ),
+        "text/html",
+    )
+    message.send(fail_silently=False)
+
+
+def enqueue_seller_registered_email(*, seller_name: str, seller_email: str) -> None:
+    if settings.PRODUCT_CREATE_EMAIL:
+        enqueue_email_task(
+            send_seller_registered_email,
+            seller_name=seller_name,
+            seller_email=seller_email,
+        )
 
 
 @shared_task(
