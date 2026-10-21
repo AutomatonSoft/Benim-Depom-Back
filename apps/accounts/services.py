@@ -1,5 +1,6 @@
 import secrets
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 from django.conf import settings
@@ -16,6 +17,7 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 
 from .models import User
+from .tasks import enqueue_seller_registered_email
 
 
 @transaction.atomic
@@ -63,6 +65,7 @@ def manager_confirm_seller_email(*, seller: User) -> User:
     if seller.is_email_verified and seller.is_active:
         return seller
 
+    was_email_verified = seller.is_email_verified
     seller.is_email_verified = True
     seller.is_active = True
     seller.email_verification_code_hash = ""
@@ -77,6 +80,14 @@ def manager_confirm_seller_email(*, seller: User) -> User:
             "email_verification_attempts",
         )
     )
+    if not was_email_verified:
+        transaction.on_commit(
+            partial(
+                enqueue_seller_registered_email,
+                seller_name=seller.username,
+                seller_email=seller.email,
+            )
+        )
     return seller
 
 
@@ -124,6 +135,14 @@ def verify_email_code(*, email: str, code: str) -> User:
                 )
             )
             is_invalid_code = False
+            if user.role == User.Role.SELLER:
+                transaction.on_commit(
+                    partial(
+                        enqueue_seller_registered_email,
+                        seller_name=user.username,
+                        seller_email=user.email,
+                    )
+                )
 
     if is_invalid_code:
         raise invalid_error
