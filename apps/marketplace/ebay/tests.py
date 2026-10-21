@@ -2273,6 +2273,46 @@ def test_listing_withdraw_keeps_resources_and_repeat_does_not_send(listing_api):
 
 
 @pytest.mark.parametrize(
+    "confirmation,expected", [("true", 200), ("false", 400), ("invalid", 400)]
+)
+def test_listing_withdraw_query_confirmation(
+    listing_api, monkeypatch, confirmation, expected
+):
+    from apps.marketplace.ebay import listing
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    operation = MagicMock(return_value=EbayOfferPreparation.objects.get())
+    monkeypatch.setattr(listing, "change_listing", operation)
+    response = api.client.delete(f"{api.listing_url}?confirm_withdrawal={confirmation}")
+    assert response.status_code == expected
+    if expected == 200:
+        operation.assert_called_once_with(api.draft.product_id, withdraw=True)
+    else:
+        operation.assert_not_called()
+    api.session.request.assert_not_called()
+
+
+def test_listing_delete_schema_exposes_query_confirmation():
+    from django.urls import path
+    from drf_spectacular.generators import SchemaGenerator
+
+    from apps.marketplace.ebay.listing import EbayListingView
+
+    schema = SchemaGenerator(
+        patterns=[path("listing/<int:product_id>/", EbayListingView.as_view())]
+    ).get_schema(public=True)
+    operation = schema["paths"]["/listing/{product_id}/"]["delete"]
+    confirmation = next(
+        item for item in operation["parameters"] if item["name"] == "confirm_withdrawal"
+    )
+    assert confirmation["in"] == "query"
+    assert confirmation["required"] is True
+    assert confirmation["schema"]["type"] == "boolean"
+    assert "requestBody" not in operation
+
+
+@pytest.mark.parametrize(
     "method,body",
     [
         ("put", {}),
