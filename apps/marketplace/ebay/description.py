@@ -24,6 +24,8 @@ def render_listing_description(draft, *, ean):
                 {"image_urls": "Use HTTPS image URLs without credentials."}
             )
         images.append(url)
+    dimension_names = ("Breite", "Länge", "Höhe", "Tiefe", "Durchmesser")
+    material_names = ("Material", "Polsterstoff")
     return render_to_string(
         "ebay/listing_description.html",
         {
@@ -31,7 +33,21 @@ def render_listing_description(draft, *, ean):
             "description": draft.description,
             "ean": ean,
             "images": images,
-            "aspects": sorted(draft.aspects.items()),
+            "dimensions": [
+                (name, draft.aspects[name])
+                for name in dimension_names
+                if draft.aspects.get(name)
+            ],
+            "materials": [
+                (name, draft.aspects[name])
+                for name in material_names
+                if draft.aspects.get(name)
+            ],
+            "aspects": sorted(
+                (name, values)
+                for name, values in draft.aspects.items()
+                if name not in (*dimension_names, *material_names, "Farbe")
+            ),
             "colors": draft.aspects.get("Farbe", []),
         },
     ).strip()
