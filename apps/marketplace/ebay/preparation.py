@@ -236,7 +236,10 @@ def _claim(product_id, *, update=False, account="jv"):
     ):
         raise PreparationConflict("Create the unpublished Offer with prepare first.")
     if preparation:
-        if preparation.listing_id or preparation.status == "published":
+        if preparation.status == "published" or (
+            preparation.listing_id
+            and preparation.status not in {"withdrawn", "prepared", "failed"}
+        ):
             raise PreparationConflict(
                 "Offer has already been published; preparation is disabled."
             )

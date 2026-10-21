@@ -803,8 +803,35 @@ def test_listing_html_handles_different_gallery_sizes(preview_draft, image_count
     preview_draft.aspects = {}
     html = render_listing_description(preview_draft, ean="4071489789867")
     assert html.count('class="dep-thumb"') == image_count
-    assert 'id="dep-colors"' not in html
+    assert 'id="dep-colors"' in html
     assert ('<div class="dep-gallery">' in html) is bool(image_count)
+
+
+def test_listing_html_preserves_reference_banners_and_detail_blocks(preview_draft):
+    """Фирменные баннеры и пять вкладок сохраняются; характеристики выводятся без таблицы."""
+    from apps.marketplace.ebay.description import render_listing_description
+
+    preview_draft.aspects.update(
+        {"Breite": ["90 cm"], "Höhe": ["85 cm"], "Polsterstoff": ["100% Leder"]}
+    )
+    html = render_listing_description(preview_draft, ean="4071489789867")
+    for banner in (
+        "webtag1_jv_10122.png",
+        "webtag2_jv_women21321.png",
+        "webtag3_jv_3330.png",
+    ):
+        assert html.count(f"https://productron.de/AfterbuyWebTag/{banner}") == 1
+    for caption in ("Produktdetails", "Farben", "Lieferzeiten", "Zahlung", "Optional"):
+        assert f">{caption}</label>" in html
+    assert "<strong>Artikel-Nr.</strong> EAN: 4071489789867" in html
+    assert "<strong>Maße:</strong>" in html
+    assert "Breite: 90 cm" in html
+    assert "<strong>Farbe:</strong> Schwarz" in html
+    assert "<strong>Polsterstoff:</strong> 100% Leder" in html
+    assert "<table" not in html
+    assert "Weitere Informationen" not in html
+    assert html.index('class="dep-company-header"') < html.index('class="dep-layout"')
+    assert html.index('class="dep-layout"') < html.index('class="dep-company-footer"')
 
 
 def test_preview_does_not_replace_unknown_price_or_quantity_with_zero(preview_draft):
@@ -2391,3 +2418,147 @@ def test_listing_partial_update_blocks_retry_and_preserves_hash(listing_api):
     assert preparation.status == "uncertain"
     assert preparation.payload_hash == before_hash
     assert "Inventory Item updated" in preparation.last_error
+
+
+@pytest.fixture
+def withdrawn_api(listing_api):
+    """Снимает мок-листинг, сохраняя старый listingId и завершённые детали eBay."""
+    api = listing_api
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+        api.response(200, deepcopy(api.inventory)),
+        api.response(200, deepcopy(api.offer)),
+        api.response(200, {"listingId": "123456789012"}),
+    ]
+    response = api.client.delete(
+        api.listing_url, {"confirm_withdrawal": True}, format="json"
+    )
+    assert response.status_code == 200, response.data
+    api.offer["status"] = "UNPUBLISHED"
+    api.offer["listing"]["listingStatus"] = "ENDED"
+    api.session.request.reset_mock()
+
+    def replies(result=None):
+        return [
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(200, deepcopy(api.inventory)),
+            api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+            api.response(200, deepcopy(api.offer)),
+            api.response(200, result or {"listingId": "new-depotum-listing"}),
+        ]
+
+    api.republish_replies = replies
+    return api
+
+
+def test_republish_uses_same_offer_new_listing_and_new_confirmation(withdrawn_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = withdrawn_api
+    # Подтверждение самой первой публикации больше не разрешает выставление.
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 409
+    )
+    api.session.request.assert_not_called()
+    api.session.request.side_effect = api.republish_replies()
+    checks = api.client.get(api.publish_url)
+    assert checks.status_code == 200 and checks.data["ready"] is True
+    assert checks.data["preview_hash"] != api.confirmation["preview_hash"]
+    confirmation = {**api.confirmation, "preview_hash": checks.data["preview_hash"]}
+    api.session.request.reset_mock()
+    api.session.request.side_effect = api.republish_replies()
+    response = api.client.post(api.publish_url, confirmation, format="json")
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == "published"
+    assert response.data["listing_id"] == "new-depotum-listing"
+    assert response.data["offer_id"] == "9001"
+    posts = [
+        call for call in api.session.request.call_args_list if call.args[0] == "POST"
+    ]
+    assert len(posts) == 1 and posts[0].args[1].endswith("/offer/9001/publish")
+    assert EbayOfferPreparation.objects.count() == 1
+    count = api.session.request.call_count
+    assert (
+        api.client.post(api.publish_url, confirmation, format="json").data["listing_id"]
+        == "new-depotum-listing"
+    )
+    assert api.session.request.call_count == count
+
+
+def test_republish_prepare_updates_withdrawn_offer_without_creating_another(
+    withdrawn_api,
+):
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    api = withdrawn_api
+    api.draft.description += " Updated before relisting."
+    api.draft.save(update_fields=["description"])
+    preview = build_draft_preview(api.draft)
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+        api.response(200, deepcopy(api.offer)),
+        api.response(200, deepcopy(api.inventory)),
+        api.response(204),
+        api.response(200, {"offers": [deepcopy(api.offer)], "total": 1}),
+        api.response(200, deepcopy(api.offer)),
+        api.response(204),
+    ]
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == "prepared"
+    assert response.data["offer_id"] == "9001"
+    assert response.data["listing_id"] == "123456789012"
+    assert all(
+        call.args[0] in {"GET", "PUT"} for call in api.session.request.call_args_list
+    )
+    api.offer.update(deepcopy(preview["offer"]["body"]))
+    api.inventory.update(deepcopy(preview["inventory_item"]["body"]))
+    api.session.request.side_effect = api.republish_replies()
+    checks = api.client.get(api.publish_url)
+    assert checks.status_code == 200 and checks.data["ready"] is True
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        {"listingId": "123456789012", "listingStatus": "ACTIVE"},
+        {"listingId": "foreign-listing", "listingStatus": "ENDED"},
+    ],
+)
+def test_republish_rejects_active_or_foreign_history(withdrawn_api, listing):
+    api = withdrawn_api
+    api.offer["listing"] = listing
+    api.session.request.side_effect = api.republish_replies()
+    response = api.client.get(api.publish_url)
+    assert response.status_code == 200 and response.data["ready"] is False
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "same_id"])
+def test_republish_uncertain_keeps_old_id_and_blocks_another_post(
+    withdrawn_api, failure
+):
+    import requests
+
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = withdrawn_api
+    api.session.request.side_effect = api.republish_replies()
+    checks = api.client.get(api.publish_url)
+    confirmation = {**api.confirmation, "preview_hash": checks.data["preview_hash"]}
+    replies = api.republish_replies({"listingId": "123456789012"})
+    if failure == "timeout":
+        replies[-1] = requests.Timeout()
+    api.session.request.side_effect = replies
+    response = api.client.post(api.publish_url, confirmation, format="json")
+    assert response.status_code == 502
+    preparation = EbayOfferPreparation.objects.get()
+    assert preparation.status == "uncertain"
+    assert preparation.listing_id == "123456789012"
+    count = api.session.request.call_count
+    assert (
+        api.client.post(api.publish_url, confirmation, format="json").status_code == 409
+    )
+    assert api.session.request.call_count == count
