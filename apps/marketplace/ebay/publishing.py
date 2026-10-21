@@ -1,3 +1,4 @@
+import hashlib
 from decimal import Decimal, InvalidOperation
 from time import monotonic
 from urllib.parse import quote, urlsplit
@@ -80,6 +81,15 @@ def _get_preparation(product_id, *, account="jv"):
     )
 
 
+def _review_hash(preparation, fingerprint):
+    """Привязывает подтверждение нового выставления к последнему listingId, исключая старый POST."""
+    if not preparation.listing_id:
+        return fingerprint
+    return hashlib.sha256(
+        f"{fingerprint}:{preparation.listing_id}".encode()
+    ).hexdigest()
+
+
 def _differences(actual, expected, path=""):
     """Сверяет управляемые поля; цену сравнивает численно, характеристики — целиком."""
     if path.endswith("pricingSummary.price.value"):
@@ -157,9 +167,7 @@ def _publication_checks(preparation, *, claimed=False):
         reasons.append("Publication is enabled only for Depotum.")
     if not preparation.offer_id or not preparation.inventory_confirmed:
         reasons.append("Prepare the Offer first.")
-    if preparation.status == "withdrawn":
-        reasons.append("Offer was withdrawn; automatic republication is not supported.")
-    elif preparation.listing_id or preparation.status == "published":
+    if preparation.status == "published":
         reasons.append("Offer is already published.")
     elif preparation.status == "uncertain" or (
         preparation.status == "processing" and not claimed
@@ -176,7 +184,7 @@ def _publication_checks(preparation, *, claimed=False):
         "sku": preparation.sku,
         "offer_id": preparation.offer_id,
         "environment": preparation.environment,
-        "preview_hash": fingerprint,
+        "preview_hash": _review_hash(preparation, fingerprint),
         "blocking_reasons": reasons,
         "manual_checks": [
             "actual_stock_location",
@@ -239,16 +247,12 @@ def _claim_publication(product_id, fingerprint, *, account="jv"):
     preparation = _get_preparation(product_id, account=account)
     type(preparation.draft).objects.select_for_update().get(pk=preparation.draft_id)
     preparation.refresh_from_db()
-    if preparation.status == "withdrawn":
-        raise PreparationConflict(
-            "Listing was withdrawn; automatic republication is not supported."
-        )
-    if preparation.listing_id:
+    if preparation.status == "published" and preparation.listing_id:
         return preparation, False
     draft, _, preparation, _ = _claim(product_id, update=True, account=account)
     if (
-        preparation.payload_hash != fingerprint
-        or _payload_hash(build_draft_preview(draft)) != fingerprint
+        preparation.payload_hash != _payload_hash(build_draft_preview(draft))
+        or _review_hash(preparation, preparation.payload_hash) != fingerprint
     ):
         raise PreparationConflict(
             "Draft changed since review. Run POST prepare/, then GET publish/ again."
@@ -289,6 +293,7 @@ def publish_offer(product_id, fingerprint, *, account="jv"):
                 not isinstance(listing_id, str)
                 or not listing_id
                 or len(listing_id) > 64
+                or listing_id == preparation.listing_id
             ):
                 raise EbayAPIError(
                     "Publish returned no valid listingId; reconcile before retrying."

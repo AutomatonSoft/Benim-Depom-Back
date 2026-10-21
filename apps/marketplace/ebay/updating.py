@@ -79,6 +79,13 @@ def _read_unpublished(session, token, preparation):
         f"/sell/inventory/v1/offer/{quote(preparation.offer_id, safe='')}",
     )
     for item in (offers["offers"][0], offer):
+        listing = item.get("listing") if isinstance(item, dict) else None
+        ended_listing = (
+            isinstance(listing, dict)
+            and bool(preparation.listing_id)
+            and listing.get("listingId") == preparation.listing_id
+            and listing.get("listingStatus") == "ENDED"
+        )
         if (
             not isinstance(item, dict)
             or item.get("offerId") != preparation.offer_id
@@ -86,7 +93,7 @@ def _read_unpublished(session, token, preparation):
             or item.get("marketplaceId") != "EBAY_DE"
             or item.get("format") != "FIXED_PRICE"
             or item.get("status") != "UNPUBLISHED"
-            or item.get("listing")
+            or (listing and not ended_listing)
             or item.get("listingStartDate")
         ):
             raise PreparationConflict(

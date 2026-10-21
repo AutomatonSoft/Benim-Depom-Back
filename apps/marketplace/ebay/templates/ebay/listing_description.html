@@ -1,8 +1,14 @@
 <style>
-.dep-listing{max-width:1100px;margin:0 auto;padding:20px;background:#fafafa;color:#202020;font:16px/1.6 Arial,sans-serif;overflow-wrap:anywhere}
+.dep-listing{max-width:1200px;margin:0 auto;padding:20px 16px;background:#fafafa;color:#202020;font:16px/1.6 Arial,sans-serif;overflow-wrap:anywhere}
 .dep-listing *{box-sizing:border-box}
 .dep-listing .dep-card{margin-bottom:18px;padding:24px;border:1px solid #e6e6e6;border-radius:18px;background:#fff;box-shadow:0 6px 22px #0000000a}
-.dep-listing .dep-brand{margin:0 0 8px;font-size:12px;font-weight:bold;letter-spacing:3px;color:#666}
+.dep-listing .dep-company-header{padding:14px 0 22px;margin-bottom:24px;border-bottom:1px solid #e6e6e6}
+.dep-listing .dep-company-header img{display:block;width:100%;max-height:320px;object-fit:contain;border-radius:12px}
+.dep-listing .dep-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;align-items:start}
+.dep-listing .dep-sidebar{position:sticky;top:16px;padding:14px}
+.dep-listing .dep-sidebar img{display:block;width:100%;height:auto;border-radius:12px}
+.dep-listing .dep-content{min-width:0}
+.dep-listing .dep-company-footer img{display:block;width:100%;height:auto;border-radius:12px}
 .dep-listing h1{margin:0 0 10px;font-size:28px;line-height:1.25;color:#111}
 .dep-listing h2{margin:0 0 12px;font-size:20px;color:#111}
 .dep-listing p{margin:0 0 12px}.dep-listing p:last-child{margin-bottom:0}
@@ -11,8 +17,8 @@
 .dep-listing .dep-anchor{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden}
 .dep-listing .dep-main{min-width:0;border:1px solid #eee;border-radius:14px;overflow:hidden}
 .dep-listing .dep-slide{display:none}.dep-listing .dep-slide:first-child{display:block}
-.dep-listing .dep-main img{display:block;width:100%;height:560px;object-fit:contain;background:#fff}
-.dep-listing .dep-thumbs{display:flex;flex-direction:column;gap:12px;max-height:560px;overflow:auto;padding:2px 8px 2px 2px}
+.dep-listing .dep-main img{display:block;width:100%;height:600px;object-fit:contain;background:#fff}
+.dep-listing .dep-thumbs{display:flex;flex-direction:column;gap:12px;max-height:600px;overflow:auto;padding:2px 8px 2px 2px}
 .dep-listing .dep-thumb{display:block;flex-shrink:0;border:1px solid #ddd;border-radius:12px;overflow:hidden}
 .dep-listing .dep-thumb:hover,.dep-listing .dep-thumb:focus-visible{outline:2px solid #111;outline-offset:1px}
 .dep-listing .dep-thumb img{display:block;width:100%;height:95px;object-fit:contain;background:#fff}
@@ -25,17 +31,20 @@
 .dep-listing .dep-tab-nav{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid #e6e6e6}
 .dep-listing .dep-tab-nav label{cursor:pointer;padding:10px 16px;border-radius:28px;background:#e8e8e8;color:#111;font-weight:bold}
 .dep-listing .dep-panel{display:none}
-.dep-listing #dep-details:checked~.dep-panels .dep-details,.dep-listing #dep-colors:checked~.dep-panels .dep-colors,.dep-listing #dep-delivery:checked~.dep-panels .dep-delivery,.dep-listing #dep-payment:checked~.dep-panels .dep-payment{display:block}
-.dep-listing #dep-details:checked~.dep-tab-nav label[for=dep-details],.dep-listing #dep-colors:checked~.dep-tab-nav label[for=dep-colors],.dep-listing #dep-delivery:checked~.dep-tab-nav label[for=dep-delivery],.dep-listing #dep-payment:checked~.dep-tab-nav label[for=dep-payment]{background:#111;color:#fff}
-.dep-listing #dep-details:focus-visible~.dep-tab-nav label[for=dep-details],.dep-listing #dep-colors:focus-visible~.dep-tab-nav label[for=dep-colors],.dep-listing #dep-delivery:focus-visible~.dep-tab-nav label[for=dep-delivery],.dep-listing #dep-payment:focus-visible~.dep-tab-nav label[for=dep-payment]{outline:2px solid #555;outline-offset:3px}
-.dep-listing table{width:100%;border-collapse:collapse;text-align:left;font:inherit}
-.dep-listing th,.dep-listing td{padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top}
-.dep-listing th{width:38%;font-weight:bold}.dep-listing .dep-footer{text-align:center;font-size:12px;color:#777}
+.dep-listing #dep-details:checked~.dep-panels .dep-details,.dep-listing #dep-colors:checked~.dep-panels .dep-colors,.dep-listing #dep-delivery:checked~.dep-panels .dep-delivery,.dep-listing #dep-payment:checked~.dep-panels .dep-payment,.dep-listing #dep-optional:checked~.dep-panels .dep-optional{display:block}
+.dep-listing #dep-details:checked~.dep-tab-nav label[for=dep-details],.dep-listing #dep-colors:checked~.dep-tab-nav label[for=dep-colors],.dep-listing #dep-delivery:checked~.dep-tab-nav label[for=dep-delivery],.dep-listing #dep-payment:checked~.dep-tab-nav label[for=dep-payment],.dep-listing #dep-optional:checked~.dep-tab-nav label[for=dep-optional]{background:#111;color:#fff}
+.dep-listing #dep-details:focus-visible~.dep-tab-nav label[for=dep-details],.dep-listing #dep-colors:focus-visible~.dep-tab-nav label[for=dep-colors],.dep-listing #dep-delivery:focus-visible~.dep-tab-nav label[for=dep-delivery],.dep-listing #dep-payment:focus-visible~.dep-tab-nav label[for=dep-payment],.dep-listing #dep-optional:focus-visible~.dep-tab-nav label[for=dep-optional]{outline:2px solid #555;outline-offset:3px}
+.dep-listing .dep-details p{margin:0 0 28px}.dep-listing .dep-details p:last-child{margin-bottom:0}
+.dep-listing .dep-footer{text-align:center;font-size:12px;color:#777}
+@media(max-width:992px){.dep-listing .dep-layout{grid-template-columns:minmax(0,1fr)}.dep-listing .dep-sidebar{position:static;order:2;max-width:310px;justify-self:center}.dep-listing .dep-content{order:1}}
 @media(max-width:700px){.dep-listing{padding:10px;font-size:15px}.dep-listing .dep-card{padding:16px}.dep-listing h1{font-size:22px}.dep-listing .dep-gallery{grid-template-columns:minmax(0,1fr)}.dep-listing .dep-main img{height:340px}.dep-listing .dep-thumbs{flex-direction:row;max-height:none;overflow-x:auto}.dep-listing .dep-thumb{width:88px}.dep-listing .dep-thumb img{height:70px}.dep-listing .dep-tab-nav label{padding:9px 12px;font-size:14px}}
 </style>
 <div class="dep-listing" lang="de">
+  <div class="dep-company-header"><img src="https://productron.de/AfterbuyWebTag/webtag1_jv_10122.png" alt="JV Möbel — la design"></div>
+  <div class="dep-layout">
+  <aside class="dep-card dep-sidebar" aria-label="Unser Unternehmen"><img src="https://productron.de/AfterbuyWebTag/webtag2_jv_women21321.png" alt="JV Möbel — Geschäft, Service und Unternehmensinformationen" loading="lazy"></aside>
+  <div class="dep-content">
   <header class="dep-card">
-    <p class="dep-brand">DEPOTUM</p>
     <h1>{{ title }}</h1>
     <p class="dep-meta">EAN: <strong>{{ ean }}</strong> &middot; Zustand: Neu</p>
   </header>
@@ -57,31 +66,36 @@
     <p>{{ description|force_escape|linebreaksbr }}</p>
   </section>
   <section class="dep-card">
-    <h2>Weitere Informationen</h2>
     <div class="dep-tabs">
       <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-details" aria-label="Produktdetails" checked>
-      {% if colors %}<input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-colors" aria-label="Farben">{% endif %}
-      <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-delivery" aria-label="Versand und Rücknahme">
+      <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-colors" aria-label="Farben">
+      <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-delivery" aria-label="Lieferzeiten">
       <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-payment" aria-label="Zahlung">
+      <input class="dep-tab-input" type="radio" name="dep-tabs" id="dep-optional" aria-label="Optional">
       <div class="dep-tab-nav">
         <label for="dep-details">Produktdetails</label>
-        {% if colors %}<label for="dep-colors">Farben</label>{% endif %}
-        <label for="dep-delivery">Versand &amp; Rücknahme</label>
+        <label for="dep-colors">Farben</label>
+        <label for="dep-delivery">Lieferzeiten</label>
         <label for="dep-payment">Zahlung</label>
+        <label for="dep-optional">Optional</label>
       </div>
       <div class="dep-panels">
         <div class="dep-panel dep-details">
-          <table aria-label="Produktdetails"><tbody>
-            <tr><th scope="row">EAN</th><td>{{ ean }}</td></tr>
-            <tr><th scope="row">Zustand</th><td>Neu</td></tr>
-            {% for name, values in aspects %}<tr><th scope="row">{{ name }}</th><td>{% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>{% endfor %}
-          </tbody></table>
+          <p><strong>Artikel-Nr.</strong> EAN: {{ ean }}</p>
+          {% if dimensions %}<p><strong>Maße:</strong></p>
+          <p><strong>{{ title }}</strong><br>{% for name, values in dimensions %}{{ name }}: {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>{% endif %}
+          {% if colors %}<p><strong>Farbe:</strong> {% for color in colors %}{{ color }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+          {% for name, values in materials %}<p><strong>{{ name }}:</strong> {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endfor %}
+          {% for name, values in aspects %}<p><strong>{{ name }}:</strong> {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endfor %}
         </div>
-        {% if colors %}<div class="dep-panel dep-colors"><p>{% for color in colors %}{{ color }}{% if not forloop.last %}, {% endif %}{% endfor %}</p></div>{% endif %}
+        <div class="dep-panel dep-colors"><p>{% for color in colors %}{{ color }}{% if not forloop.last %}, {% endif %}{% empty %}Bitte beachten Sie die Farbangaben und Produktbilder dieses Angebots.{% endfor %}</p></div>
         <div class="dep-panel dep-delivery"><p>Bitte beachten Sie die in diesem eBay-Angebot angezeigten Versandkosten, Liefertermine und Rücknahmebedingungen.</p></div>
         <div class="dep-panel dep-payment"><p>Die verfügbaren Zahlungsmethoden werden Ihnen im eBay-Angebot und beim Kauf angezeigt.</p></div>
+        <div class="dep-panel dep-optional"><p><strong>Optional im Shop:</strong><br>Viele weitere Produkte finden Sie in unserem eBay-Shop.</p></div>
       </div>
     </div>
   </section>
-  <p class="dep-footer">DEPOTUM</p>
+  </div>
+  </div>
+  <footer class="dep-company-footer"><img src="https://productron.de/AfterbuyWebTag/webtag3_jv_3330.png" alt="JV Möbel — Unternehmensbanner" loading="lazy"></footer>
 </div>
