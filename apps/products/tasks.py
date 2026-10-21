@@ -22,18 +22,25 @@ FRANKFURTER_URL = "https://api.frankfurter.dev/v2/rates"
     max_retries=3,
     ignore_result=True,
 )
-def send_product_created_email(*, seller_name: str, seller_email: str, title: str):
+def send_product_created_email(
+    *, seller_name: str, seller_email: str, title: str, product_id: int | None = None
+):
     recipient = settings.PRODUCT_CREATE_EMAIL
     if not recipient:
         return
 
-    manager_url = "https://benimdepom.info/manager/"
+    # Older queued jobs do not include a product ID.
+    manager_url = (
+        f"https://benimdepom.info/manager/products/{product_id}"
+        if product_id is not None
+        else "https://benimdepom.info/manager/"
+    )
     message = EmailMultiAlternatives(
         subject="Benim Depom — a seller created a new product",
         body=(
             f"Seller {seller_name} ({seller_email}) created a new product.\n\n"
             f"Product name: {title}\n\n"
-            "Please open the manager panel and review the product:\n"
+            "Please view the product in the manager panel:\n"
             f"{manager_url}"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
@@ -54,7 +61,9 @@ def send_product_created_email(*, seller_name: str, seller_email: str, title: st
     message.send(fail_silently=False)
 
 
-def enqueue_product_created_email(*, seller_name: str, seller_email: str, title: str):
+def enqueue_product_created_email(
+    *, seller_name: str, seller_email: str, title: str, product_id: int
+):
     if not settings.PRODUCT_CREATE_EMAIL:
         return
     enqueue_email_task(
@@ -62,6 +71,7 @@ def enqueue_product_created_email(*, seller_name: str, seller_email: str, title:
         seller_name=seller_name,
         seller_email=seller_email,
         title=title,
+        product_id=product_id,
     )
 
 
