@@ -31,9 +31,9 @@ def send_product_created_email(
 
     # Older queued jobs do not include a product ID.
     manager_url = (
-        f"https://benimdepom.info/manager/products/{product_id}"
+        f"{settings.PUBLIC_BASE_URL}/manager/products/{product_id}"
         if product_id is not None
-        else "https://benimdepom.info/manager/"
+        else f"{settings.PUBLIC_BASE_URL}/manager/"
     )
     message = EmailMultiAlternatives(
         subject="Benim Depom — a seller created a new product",
