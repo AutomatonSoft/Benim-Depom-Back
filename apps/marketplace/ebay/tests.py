@@ -320,7 +320,7 @@ def draft_api(db, local_catalog):
         client=client,
         product=product,
         seller=seller,
-        url=f"/api/v1/ebay/drafts/jv/{product.pk}/",
+        url=f"/api/v1/ebay/drafts/depotum/{product.pk}/",
     )
 
 
@@ -358,7 +358,7 @@ def test_draft_create_edit_and_read_do_not_change_product(draft_api, local_catal
         ],
         "aspects": [],
     }
-    assert response.data["account"] == "jv"
+    assert response.data["account"] == "depotum"
     assert response.data["currency"] == "EUR"
     assert response.data["marketplace_id"] == "EBAY_DE"
     assert response.data["category_tree_version"] == "135"
@@ -509,7 +509,7 @@ def test_draft_attaches_listing_settings_without_changing_product(
     for field, value in listing_settings_api.values.items():
         assert response.data[field] == value
         assert field not in response.data["missing_requirements"]["fields"]
-    listing_settings_api.token.assert_called_once_with(account="jv")
+    listing_settings_api.token.assert_called_once_with(account="depotum")
     assert listing_settings_api.resource.call_count == 4
     assert draft_api.client.get(draft_api.url).status_code == 200
     assert (
@@ -621,7 +621,7 @@ def preview_draft(settings):
     return EbayDraft(
         product=Product(id=69, ean_jv="4071489789867"),
         environment="sandbox",
-        account="jv",
+        account="depotum",
         title="Schwarzes Sofa",
         description="Sofa mit Lederbezug.",
         image_urls=[
@@ -644,6 +644,7 @@ def preview_draft(settings):
 
 def test_preview_builds_inventory_item_and_offer(preview_draft):
     """Проверяет NEW, цену, фото, характеристики и совпадение SKU с существующим JV EAN."""
+    from apps.marketplace.ebay.description import render_listing_description
     from apps.marketplace.ebay.preview import build_draft_preview
 
     result = build_draft_preview(preview_draft)
@@ -679,9 +680,12 @@ def test_preview_builds_inventory_item_and_offer(preview_draft):
         "format": "FIXED_PRICE",
         "listingDuration": "GTC",
         "includeCatalogProductDetails": False,
+        "tax": {"vatPercentage": 19.0},
         "categoryId": "38208",
         "merchantLocationKey": "DE_88483",
-        "listingDescription": preview_draft.description,
+        "listingDescription": render_listing_description(
+            preview_draft, ean="4071489789867"
+        ),
         "availableQuantity": 1,
         "pricingSummary": {"price": {"value": "7049.00", "currency": "EUR"}},
         "listingPolicies": {
@@ -694,6 +698,113 @@ def test_preview_builds_inventory_item_and_offer(preview_draft):
     assert "gpsr_and_other_regulatory_requirements" in result["checks_not_performed"]
     assert "Authorization" not in inventory["headers"]
     json.dumps(result)
+
+
+def test_offer_default_vat_does_not_increase_price(preview_draft):
+    """Ставка передаётся отдельно; цена черновика остаётся окончательной ценой предложения."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    before_price = preview_draft.price_eur
+    offer = build_draft_preview(preview_draft)["offer"]["body"]
+    assert offer["tax"] == {"vatPercentage": 19.0}
+    assert offer["pricingSummary"]["price"] == {"value": "7049.00", "currency": "EUR"}
+    assert preview_draft.price_eur == before_price
+
+
+def test_offer_update_applies_default_vat_and_preserves_other_tax_fields(preview_draft):
+    """Обновление задаёт 19%, сохраняя прочие поля tax и исходную цену."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+    from apps.marketplace.ebay.updating import _update_bodies
+
+    preview = build_draft_preview(preview_draft)
+    inventory = deepcopy(preview["inventory_item"]["body"])
+    offer = deepcopy(preview["offer"]["body"])
+    offer["tax"] = {"vatPercentage": 7.0, "applyTax": False}
+    _, body = _update_bodies(inventory, offer, preview)
+    assert body["tax"] == {"vatPercentage": 19.0, "applyTax": False}
+    assert body["pricingSummary"]["price"]["value"] == "7049.00"
+    assert offer["tax"]["vatPercentage"] == 7.0
+
+
+def test_listing_html_gallery_and_plain_inventory_description(preview_draft):
+    """HTML предназначен только Offer; галерея и вкладки используют CSS без скриптов."""
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    result = build_draft_preview(preview_draft)
+    html = result["offer"]["body"]["listingDescription"]
+    assert (
+        result["inventory_item"]["body"]["product"]["description"]
+        == preview_draft.description
+    )
+    assert 'href="#dep-img-2"' in html
+    assert "#dep-img-2:target~.dep-main .dep-slide-2{display:block}" in html
+    assert 'src="https://example.com/interior.jpg"' in html
+    assert 'id="dep-details"' in html
+    assert 'id="dep-colors"' in html
+    assert "4071489789867" in html
+    assert "Schwarz" in html
+    assert "@media(max-width:700px)" in html
+    assert "<script" not in html
+    assert "<iframe" not in html
+    assert "<link " not in html
+    assert "varvara.de" not in html
+    assert "15%" not in html
+    assert "6-10" not in html
+
+
+def test_listing_html_escapes_content_without_changing_draft(preview_draft):
+    """Данные товара не могут внедрить HTML, обработчики или CSS в шаблон."""
+    from apps.marketplace.ebay.description import render_listing_description
+
+    preview_draft.title = '<img src=x onerror="alert(1)">'
+    preview_draft.description = "<script>alert(1)</script>\nSecond line & text"
+    preview_draft.aspects = {"<style>": ["<iframe>"], "Farbe": ["<b>Rot</b>"]}
+    preview_draft.image_urls = ['https://example.com/image.jpg?x=" onerror="alert(1)']
+    before = {
+        field.attname: deepcopy(getattr(preview_draft, field.attname))
+        for field in preview_draft._meta.concrete_fields
+    }
+    html = render_listing_description(preview_draft, ean="4071489789867")
+    assert "<script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;<br>Second line &amp; text" in html
+    assert "&lt;iframe&gt;" in html
+    assert "&lt;b&gt;Rot&lt;/b&gt;" in html
+    assert 'src="https://example.com/image.jpg?x=&quot; onerror=&quot;alert(1)"' in html
+    assert {
+        field.attname: getattr(preview_draft, field.attname)
+        for field in preview_draft._meta.concrete_fields
+    } == before
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "http://example.com/a.jpg",
+        "https://user:pass@example.com/a.jpg",
+        "https://example.com:bad/a.jpg",
+    ],
+)
+def test_listing_html_refuses_unsafe_image_urls(preview_draft, url):
+    from apps.marketplace.ebay.description import render_listing_description
+
+    preview_draft.image_urls = [url]
+    with pytest.raises(ValidationError):
+        render_listing_description(preview_draft, ean="4071489789867")
+
+
+@pytest.mark.parametrize("image_count", [0, 1, 3])
+def test_listing_html_handles_different_gallery_sizes(preview_draft, image_count):
+    from apps.marketplace.ebay.description import render_listing_description
+
+    preview_draft.image_urls = [
+        f"https://example.com/{i}.jpg" for i in range(image_count)
+    ]
+    preview_draft.aspects = {}
+    html = render_listing_description(preview_draft, ean="4071489789867")
+    assert html.count('class="dep-thumb"') == image_count
+    assert 'id="dep-colors"' not in html
+    assert ('<div class="dep-gallery">' in html) is bool(image_count)
 
 
 def test_preview_does_not_replace_unknown_price_or_quantity_with_zero(preview_draft):
@@ -715,68 +826,6 @@ def test_preview_does_not_replace_unknown_price_or_quantity_with_zero(preview_dr
     result = build_draft_preview(preview_draft)
     assert result["offer"]["body"]["availableQuantity"] == 0
     assert "quantity" not in result["missing_requirements"]["fields"]
-
-
-def test_preview_get_is_read_only_and_never_contacts_ebay(
-    draft_api, preview_draft, monkeypatch
-):
-    """GET не создаёт черновик и не меняет товар, EAN или даты сохранённого черновика."""
-    from apps.products.models import Product
-
-    network = MagicMock(side_effect=AssertionError("Unexpected network request"))
-    monkeypatch.setattr("requests.sessions.Session.request", network)
-    url = draft_api.url + "preview/"
-    assert draft_api.client.get(url).status_code == 404
-    assert not EbayDraft.objects.exists()
-    preview_draft.product = draft_api.product
-    draft_api.product.ean_jv = "4071489789867"
-    draft_api.product.save(update_fields=["ean_jv"])
-    preview_draft.save()
-    before_draft = EbayDraft.objects.values().get()
-    before_product = Product.objects.filter(pk=draft_api.product.pk).values().get()
-    response = draft_api.client.get(url)
-    assert response.status_code == 200
-    assert response.data["draft_complete"] is True
-    assert response["Cache-Control"] == "no-store"
-    assert EbayDraft.objects.values().get() == before_draft
-    assert (
-        Product.objects.filter(pk=draft_api.product.pk).values().get() == before_product
-    )
-    assert draft_api.client.post(url, {}, format="json").status_code == 405
-    assert draft_api.client.put(url, {}, format="json").status_code == 405
-    assert draft_api.client.patch(url, {}, format="json").status_code == 405
-    assert draft_api.client.delete(url).status_code == 405
-    network.assert_not_called()
-
-
-def test_preview_isolates_environment_and_account(draft_api, preview_draft, settings):
-    """Черновик Sandbox или другого аккаунта не показывается как Production JV."""
-    draft_api.product.ean_jv = "4071489789867"
-    draft_api.product.save(update_fields=["ean_jv"])
-    preview_draft.product = draft_api.product
-    preview_draft.save()
-    url = draft_api.url + "preview/"
-    settings.EBAY_ENVIRONMENT = "production"
-    assert draft_api.client.get(url).status_code == 404
-    draft = EbayDraft.objects.create(
-        product=draft_api.product, environment="production", account="xl"
-    )
-    assert draft_api.client.get(url).status_code == 404
-    draft.account = "jv"
-    draft.save()
-    response = draft_api.client.get(url)
-    assert response.status_code == 200
-    assert response.data["environment"] == "production"
-    assert response.data["inventory_item"]["url"].startswith("https://api.ebay.com/")
-
-
-def test_preview_requires_manager(draft_api):
-    """Продавец и анонимный пользователь не получают даже содержимое предпросмотра."""
-    url = draft_api.url + "preview/"
-    draft_api.client.force_authenticate(draft_api.seller)
-    assert draft_api.client.get(url).status_code == 403
-    draft_api.client.force_authenticate(None)
-    assert draft_api.client.get(url).status_code in {401, 403}
 
 
 @pytest.mark.parametrize(
@@ -993,7 +1042,13 @@ def test_prepare_timeout_blocks_retry_and_edit(preparation_api):
     )
 
 
-def test_prepare_rejects_changed_payload_after_success(preparation_api):
+def test_prepare_routes_changed_draft_to_existing_offer_update(
+    preparation_api, monkeypatch
+):
+    """После изменения черновика prepare обновляет прежний Offer без повторного создания."""
+    from apps.marketplace.ebay import updating
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
     api = preparation_api
     assert (
         api.client.post(
@@ -1003,12 +1058,12 @@ def test_prepare_rejects_changed_payload_after_success(preparation_api):
     )
     api.draft.title = "Changed title"
     api.draft.save(update_fields=["title"])
-    assert (
-        api.client.post(
-            api.url, {"confirm_stock_location": True}, format="json"
-        ).status_code
-        == 409
-    )
+    operation = MagicMock(return_value=EbayOfferPreparation.objects.get())
+    monkeypatch.setattr(updating, "update_unpublished_offer", operation)
+    response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
+    assert response.status_code == 200
+    assert response.data["offer_id"] == "9001"
+    operation.assert_called_once_with(api.draft.product_id, account="depotum")
     assert api.session.request.call_count == 4
 
 
@@ -1254,7 +1309,7 @@ def update_api(preparation_api, monkeypatch):
         "locale": "de_DE",
         "packageWeightAndSize": {"weight": {"value": 30, "unit": "KILOGRAM"}},
     }
-    api.update_url = api.url.removesuffix("prepare/") + "update/"
+    api.update_url = api.url
     api.draft.price_eur = Decimal("7050.00")
     api.draft.save(update_fields=["price_eur"])
 
@@ -1417,15 +1472,14 @@ def test_update_timeout_keeps_old_hash_and_locks_retry(update_api):
     assert api.session.request.call_count == count
 
 
-def test_update_requires_existing_offer(draft_api, preview_draft):
+def test_update_service_requires_existing_offer(draft_api, preview_draft):
+    from apps.marketplace.ebay.preparation import PreparationConflict
+    from apps.marketplace.ebay.updating import update_unpublished_offer
+
     preview_draft.product = draft_api.product
     preview_draft.save()
-    assert (
-        draft_api.client.post(
-            draft_api.url + "update/", {"confirm_stock_location": True}, format="json"
-        ).status_code
-        == 409
-    )
+    with pytest.raises(PreparationConflict, match="prepare first"):
+        update_unpublished_offer(draft_api.product.pk, account="depotum")
 
 
 def test_update_requires_manager_and_stock_confirmation(update_api, draft_api):
@@ -1466,130 +1520,6 @@ def test_update_does_not_drop_unknown_remote_fields(
 
 
 @pytest.fixture
-def remote_api(update_api, monkeypatch):
-    """Изолирует обратное чтение от сети и штатного обновления OAuth-токена."""
-    from apps.marketplace.ebay import remote
-
-    api = update_api
-    api.remote_url = api.url.removesuffix("prepare/") + "remote/"
-    api.resource = MagicMock(side_effect=[deepcopy(api.inventory), deepcopy(api.offer)])
-    api.token = MagicMock(return_value="remote-secret")
-    monkeypatch.setattr(remote, "get_seller_resource", api.resource)
-    monkeypatch.setattr(remote, "get_access_token", api.token)
-    context = MagicMock()
-    context.__enter__.return_value = api.session
-    monkeypatch.setattr(remote, "build_marketplace_session", lambda: context)
-    monkeypatch.setattr(
-        "requests.sessions.Session.request",
-        MagicMock(side_effect=AssertionError("Unexpected network")),
-    )
-    return api
-
-
-def test_remote_reads_actual_resources_and_preserves_local_state(remote_api):
-    """GET читает eBay, сверяет описание и не меняет Product, черновик или подготовку."""
-    from apps.marketplace.ebay.models import EbayOfferPreparation
-
-    api = remote_api
-    before_preparation = EbayOfferPreparation.objects.values().get()
-    before_draft = EbayDraft.objects.values().get()
-    response = api.client.get(api.remote_url)
-    assert response.status_code == 200, response.data
-    assert response.data["offer_id"] == "9001"
-    assert response.data["description_matches"] == {
-        "inventory_item": True,
-        "offer": True,
-    }
-    assert response.data["inventory_item"] == api.inventory
-    assert response.data["offer"] == api.offer
-    assert response["Cache-Control"] == "no-store"
-    assert "remote-secret" not in json.dumps(response.data)
-    assert [call.kwargs["path"] for call in api.resource.call_args_list] == [
-        "/sell/inventory/v1/inventory_item/4071489789867",
-        "/sell/inventory/v1/offer/9001",
-    ]
-    assert EbayOfferPreparation.objects.values().get() == before_preparation
-    assert EbayDraft.objects.values().get() == before_draft
-    api.session.request.assert_not_called()
-
-
-def test_remote_reports_mismatch_without_overwriting_description(remote_api):
-    api = remote_api
-    api.offer["listingDescription"] = "Old description"
-    api.inventory["product"].pop("description")
-    api.resource.side_effect = [api.inventory, api.offer]
-    response = api.client.get(api.remote_url)
-    assert response.status_code == 200
-    assert response.data["description_matches"] == {
-        "inventory_item": False,
-        "offer": False,
-    }
-    assert response.data["offer"]["listingDescription"] == "Old description"
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [("sku", "wrong"), ("offerId", "other"), ("marketplaceId", "EBAY_US")],
-)
-def test_remote_refuses_mismatched_resource(remote_api, field, value):
-    api = remote_api
-    api.offer[field] = value
-    api.resource.side_effect = [api.inventory, api.offer]
-    assert api.client.get(api.remote_url).status_code == 502
-
-
-def test_remote_preserves_uncertain_state_and_can_read_published_offer(remote_api):
-    """Диагностика не присваивает prepared и не скрывает внешнюю публикацию."""
-    from apps.marketplace.ebay.models import EbayOfferPreparation
-
-    api = remote_api
-    EbayOfferPreparation.objects.update(status="uncertain")
-    api.offer["status"] = "PUBLISHED"
-    api.resource.side_effect = [api.inventory, api.offer]
-    assert api.client.get(api.remote_url).data["offer"]["status"] == "PUBLISHED"
-    assert EbayOfferPreparation.objects.get().status == "uncertain"
-
-
-def test_remote_scopes_environment_and_requires_offer_id(remote_api, settings):
-    from apps.marketplace.ebay.models import EbayOfferPreparation
-
-    api = remote_api
-    settings.EBAY_ENVIRONMENT = "production"
-    assert api.client.get(api.remote_url).status_code == 404
-    settings.EBAY_ENVIRONMENT = "sandbox"
-    EbayOfferPreparation.objects.update(offer_id="")
-    assert api.client.get(api.remote_url).status_code == 400
-    api.resource.assert_not_called()
-    api.token.assert_not_called()
-
-
-def test_remote_requires_manager_and_rejects_mutations(remote_api, draft_api):
-    api = remote_api
-    for method in (
-        api.client.post,
-        api.client.put,
-        api.client.patch,
-        api.client.delete,
-    ):
-        assert method(api.remote_url, {}, format="json").status_code == 405
-    api.client.force_authenticate(draft_api.seller)
-    assert api.client.get(api.remote_url).status_code == 403
-    api.client.force_authenticate(None)
-    assert api.client.get(api.remote_url).status_code in {401, 403}
-    api.resource.assert_not_called()
-
-
-def test_remote_propagates_ebay_error_without_changing_state(remote_api):
-    from apps.marketplace.ebay.models import EbayOfferPreparation
-
-    api = remote_api
-    before = EbayOfferPreparation.objects.values().get()
-    api.resource.side_effect = EbayAPIError("eBay unavailable.")
-    assert api.client.get(api.remote_url).status_code == 502
-    assert EbayOfferPreparation.objects.values().get() == before
-
-
-@pytest.fixture
 def publish_api(update_api, monkeypatch):
     """Изолирует публикацию моками; реальные eBay/FTP недоступны из тестов."""
     from apps.marketplace.ebay import publishing
@@ -1598,10 +1528,6 @@ def publish_api(update_api, monkeypatch):
     from apps.marketplace.ebay.preview import build_draft_preview
 
     api = update_api
-    api.draft.account = "depotum"
-    api.draft.save(update_fields=["account"])
-    api.url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
-    api.update_url = api.update_url.replace("/drafts/jv/", "/drafts/depotum/")
     preview = build_draft_preview(api.draft)
     api.fingerprint = _payload_hash(preview)
     EbayOfferPreparation.objects.update(payload_hash=api.fingerprint, account="depotum")
@@ -1942,12 +1868,16 @@ def test_depotum_draft_is_separate_and_checks_its_own_policies(
     from apps.products.models import Product
 
     api = draft_api
-    api.client.put(api.url, {"title": "Existing JV draft"}, format="json")
+    EbayDraft.objects.create(
+        product=api.product,
+        environment="sandbox",
+        account="jv",
+        title="Existing JV draft",
+    )
     before = EbayDraft.objects.filter(account="jv").values().get()
     before_product = Product.objects.filter(pk=api.product.pk).values().get()
-    url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
     response = api.client.put(
-        url, {**listing_settings_api.values, "account": "jv"}, format="json"
+        api.url, {**listing_settings_api.values, "account": "jv"}, format="json"
     )
     assert response.status_code == 201, response.data
     assert response.data["account"] == "depotum"
@@ -1961,10 +1891,12 @@ def test_depotum_draft_is_separate_and_checks_its_own_policies(
 @pytest.fixture
 def depotum_api(preparation_api, monkeypatch):
     """Даёт независимые записи JV/Depotum одного товара и перехватывает все токены."""
-    from apps.marketplace.ebay import preparation, publishing, remote, updating
+    from apps.marketplace.ebay import preparation, publishing, updating
     from apps.marketplace.ebay.models import EbayOfferPreparation
 
     api = preparation_api
+    api.draft.account = "jv"
+    api.draft.save(update_fields=["account"])
     api.jv_draft_id = api.draft.pk
     EbayOfferPreparation.objects.create(
         draft=api.draft,
@@ -1981,11 +1913,10 @@ def depotum_api(preparation_api, monkeypatch):
     api.draft.pk = None
     api.draft.account = "depotum"
     api.draft.save(force_insert=True)
-    api.url = api.url.replace("/drafts/jv/", "/drafts/depotum/")
     api.token = MagicMock(return_value="depotum-token")
     context = MagicMock()
     context.__enter__.return_value = api.session
-    for module in (preparation, updating, publishing, remote):
+    for module in (preparation, updating, publishing):
         monkeypatch.setattr(module, "get_access_token", api.token)
         monkeypatch.setattr(module, "build_marketplace_session", lambda: context)
     for module in (updating, publishing):
@@ -2006,11 +1937,11 @@ def test_depotum_preview_and_prepare_use_jv_ean_and_depotum_token(depotum_api):
     from apps.marketplace.ebay.models import EbayOfferPreparation
 
     api = depotum_api
-    preview_url = api.url.removesuffix("prepare/") + "preview/"
-    preview = api.client.get(preview_url)
-    assert preview.status_code == 200
-    assert preview.data["account"] == "depotum"
-    assert preview.data["sku"] == preview.data["ean"] == "4071489789867"
+    from apps.marketplace.ebay.preview import build_draft_preview
+
+    preview = build_draft_preview(api.draft)
+    assert preview["account"] == "depotum"
+    assert preview["sku"] == preview["ean"] == "4071489789867"
     api.token.assert_not_called()
     response = api.client.post(api.url, {"confirm_stock_location": True}, format="json")
     assert response.status_code == 200, response.data
@@ -2028,8 +1959,7 @@ def test_depotum_preview_and_prepare_use_jv_ean_and_depotum_token(depotum_api):
     assert EbayOfferPreparation.objects.count() == 2
 
 
-def test_depotum_update_publish_and_read_keep_jv_untouched(depotum_api, monkeypatch):
-    from apps.marketplace.ebay import remote
+def test_depotum_update_and_publish_keep_jv_untouched(depotum_api):
     from apps.marketplace.ebay.models import EbayOfferPreparation
     from apps.marketplace.ebay.preview import build_draft_preview
 
@@ -2064,21 +1994,11 @@ def test_depotum_update_publish_and_read_keep_jv_untouched(depotum_api, monkeypa
     ]
     base = api.url.removesuffix("prepare/")
     response = api.client.post(
-        base + "update/", {"confirm_stock_location": True}, format="json"
+        base + "prepare/", {"confirm_stock_location": True}, format="json"
     )
     assert response.status_code == 200, response.data
     assert response.data["account"] == "depotum"
     assert response.data["offer_id"] == "9001"
-
-    resource = MagicMock(side_effect=[inventory, offer])
-    monkeypatch.setattr(remote, "get_seller_resource", resource)
-    snapshot = api.client.get(base + "remote/")
-    assert snapshot.status_code == 200
-    assert snapshot.data["account"] == "depotum"
-    assert all(
-        call.kwargs["access_token"] == "depotum-token"
-        for call in resource.call_args_list
-    )
 
     api.session.request.side_effect = [
         listing(),
@@ -2134,57 +2054,37 @@ def test_publish_service_refuses_non_depotum_before_network(
     network.assert_not_called()
 
 
-def test_jv_publish_route_is_blocked_without_touching_state(preparation_api):
-    from apps.marketplace.ebay.models import EbayOfferPreparation
-    from apps.marketplace.ebay.preparation import _payload_hash
-    from apps.marketplace.ebay.preview import build_draft_preview
+def test_removed_routes_are_unavailable_without_network(monkeypatch):
+    """Удалённые маршруты JV и диагностики не вызывают eBay."""
+    from django.urls import Resolver404, resolve
 
-    api = preparation_api
-    assert (
-        api.client.post(
-            api.url, {"confirm_stock_location": True}, format="json"
-        ).status_code
-        == 200
-    )
-    api.session.request.reset_mock()
-    before = EbayOfferPreparation.objects.values().get()
-    url = api.url.removesuffix("prepare/") + "publish/"
-    checks = api.client.get(url)
-    assert checks.status_code == 200 and checks.data["ready"] is False
-    assert "Publication is enabled only for Depotum." in checks.data["blocking_reasons"]
-    response = api.client.post(
-        url,
-        {
-            "confirm_publication": True,
-            "confirm_stock_location": True,
-            "preview_hash": _payload_hash(build_draft_preview(api.draft)),
-        },
-        format="json",
-    )
-    assert response.status_code == 409
-    api.session.request.assert_not_called()
-    assert EbayOfferPreparation.objects.values().get() == before
+    network = MagicMock(side_effect=AssertionError("Unexpected network"))
+    monkeypatch.setattr("requests.sessions.Session.request", network)
+    for account, suffixes in (
+        ("jv", ("", "preview/", "remote/", "prepare/", "update/", "publish/")),
+        ("depotum", ("preview/", "remote/", "update/")),
+    ):
+        for suffix in suffixes:
+            with pytest.raises(Resolver404):
+                resolve(
+                    f"/drafts/{account}/69/{suffix}",
+                    urlconf="apps.marketplace.ebay.urls",
+                )
+    network.assert_not_called()
 
 
-def test_depotum_never_falls_back_to_jv_draft_or_offer(preparation_api):
-    api = preparation_api
-    assert (
-        api.client.post(
-            api.url, {"confirm_stock_location": True}, format="json"
-        ).status_code
-        == 200
-    )
-    api.session.request.reset_mock()
-    base = api.url.replace("/drafts/jv/", "/drafts/depotum/").removesuffix("prepare/")
-    for suffix in ("", "preview/", "remote/", "prepare/", "publish/"):
+def test_depotum_never_falls_back_to_jv_draft_or_offer(depotum_api):
+    api = depotum_api
+    api.draft.delete()
+    base = api.url.removesuffix("prepare/")
+    for suffix in ("", "prepare/", "publish/"):
         assert api.client.get(base + suffix).status_code == 404
-    for suffix in ("prepare/", "update/"):
-        assert (
-            api.client.post(
-                base + suffix, {"confirm_stock_location": True}, format="json"
-            ).status_code
-            == 404
-        )
+    assert (
+        api.client.post(
+            api.url, {"confirm_stock_location": True}, format="json"
+        ).status_code
+        == 404
+    )
     api.session.request.assert_not_called()
 
 
@@ -2205,3 +2105,289 @@ def test_depotum_without_its_connection_does_not_use_jv_token(depotum_api, monke
         EbayOfferPreparation.objects.filter(account="jv").values().get()
         == api.jv_before
     )
+
+
+@pytest.fixture
+def listing_api(publish_api, monkeypatch):
+    """Создаёт опубликованный листинг на моках и изолирует операции живого объявления."""
+    from apps.marketplace.ebay import listing
+
+    api = publish_api
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == 200, response.data
+    api.session.request.reset_mock()
+    api.listing_url = api.url.removesuffix("prepare/") + "listing/"
+    api.offer["status"] = "PUBLISHED"
+    api.offer["listing"] = {
+        "listingId": "123456789012",
+        "listingStatus": "ACTIVE",
+        "soldQuantity": 0,
+    }
+    api.inventory["availability"]["shipToLocationAvailability"][
+        "allocationByFormat"
+    ] = {"fixedPrice": 1, "auction": 0}
+    context = MagicMock()
+    context.__enter__.return_value = api.session
+    monkeypatch.setattr(listing, "build_marketplace_session", lambda: context)
+    api.token = MagicMock(return_value="listing-token")
+    monkeypatch.setattr(listing, "get_access_token", api.token)
+    monkeypatch.setattr(listing, "_check_local", MagicMock())
+    monkeypatch.setattr(listing, "_check_images", MagicMock())
+    monkeypatch.setattr(listing, "_validate_listing_settings", MagicMock())
+    monkeypatch.setattr(listing, "_check_new_condition", MagicMock())
+    return api
+
+
+def test_listing_get_returns_all_resources_and_current_status_read_only(listing_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    before = EbayOfferPreparation.objects.values().get()
+    api.session.request.side_effect = [
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+    ]
+    response = api.client.get(api.listing_url)
+    assert response.status_code == 200, response.data
+    assert response.data["inventory_item"] == api.inventory
+    assert response.data["offer"] == api.offer
+    assert response.data["remote_status"] == "PUBLISHED"
+    assert response.data["listing_status"] == "ACTIVE"
+    assert response.data["remote_listing_id"] == "123456789012"
+    assert response["Cache-Control"] == "no-store"
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+    api.token.assert_called_once_with(account="depotum")
+    assert EbayOfferPreparation.objects.values().get() == before
+
+
+def test_listing_update_applies_html_vat_and_keeps_ids(listing_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    api.offer["tax"] = {"vatPercentage": 7.0, "applyTax": False}
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [api.offer], "total": 1}),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        api.response(204),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        api.response(204),
+    ]
+    before_product = (
+        type(api.draft.product).objects.values().get(pk=api.draft.product_id)
+    )
+    response = api.client.put(
+        api.listing_url,
+        {"confirm_update": True, "confirm_stock_location": True},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["listing_id"] == "123456789012"
+    assert response.data["offer_id"] == "9001"
+    assert response.data["status"] == "published"
+    calls = api.session.request.call_args_list
+    assert [call.args[0] for call in calls] == [
+        "GET",
+        "GET",
+        "GET",
+        "PUT",
+        "GET",
+        "GET",
+        "PUT",
+    ]
+    body = calls[-1].kwargs["json"]
+    assert body["tax"] == {"vatPercentage": 19.0, "applyTax": False}
+    assert '<div class="dep-listing"' in body["listingDescription"]
+    assert "listing" not in body
+    assert (
+        "allocationByFormat"
+        not in calls[3].kwargs["json"]["availability"]["shipToLocationAvailability"]
+    )
+    assert EbayOfferPreparation.objects.count() == 1
+    assert (
+        type(api.draft.product).objects.values().get(pk=api.draft.product_id)
+        == before_product
+    )
+
+
+def test_listing_withdraw_keeps_resources_and_repeat_does_not_send(listing_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [api.offer], "total": 1}),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        api.response(200, {"listingId": "123456789012"}),
+    ]
+    response = api.client.delete(
+        api.listing_url, {"confirm_withdrawal": True}, format="json"
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == "withdrawn"
+    assert response.data["listing_id"] == "123456789012"
+    calls = api.session.request.call_args_list
+    assert [call.args[0] for call in calls] == ["GET", "GET", "GET", "POST"]
+    assert calls[-1].args[1].endswith("/offer/9001/withdraw")
+    assert EbayOfferPreparation.objects.get().offer_id == "9001"
+    count = len(calls)
+    assert (
+        api.client.delete(
+            api.listing_url, {"confirm_withdrawal": True}, format="json"
+        ).status_code
+        == 200
+    )
+    assert api.session.request.call_count == count
+    assert (
+        api.client.post(api.publish_url, api.confirmation, format="json").status_code
+        == 409
+    )
+
+
+@pytest.mark.parametrize(
+    "method,body",
+    [
+        ("put", {}),
+        ("put", {"confirm_update": False, "confirm_stock_location": True}),
+        ("delete", {}),
+        ("delete", {"confirm_withdrawal": False}),
+    ],
+)
+def test_listing_mutation_requires_confirmation(listing_api, method, body):
+    api = listing_api
+    assert (
+        getattr(api.client, method)(api.listing_url, body, format="json").status_code
+        == 400
+    )
+    api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize("operation", ["get", "put", "delete"])
+def test_listing_requires_manager(listing_api, draft_api, operation):
+    api = listing_api
+    api.client.force_authenticate(draft_api.seller)
+    assert (
+        getattr(api.client, operation)(api.listing_url, {}, format="json").status_code
+        == 403
+    )
+    api.client.force_authenticate(None)
+    assert api.client.get(api.listing_url).status_code in {401, 403}
+    api.session.request.assert_not_called()
+
+
+def test_listing_environment_isolation(listing_api, settings):
+    api = listing_api
+    settings.EBAY_ENVIRONMENT = "production"
+    assert api.client.get(api.listing_url).status_code == 404
+    assert (
+        api.client.put(
+            api.listing_url,
+            {"confirm_update": True, "confirm_stock_location": True},
+            format="json",
+        ).status_code
+        == 404
+    )
+    assert (
+        api.client.delete(
+            api.listing_url,
+            {"confirm_withdrawal": True},
+            format="json",
+        ).status_code
+        == 404
+    )
+    api.token.assert_not_called()
+    api.session.request.assert_not_called()
+
+
+def test_listing_get_can_inspect_missing_resources_without_clearing_uncertain(
+    listing_api,
+):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    EbayOfferPreparation.objects.update(status="uncertain")
+    api.session.request.side_effect = [api.response(404), api.response(404)]
+    response = api.client.get(api.listing_url)
+    assert response.status_code == 200
+    assert response.data["offer"] is None and response.data["inventory_item"] is None
+    assert response.data["remote_status"] is None
+    assert EbayOfferPreparation.objects.get().status == "uncertain"
+
+
+@pytest.mark.parametrize("failure", ["timeout", "rejection"])
+def test_listing_withdraw_failure_does_not_report_success(listing_api, failure):
+    import requests
+
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [api.offer], "total": 1}),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        requests.Timeout()
+        if failure == "timeout"
+        else api.response(400, {"errors": [{"errorId": 25002}]}),
+    ]
+    assert (
+        api.client.delete(
+            api.listing_url, {"confirm_withdrawal": True}, format="json"
+        ).status_code
+        == 502
+    )
+    assert EbayOfferPreparation.objects.get().status == (
+        "uncertain" if failure == "timeout" else "published"
+    )
+    if failure == "timeout":
+        count = api.session.request.call_count
+        assert (
+            api.client.delete(
+                api.listing_url, {"confirm_withdrawal": True}, format="json"
+            ).status_code
+            == 409
+        )
+        assert api.session.request.call_count == count
+
+
+def test_listing_update_refuses_changed_listing_before_writes(listing_api):
+    api = listing_api
+    api.offer["listing"]["listingId"] = "external-relisting"
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [api.offer], "total": 1}),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+    ]
+    response = api.client.put(
+        api.listing_url,
+        {"confirm_update": True, "confirm_stock_location": True},
+        format="json",
+    )
+    assert response.status_code == 409
+    assert all(call.args[0] == "GET" for call in api.session.request.call_args_list)
+
+
+def test_listing_partial_update_blocks_retry_and_preserves_hash(listing_api):
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+
+    api = listing_api
+    before_hash = EbayOfferPreparation.objects.get().payload_hash
+    api.session.request.side_effect = [
+        api.response(200, {"offers": [api.offer], "total": 1}),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        api.response(204),
+        api.response(200, api.inventory),
+        api.response(200, api.offer),
+        api.response(400, {"errors": [{"errorId": 2004}]}),
+    ]
+    response = api.client.put(
+        api.listing_url,
+        {"confirm_update": True, "confirm_stock_location": True},
+        format="json",
+    )
+    assert response.status_code == 502
+    preparation = EbayOfferPreparation.objects.get()
+    assert preparation.status == "uncertain"
+    assert preparation.payload_hash == before_hash
+    assert "Inventory Item updated" in preparation.last_error

@@ -1,22 +1,15 @@
 from copy import deepcopy
 from urllib.parse import quote
 
-from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import APIException
-from rest_framework.response import Response
-from rest_framework.views import APIView
 from urllib3.util.retry import Retry
 
 from apps.common.marketplace_http import build_marketplace_session
-from apps.common.permissions import IsManager
-from apps.common.throttles import ManagerMutationThrottleMixin
 
 from .client import EbayAPIError, api_base_url
 from .drafts import LISTING_SETTINGS_FIELDS, _validate_listing_settings
 from .preparation import (
     PreparationConflict,
-    PreparationRequestSerializer,
-    PreparationSerializer,
     _check_new_condition,
     _claim,
     _payload_hash,
@@ -143,6 +136,10 @@ def _update_bodies(inventory, offer, preview):
         },
         preview["inventory_item"]["body"],
     )
+    # allocationByFormat вычисляет eBay: поле ответа нельзя возвращать в PUT.
+    inventory_body.get("availability", {}).get("shipToLocationAvailability", {}).pop(
+        "allocationByFormat", None
+    )
     offer_body = _merge_fields(
         {key: value for key, value in offer.items() if key in OFFER_WRITABLE_FIELDS},
         {
@@ -221,24 +218,3 @@ def update_unpublished_offer(product_id, *, account="jv"):
             last_error=detail,
         )
         raise
-
-
-class EbayDraftUpdateView(ManagerMutationThrottleMixin, APIView):
-    """Применяет сохранённый черновик к неопубликованному Offer без создания нового."""
-
-    permission_classes = (IsManager,)
-    account = "jv"
-
-    @extend_schema(
-        request=PreparationRequestSerializer,
-        responses={200: PreparationSerializer},
-        tags=["eBay"],
-        description="Updates the existing unpublished Offer and Inventory Item. Does not publish or create offers.",
-    )
-    def post(self, request, product_id):
-        serializer = PreparationRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        preparation = update_unpublished_offer(product_id, account=self.account)
-        response = Response(PreparationSerializer(preparation).data)
-        response["Cache-Control"] = "no-store"
-        return response

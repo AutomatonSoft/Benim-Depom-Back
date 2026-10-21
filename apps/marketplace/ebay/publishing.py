@@ -157,7 +157,9 @@ def _publication_checks(preparation, *, claimed=False):
         reasons.append("Publication is enabled only for Depotum.")
     if not preparation.offer_id or not preparation.inventory_confirmed:
         reasons.append("Prepare the Offer first.")
-    if preparation.listing_id or preparation.status == "published":
+    if preparation.status == "withdrawn":
+        reasons.append("Offer was withdrawn; automatic republication is not supported.")
+    elif preparation.listing_id or preparation.status == "published":
         reasons.append("Offer is already published.")
     elif preparation.status == "uncertain" or (
         preparation.status == "processing" and not claimed
@@ -166,7 +168,7 @@ def _publication_checks(preparation, *, claimed=False):
     if preparation.sku != preview["sku"] or not preview["sku"]:
         reasons.append("Product EAN does not match the saved SKU.")
     if preparation.payload_hash != fingerprint:
-        reasons.append("Apply the current draft with update/ first.")
+        reasons.append("Apply the current draft with POST prepare/ first.")
     report = {
         "ready": False,
         "product": draft.product_id,
@@ -237,6 +239,10 @@ def _claim_publication(product_id, fingerprint, *, account="jv"):
     preparation = _get_preparation(product_id, account=account)
     type(preparation.draft).objects.select_for_update().get(pk=preparation.draft_id)
     preparation.refresh_from_db()
+    if preparation.status == "withdrawn":
+        raise PreparationConflict(
+            "Listing was withdrawn; automatic republication is not supported."
+        )
     if preparation.listing_id:
         return preparation, False
     draft, _, preparation, _ = _claim(product_id, update=True, account=account)
@@ -245,7 +251,7 @@ def _claim_publication(product_id, fingerprint, *, account="jv"):
         or _payload_hash(build_draft_preview(draft)) != fingerprint
     ):
         raise PreparationConflict(
-            "Draft changed since review. Run GET publish/ again after update/."
+            "Draft changed since review. Run POST prepare/, then GET publish/ again."
         )
     return preparation, True
 
