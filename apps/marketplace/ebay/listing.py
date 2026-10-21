@@ -2,7 +2,7 @@ from urllib.parse import quote
 
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
@@ -301,14 +301,26 @@ class EbayListingView(ManagerMutationThrottleMixin, APIView):
         return response
 
     @extend_schema(
-        request=ListingWithdrawSerializer,
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "confirm_withdrawal",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Set true to confirm ending the live listing without deleting the Offer.",
+            )
+        ],
         responses={200: PreparationSerializer},
         tags=["eBay"],
         description="Ends the live listing using withdrawOffer. Keeps Inventory Item, Offer, local Product, EAN and photos. Does not permanently delete resources.",
     )
     def delete(self, request, product_id):
         """Снимает объявление с продажи, сохраняя товар и идентификаторы для сверки."""
-        serializer = ListingWithdrawSerializer(data=request.data)
+        # Swagger не показывает тело DELETE; JSON поддерживается для прежних клиентов.
+        serializer = ListingWithdrawSerializer(
+            data=request.data or request.query_params
+        )
         serializer.is_valid(raise_exception=True)
         response = Response(
             PreparationSerializer(change_listing(product_id, withdraw=True)).data

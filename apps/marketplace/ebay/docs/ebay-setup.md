@@ -368,11 +368,12 @@ Offer ID и listing ID сохраняются. Создание, publish, withdr
 ### Снятие с продажи
 
 ~~~http
-DELETE /api/v1/ebay/drafts/depotum/69/listing/
-Content-Type: application/json
-
-{"confirm_withdrawal": true}
+DELETE /api/v1/ebay/drafts/depotum/69/listing/?confirm_withdrawal=true
 ~~~
+
+В Swagger укажите `product_id` и query-параметр `confirm_withdrawal=true`, без тела запроса.
+Прежнее JSON-тело `{"confirm_withdrawal": true}` поддерживается для совместимости.
+Без подтверждения или при false снятие не выполняется.
 
 Этот DELETE вызывает **POST /sell/inventory/v1/offer/<offerId>/withdraw**, а не
 deleteOffer/deleteInventoryItem. eBay завершает активное объявление и переводит Offer
