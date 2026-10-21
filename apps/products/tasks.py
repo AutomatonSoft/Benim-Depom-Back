@@ -1,4 +1,3 @@
-import logging
 from datetime import date
 from decimal import Decimal
 from smtplib import SMTPException
@@ -9,10 +8,11 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 
+from apps.common.tasks import enqueue_email_task
+
 from .models import ExchangeRate
 
 FRANKFURTER_URL = "https://api.frankfurter.dev/v2/rates"
-logger = logging.getLogger(__name__)
 
 
 @shared_task(
@@ -29,11 +29,11 @@ def send_product_created_email(*, seller_name: str, seller_email: str, title: st
 
     manager_url = "https://benimdepom.info/manager/"
     message = EmailMultiAlternatives(
-        subject="Benim Depom — продавец создал новый товар",
+        subject="Benim Depom — a seller created a new product",
         body=(
-            f"Продавец {seller_name} ({seller_email}) создал новый товар.\n\n"
-            f"Название товара: {title}\n\n"
-            "Пожалуйста, зайдите в менеджерскую панель и посмотрите товар:\n"
+            f"Seller {seller_name} ({seller_email}) created a new product.\n\n"
+            f"Product name: {title}\n\n"
+            "Please open the manager panel and review the product:\n"
             f"{manager_url}"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
@@ -57,29 +57,12 @@ def send_product_created_email(*, seller_name: str, seller_email: str, title: st
 def enqueue_product_created_email(*, seller_name: str, seller_email: str, title: str):
     if not settings.PRODUCT_CREATE_EMAIL:
         return
-    try:
-        # Bound Redis publishing too: SMTP runs only in the notifications worker.
-        with send_product_created_email.app.connection_for_write(
-            connect_timeout=1,
-            transport_options={
-                "max_retries": 0,
-                "socket_connect_timeout": 1,
-                "socket_timeout": 1,
-                "retry_on_timeout": False,
-            },
-        ) as connection:
-            send_product_created_email.apply_async(
-                kwargs={
-                    "seller_name": seller_name,
-                    "seller_email": seller_email,
-                    "title": title,
-                },
-                connection=connection,
-                retry=False,
-            )
-    except Exception:
-        # shortcut: failed enqueue is logged only; use an outbox if delivery must be guaranteed.
-        logger.exception("Could not enqueue product-created email")
+    enqueue_email_task(
+        send_product_created_email,
+        seller_name=seller_name,
+        seller_email=seller_email,
+        title=title,
+    )
 
 
 def store_latest_exchange_rates() -> ExchangeRate:

@@ -34,6 +34,11 @@ def test_product_email_content_and_html_escaping(settings):
     assert "seller@example.com" in html
     assert "<script>" not in html
     assert 'href="https://benimdepom.info/manager/"' in html
+    assert "a seller created a new product" in message.subject
+    assert "Please open the manager panel" in message.body
+    assert "Open manager panel" in html
+    assert '<html lang="en">' in html
+    assert html.count("href=") == 1
 
 
 def test_product_email_disabled_without_recipient(settings):
@@ -75,7 +80,7 @@ def test_enqueue_failure_is_logged_and_suppressed(settings, caplog):
         side_effect=OSError("Broker unavailable"),
     ):
         enqueue_product_created_email(**PAYLOAD)
-    assert "Could not enqueue product-created email" in caplog.text
+    assert "Could not enqueue email task" in caplog.text
 
 
 def test_smtp_failure_is_retried_in_worker(settings):
