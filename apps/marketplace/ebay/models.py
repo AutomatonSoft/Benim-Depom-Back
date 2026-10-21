@@ -101,6 +101,7 @@ class EbayOfferPreparation(models.Model):
         PROCESSING = "processing", "Processing"
         PREPARED = "prepared", "Prepared"
         PUBLISHED = "published", "Published"
+        WITHDRAWN = "withdrawn", "Withdrawn"
         FAILED = "failed", "Failed"
         UNCERTAIN = "uncertain", "Requires reconciliation"
 
