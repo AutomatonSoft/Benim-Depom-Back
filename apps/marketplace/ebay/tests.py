@@ -760,14 +760,20 @@ def test_listing_html_escapes_content_without_changing_draft(preview_draft):
     preview_draft.description = "<script>alert(1)</script>\nSecond line & text"
     preview_draft.aspects = {"<style>": ["<iframe>"], "Farbe": ["<b>Rot</b>"]}
     preview_draft.image_urls = ['https://example.com/image.jpg?x=" onerror="alert(1)']
-    before = deepcopy(preview_draft.__dict__)
+    before = {
+        field.attname: deepcopy(getattr(preview_draft, field.attname))
+        for field in preview_draft._meta.concrete_fields
+    }
     html = render_listing_description(preview_draft, ean="4071489789867")
     assert "<script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;<br>Second line &amp; text" in html
     assert "&lt;iframe&gt;" in html
     assert "&lt;b&gt;Rot&lt;/b&gt;" in html
     assert 'src="https://example.com/image.jpg?x=&quot; onerror=&quot;alert(1)"' in html
-    assert preview_draft.__dict__ == before
+    assert {
+        field.attname: getattr(preview_draft, field.attname)
+        for field in preview_draft._meta.concrete_fields
+    } == before
 
 
 @pytest.mark.parametrize(
