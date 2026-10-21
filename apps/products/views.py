@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Subquery
@@ -67,6 +68,7 @@ from .services import (
     upload_product_image,
     withdraw_product_submission,
 )
+from .tasks import enqueue_product_created_email
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +346,15 @@ class ProductListCreateView(
             claim=claim,
             response_status=response.status_code,
             response_body=response.data,
+        )
+
+        transaction.on_commit(
+            partial(
+                enqueue_product_created_email,
+                seller_name=request.user.username,
+                seller_email=request.user.email,
+                title=response.data["title"],
+            )
         )
 
         return response

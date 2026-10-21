@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Новый товар — Benim Depom</title></head>
+<body style="margin:0;padding:24px 12px;background-color:#f3f5f8;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+  <table role="presentation" style="width:100%;max-width:600px;margin:0 auto;border-spacing:0;background-color:#ffffff;border:1px solid #e3e8ef;border-radius:16px;">
+    <tr><td style="padding:28px 32px;background-color:#172033;border-radius:16px 16px 0 0;color:#ffffff;font-size:20px;font-weight:bold;">BENIM DEPOM</td></tr>
+    <tr><td style="padding:32px;">
+      <p style="margin:0 0 12px;font-size:12px;font-weight:bold;letter-spacing:1px;color:#52637b;">УВЕДОМЛЕНИЕ О НОВОМ ТОВАРЕ</p>
+      <h1 style="margin:0 0 16px;font-size:26px;line-height:1.3;">Продавец создал товар</h1>
+      <p style="margin:0 0 24px;font-size:16px;line-height:1.6;">В Benim Depom добавлен новый товар. Ниже — информация о продавце и название товара.</p>
+      <table role="presentation" style="width:100%;border-spacing:0;background-color:#f3f5f8;border-radius:10px;">
+        <tr><td style="padding:20px 20px 6px;font-size:13px;color:#52637b;">Продавец</td></tr>
+        <tr><td style="padding:0 20px 16px;font-size:16px;overflow-wrap:anywhere;">{{ seller_name }}</td></tr>
+        <tr><td style="padding:0 20px 6px;font-size:13px;color:#52637b;">Email продавца</td></tr>
+        <tr><td style="padding:0 20px 16px;font-size:16px;overflow-wrap:anywhere;">{{ seller_email }}</td></tr>
+        <tr><td style="padding:0 20px 6px;font-size:13px;color:#52637b;">Название товара</td></tr>
+        <tr><td style="padding:0 20px 20px;font-size:18px;font-weight:bold;overflow-wrap:anywhere;">{{ title }}</td></tr>
+      </table>
+      <p style="margin:24px 0;font-size:16px;line-height:1.6;">Пожалуйста, зайдите в менеджерскую панель и посмотрите товар.</p>
+      <table role="presentation" style="border-spacing:0;"><tr><td style="background-color:#234bce;border-radius:8px;"><a href="{{ manager_url }}" style="display:inline-block;padding:15px 24px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;">Открыть менеджерскую панель</a></td></tr></table>
+      <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#52637b;">Если кнопка не открывается, перейдите по ссылке:<br><a href="{{ manager_url }}" style="color:#234bce;">{{ manager_url }}</a></p>
+    </td></tr>
+    <tr><td style="padding:20px 32px;border-top:1px solid #e3e8ef;font-size:12px;color:#52637b;">Автоматическое уведомление Benim Depom.</td></tr>
+  </table>
+</body>
+</html>

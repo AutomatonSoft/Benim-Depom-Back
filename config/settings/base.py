@@ -379,6 +379,7 @@ CELERY_TASK_QUEUES = (
     Queue("maintenance", Exchange("maintenance", type="direct"), "maintenance"),
 )
 CELERY_TASK_ROUTES = {
+    "apps.products.tasks.send_product_created_email": {"queue": "notifications"},
     "apps.accounts.tasks.send_email_verification_code": {"queue": "notifications"},
     "apps.accounts.tasks.send_password_reset_code": {"queue": "notifications"},
     "apps.orchestrator.tasks.execute_marketplace_job": {"queue": "marketplace"},
@@ -791,6 +792,7 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
+PRODUCT_CREATE_EMAIL = env("PRODUCT_CREATE_EMAIL", default="").strip()
 
 EMAIL_VERIFICATION_CODE_TTL_MINUTES = env.int(
     "EMAIL_VERIFICATION_CODE_TTL_MINUTES",
