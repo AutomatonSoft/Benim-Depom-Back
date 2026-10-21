@@ -795,6 +795,12 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
 # Recipient for new product and verified seller notifications.
 PRODUCT_CREATE_EMAIL = env("PRODUCT_CREATE_EMAIL", default="").strip()
+# Keep existing deployments working until PUBLIC_BASE_URL is set explicitly.
+PUBLIC_BASE_URL = (
+    env("PUBLIC_BASE_URL", default="").strip()
+    or EBAY_PUBLIC_BASE_URL.strip()
+    or "https://benimdepom.info"
+).rstrip("/")
 
 EMAIL_VERIFICATION_CODE_TTL_MINUTES = env.int(
     "EMAIL_VERIFICATION_CODE_TTL_MINUTES",

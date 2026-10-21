@@ -22,7 +22,7 @@ def send_seller_registered_email(*, seller_name: str, seller_email: str) -> None
     if not recipient:
         return
 
-    manager_url = "https://benimdepom.info/manager/sellers"
+    manager_url = f"{settings.PUBLIC_BASE_URL}/manager/sellers"
     message = EmailMultiAlternatives(
         subject="Benim Depom — a new seller has registered",
         body=(

@@ -20,7 +20,11 @@ PAYLOAD = {
 }
 
 
-def test_product_email_content_and_html_escaping(settings):
+@pytest.mark.parametrize(
+    "base_url", ["https://benimdepom.info", "https://stage.benimdepom.info"]
+)
+def test_product_email_content_and_html_escaping(settings, base_url):
+    settings.PUBLIC_BASE_URL = base_url
     settings.PRODUCT_CREATE_EMAIL = "info@jvmoebel.de"
     send_product_created_email.run(**PAYLOAD)
 
@@ -34,7 +38,8 @@ def test_product_email_content_and_html_escaping(settings):
     assert "Chair &lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "seller@example.com" in html
     assert "<script>" not in html
-    assert 'href="https://benimdepom.info/manager/products/42"' in html
+    assert f'href="{base_url}/manager/products/42"' in html
+    assert f"{base_url}/manager/products/42" in message.body
     assert "a seller created a new product" in message.subject
     assert "Please view the product" in message.body
     assert "View product" in html
@@ -42,12 +47,16 @@ def test_product_email_content_and_html_escaping(settings):
     assert html.count("href=") == 1
 
 
-def test_older_queued_product_email_without_id_still_sends(settings):
+@pytest.mark.parametrize(
+    "base_url", ["https://benimdepom.info", "https://stage.benimdepom.info"]
+)
+def test_older_queued_product_email_without_id_still_sends(settings, base_url):
+    settings.PUBLIC_BASE_URL = base_url
     settings.PRODUCT_CREATE_EMAIL = "info@jvmoebel.de"
     send_product_created_email.run(
         **{key: value for key, value in PAYLOAD.items() if key != "product_id"}
     )
-    assert "https://benimdepom.info/manager/" in mail.outbox[-1].body
+    assert f"{base_url}/manager/" in mail.outbox[-1].body
 
 
 def test_product_email_disabled_without_recipient(settings):

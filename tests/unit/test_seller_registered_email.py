@@ -14,7 +14,11 @@ pytestmark = pytest.mark.unit
 PAYLOAD = {"seller_name": 'Seller <b> & "Co"', "seller_email": "seller@example.com"}
 
 
-def test_seller_email_is_english_and_escapes_seller_details(settings):
+@pytest.mark.parametrize(
+    "base_url", ["https://benimdepom.info", "https://stage.benimdepom.info"]
+)
+def test_seller_email_is_english_and_escapes_seller_details(settings, base_url):
+    settings.PUBLIC_BASE_URL = base_url
     settings.PRODUCT_CREATE_EMAIL = "info@jvmoebel.de"
     send_seller_registered_email.run(**PAYLOAD)
     message = mail.outbox[-1]
@@ -29,7 +33,8 @@ def test_seller_email_is_english_and_escapes_seller_details(settings):
     assert "Seller &lt;b&gt; &amp; &quot;Co&quot;" in html
     assert "seller@example.com" in html
     assert "<b>" not in html
-    assert 'href="https://benimdepom.info/manager/sellers"' in html
+    assert f'href="{base_url}/manager/sellers"' in html
+    assert f"{base_url}/manager/sellers" in message.body
     assert "View sellers" in html
     assert html.count("href=") == 1
 
