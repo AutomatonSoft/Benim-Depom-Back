@@ -187,7 +187,11 @@ def _check_local(draft, preview):
     ):
         raise ValidationError("Product must be approved and available.")
     if len(draft.description) > 4000:
-        raise ValidationError({"description": "eBay allows at most 4000 characters."})
+        raise ValidationError(
+            {
+                "description": "Inventory Item description allows at most 4000 characters."
+            }
+        )
     stock = draft.product.variants.aggregate(total=Sum("quantity"))["total"] or 0
     if not draft.quantity or draft.quantity > stock:
         raise ValidationError(
@@ -234,7 +238,7 @@ def _claim(product_id, *, update=False, account="jv"):
     if preparation:
         if preparation.listing_id or preparation.status == "published":
             raise PreparationConflict(
-                "Offer has already been published; prepare/update are disabled."
+                "Offer has already been published; preparation is disabled."
             )
         if preparation.status in {"processing", "uncertain"}:
             raise PreparationConflict(
@@ -254,7 +258,7 @@ def _claim(product_id, *, update=False, account="jv"):
                 return draft, preview, preparation, True
             if preparation.payload_hash != fingerprint:
                 raise PreparationConflict(
-                    "Draft changed; updating an existing Offer requires a separate step."
+                    "Draft changed during preparation; repeat POST prepare/ to apply it."
                 )
             return draft, preview, preparation, False
     _check_local(draft, preview)
@@ -417,12 +421,37 @@ class EbayDraftPreparationView(ManagerMutationThrottleMixin, APIView):
         request=PreparationRequestSerializer,
         responses={200: PreparationSerializer},
         tags=["eBay"],
-        description="Creates an Inventory Item and an unpublished Offer. Does not publish. Confirm actual stock at the selected location.",
+        description="Creates or updates the saved unpublished Offer and Inventory Item. Does not publish. Confirm actual stock at the selected location.",
     )
     def post(self, request, product_id):
+        """Создаёт предложение или применяет изменения к существующему без публикации."""
         serializer = PreparationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        preparation = prepare_offer(product_id, account=self.account)
+        # Локальный импорт: updating использует общие проверки из этого модуля.
+        from .updating import update_unpublished_offer
+
+        existing = (
+            EbayOfferPreparation.objects.select_related("draft__product")
+            .filter(
+                draft__product_id=product_id,
+                draft__account=self.account,
+                draft__environment=settings.EBAY_ENVIRONMENT,
+                account=self.account,
+                environment=settings.EBAY_ENVIRONMENT,
+            )
+            .exclude(offer_id="")
+            .first()
+        )
+        unchanged = (
+            existing is not None
+            and existing.status == "prepared"
+            and existing.payload_hash
+            == _payload_hash(build_draft_preview(existing.draft))
+        )
+        operation = (
+            update_unpublished_offer if existing and not unchanged else prepare_offer
+        )
+        preparation = operation(product_id, account=self.account)
         response = Response(PreparationSerializer(preparation).data)
         response["Cache-Control"] = "no-store"
         return response

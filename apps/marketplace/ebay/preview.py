@@ -1,15 +1,6 @@
-from django.conf import settings
-from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
-from rest_framework import serializers
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from apps.common.permissions import IsManager
-
 from .client import api_base_url
+from .description import render_listing_description
 from .drafts import EbayDraftSerializer
-from .models import EbayDraft
 from .regulatory import EbayRegulatorySerializer, missing_regulatory_fields
 
 
@@ -58,6 +49,7 @@ def build_draft_preview(draft):
         "format": "FIXED_PRICE",
         "listingDuration": "GTC",
         "includeCatalogProductDetails": False,
+        "tax": {"vatPercentage": 19.0},
         "listingPolicies": {
             key: value
             for key, value in {
@@ -75,7 +67,9 @@ def build_draft_preview(draft):
     for key, value in {
         "categoryId": draft.category_id,
         "merchantLocationKey": draft.merchant_location_key,
-        "listingDescription": draft.description,
+        "listingDescription": render_listing_description(draft, ean=sku)
+        if draft.description
+        else "",
     }.items():
         if value:
             offer[key] = value
@@ -121,64 +115,3 @@ def build_draft_preview(draft):
             "body": offer,
         },
     }
-
-
-class EbayRequestPreviewSerializer(serializers.Serializer):
-    """Описывает будущий запрос eBay без секретов и заголовка авторизации."""
-
-    method = serializers.CharField()
-    url = serializers.URLField(allow_null=True)
-    headers = serializers.DictField(child=serializers.CharField())
-    body = serializers.JSONField()
-
-
-class EbayDraftPreviewSerializer(serializers.Serializer):
-    """Отделяет заполненность черновика от ещё не выполненных проверок публикации."""
-
-    preview_only = serializers.BooleanField()
-    product = serializers.IntegerField()
-    account = serializers.CharField()
-    environment = serializers.CharField()
-    marketplace_id = serializers.CharField()
-    sku = serializers.CharField(allow_blank=True)
-    ean = serializers.CharField(allow_blank=True)
-    missing_regulatory_fields = serializers.ListField(child=serializers.CharField())
-    draft_complete = serializers.BooleanField()
-    missing_requirements = serializers.DictField(
-        child=serializers.ListField(child=serializers.CharField())
-    )
-    checks_not_performed = serializers.ListField(child=serializers.CharField())
-    inventory_item = EbayRequestPreviewSerializer()
-    offer = EbayRequestPreviewSerializer()
-
-
-class EbayDraftPreviewView(APIView):
-    """Показывает предпросмотр аккаунта маршрута, не отправляя товар в eBay."""
-
-    permission_classes = (IsManager,)
-    account = "jv"
-
-    @extend_schema(
-        responses={200: EbayDraftPreviewSerializer},
-        tags=["eBay"],
-        description=(
-            "Формирует JSON будущих Inventory Item и Offer из черновика аккаунта маршрута. "
-            "Все товары новые: condition=NEW. API eBay, OAuth и загрузка изображений "
-            "не вызываются, записи не создаются и не изменяются. SKU равен существующему JV EAN; "
-            "draft_complete отражает заполненность, а checks_not_performed — "
-            "проверки, которые ещё нужны до публикации."
-        ),
-    )
-    def get(self, request, product_id):
-        """Возвращает предпросмотр существующего черновика; для отсутствующего — 404."""
-        api_base_url()
-        draft = get_object_or_404(
-            EbayDraft.objects.select_related("product"),
-            product_id=product_id,
-            account=self.account,
-            environment=settings.EBAY_ENVIRONMENT,
-        )
-        result = build_draft_preview(draft)
-        response = Response(EbayDraftPreviewSerializer(result).data)
-        response["Cache-Control"] = "no-store"
-        return response
