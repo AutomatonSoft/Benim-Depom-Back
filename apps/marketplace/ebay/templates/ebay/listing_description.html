@@ -82,8 +82,9 @@
       <div class="dep-panels">
         <div class="dep-panel dep-details">
           <p><strong>Artikel-Nr.</strong> EAN: {{ ean }}</p>
-          {% if dimensions %}<p><strong>Maße:</strong></p>
-          <p><strong>{{ title }}</strong><br>{% for name, values in dimensions %}{{ name }}: {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>{% endif %}
+          {% if dimensions or set_dimensions %}<p><strong>Maße:</strong></p>
+          {% if set_dimensions %}{% for name, values in set_dimensions %}<p><strong>{{ name }}</strong><br>{% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endfor %}
+          {% else %}<p><strong>{{ title }}</strong><br>{% for name, values in dimensions %}{{ name }}: {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>{% endif %}{% endif %}
           {% if colors %}<p><strong>Farbe:</strong> {% for color in colors %}{{ color }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
           {% for name, values in materials %}<p><strong>{{ name }}:</strong> {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endfor %}
           {% for name, values in aspects %}<p><strong>{{ name }}:</strong> {% for value in values %}{{ value }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endfor %}
