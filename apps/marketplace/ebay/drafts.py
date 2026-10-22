@@ -71,13 +71,20 @@ def _validate_listing_settings(*, account, values):
 
 
 def _validate_aspects(aspects, schema):
-    """Проверяет известные имена, число, длину и разрешённые значения характеристик."""
+    """Проверяет схему категории и дополнительные размеры частей комплекта."""
     definitions = {item["localizedAspectName"]: item for item in schema["aspects"]}
     errors = {}
     for name, values in aspects.items():
         definition = definitions.get(name)
         if definition is None:
-            errors[name] = "Unknown aspect for this category."
+            if not name.startswith("Maße ") or not name[5:].strip():
+                errors[name] = "Unknown aspect for this category."
+            elif len(name) > 40:
+                errors[name] = "Custom dimension name allows at most 40 characters."
+            elif len(values) != 1 or not values[0].strip():
+                errors[name] = "Provide one non-empty dimension value."
+            elif len(values[0]) > 65:
+                errors[name] = "Custom dimension value allows at most 65 characters."
             continue
         constraint = definition["aspectConstraint"]
         if (
@@ -115,6 +122,11 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             max_length=30,
         ),
         required=False,
+        help_text=(
+            "Category aspects; additional set dimensions may use names starting with "
+            "'Maße ' (up to 40 characters), each with one value up to 65 characters. "
+            "Submitting aspects replaces the entire saved dictionary."
+        ),
     )
     fulfillment_policy_id = serializers.RegexField(
         r"^[1-9][0-9]*$", max_length=64, allow_blank=True, required=False
