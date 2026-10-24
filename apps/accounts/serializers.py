@@ -38,9 +38,7 @@ class PersonNameField(serializers.CharField):
     """Accept personal names of 2–40 Unicode letters without separators."""
 
     def __init__(self, **kwargs):
-        super().__init__(
-            min_length=2, max_length=40, trim_whitespace=False, **kwargs
-        )
+        super().__init__(min_length=2, max_length=40, trim_whitespace=False, **kwargs)
 
     def to_internal_value(self, data):
         value = unicodedata.normalize("NFC", super().to_internal_value(data))

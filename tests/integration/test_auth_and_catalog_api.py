@@ -33,6 +33,8 @@ def test_registration_email_verification_login_and_manager_creation(
 ):
     registration = {
         "username": "new_seller",
+        "first_name": "Alihan",
+        "last_name": "Bulkair",
         "email": "new_seller@example.com",
         "password": password,
         "password_confirm": password,

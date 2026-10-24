@@ -45,4 +45,3 @@ class OttoCategoryAttributeSerializer(serializers.Serializer):
             return []
         labels = attribute.get("allowedValueLabels")
         return labels if isinstance(labels, list) else []
-
