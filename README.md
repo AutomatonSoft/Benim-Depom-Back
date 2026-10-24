@@ -1,5 +1,14 @@
 # BENIM DEPOM — Backend
 
+## Release and hotfix flow
+
+- Normal releases: `feature/* → dev → main` (optionally through `local` before `dev`). A push to `dev` deploys staging; a push to `main` deploys production.
+- Urgent production fixes: create `hotfix/<name>` from the production revision on `main`, include only the fix, test locally, and open a PR into `main`. The existing CI checks still run; merging deploys production without merging unfinished integration work such as eBay.
+- Test with the production schema and configuration shape. Do not reuse a local database already migrated by unfinished features to validate a hotfix migration. Check compatibility with the currently deployed frontend and workers.
+- After release, open a PR from the same `hotfix/<name>` branch into `dev` before deleting it. This keeps the fix in future releases.
+- There is no separate hotfix environment. Coordinate frontend/backend fixes through separate PRs and backward-compatible deployment order.
+- Repository settings must protect `main` against direct pushes and require the `Validate branch flow`, `Test and lint`, and `Build production image` checks. Workflow files alone do not enforce these protections. Production deployment still starts automatically after a push to `main`, subject to any existing environment approvals.
+
 Backend сервиса, где продавцы создают товары из мобильного приложения, а менеджеры проверяют, дополняют и публикуют их на OTTO, Hood и Kaufland от аккаунтов JV и XL.
 
 Проект — модульный Django-монолит. PostgreSQL хранит бизнес-данные и историю, Redis/Celery выполняют фоновые операции, FTP/FTPS хранит изображения. Архитектура рассчитана на сотни пользователей с запасом примерно до 1 000 активных пользователей.

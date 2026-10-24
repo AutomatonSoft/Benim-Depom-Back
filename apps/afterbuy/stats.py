@@ -212,17 +212,27 @@ def seller_sales_stats(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> dict:
+    """Return seller revenue with TRY converted at the latest stored EUR rate."""
     product = None
     if product_id is not None:
         product = Product.objects.filter(pk=product_id, owner=seller).first()
         if product is None:
             raise ValidationError({"product_id": "Product not found."})
-    return sales_stats(
+    payload = sales_stats(
         seller=seller,
         product=product,
         date_from=date_from,
         date_to=date_to,
     )
+    rate = latest_rate()
+    payload["amount_try"] = (
+        (payload["amount_eur"] * rate.eur_to_try).quantize(
+            Decimal("0.01"), ROUND_HALF_UP
+        )
+        if rate is not None and payload["amount_eur"] is not None
+        else None
+    )
+    return payload
 
 
 def _parse_product_id(value: str | None) -> int | None:

@@ -20,6 +20,8 @@ def test_seller_to_manager_approval_and_deactivation_journey(
 ):
     registration = {
         "username": "journey_seller",
+        "first_name": "Alihan",
+        "last_name": "Bulkair",
         "email": "journey_seller@example.com",
         "password": password,
         "password_confirm": password,

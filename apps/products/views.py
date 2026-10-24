@@ -1013,8 +1013,8 @@ class SellerSalesStatsView(APIView):
         responses={200: SellerSalesStatsSerializer},
         description=(
             "Sales stats for the authenticated seller only. "
-            "amount_eur is Afterbuy listing total, amount_try is frozen "
-            "card price, amount_usd is EUR converted by the latest FX rate."
+            "amount_eur is Afterbuy listing total; amount_try and amount_usd "
+            "are EUR converted by the latest stored FX rate."
         ),
     )
     def get(self, request):
