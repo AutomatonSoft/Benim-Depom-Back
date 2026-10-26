@@ -1,5 +1,35 @@
 # BENIM DEPOM — Backend
 
+## Background photo transfer
+
+Multipart `POST /api/v1/products/` keeps its existing fields and returns `201` after
+validating and saving all source photos to the persistent `product-media` volume.
+The response has `status: submitted`, as before; photo URLs already work.
+Submission and manager notifications happen during creation, independently of
+FTP transfer. The background worker never changes the product's moderation status.
+JSON draft creation and existing photo-editing endpoints keep their behavior.
+
+The new `worker_media_uploads` service runs two product transfers concurrently,
+each reusing one FTP connection. Beat recovers pending, failed and interrupted
+jobs every minute; after five attempts the seller can use
+`POST /api/v1/products/{id}/photo-upload/retry/`. No photos need to be reselected.
+Product editing, withdrawal, moderation and deletion keep their existing status
+rules. Photo transfer does not add a seller-facing preparation state.
+
+Web, media workers and maintenance workers must mount the same writable volume
+at `/app/product-media` (`PRODUCT_IMAGE_STAGING_ROOT`). Local URLs are signed
+capabilities and do not require an Authorization header on image requests.
+Daily cleanup removes local copies only 24 hours after successful transfer;
+old signed URLs then redirect to the permanent FTP image. Pending/failed sources
+are retained. Unreferenced staging folders older than 24 hours are also removed.
+Monitor disk usage: prolonged FTP outages intentionally keep the source files.
+
+Deployment requires migration `products.0030_background_photo_uploads`, the new
+worker and the updated Compose volume mounts. Never delete the volume on deploy.
+The standard stage/production workflows include the new worker. Existing mobile
+clients receive the usual `submitted` status immediately; request fields and the
+create endpoint do not change.
+
 ## Release and hotfix flow
 
 - Normal releases: `feature/* → dev → main` (optionally through `local` before `dev`). A push to `dev` deploys staging; a push to `main` deploys production.

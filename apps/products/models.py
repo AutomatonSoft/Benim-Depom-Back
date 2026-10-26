@@ -5,6 +5,7 @@ from uuid import uuid4
 from django.conf import settings
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
+from django.utils import timezone
 
 
 def product_image_upload_to(instance, filename: str) -> str:
@@ -266,6 +267,9 @@ class ProductVariant(models.Model):
 
 
 class ProductImage(models.Model):
+    local_source = models.CharField(max_length=255, blank=True, db_index=True)
+    uploaded_at = models.DateTimeField(null=True, blank=True)
+
     class ProcessingStatus(models.TextChoices):
         IDLE = "idle", "Idle"
         PENDING = "pending", "Pending"
@@ -347,6 +351,37 @@ class ProductImage(models.Model):
 
     def __str__(self) -> str:
         return f"Image #{self.id} for {self.product.title}"
+
+
+class ProductMediaUpload(models.Model):
+    """Durable queue entry for transferring a new product's local photos to FTP."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    product = models.OneToOneField(
+        Product, on_delete=models.CASCADE, related_name="media_upload"
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["status", "available_at"], name="product_media_due_idx"
+            )
+        ]
 
 
 class ProductGeneratedImage(models.Model):

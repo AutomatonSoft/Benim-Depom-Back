@@ -35,7 +35,13 @@ from apps.moderation.services import submit_product_for_moderation
 from apps.orchestrator.models import MarketplacePublication
 
 from .filters import filter_products
-from .models import PriceNegotiation, Product, ProductGeneratedImage, ProductImage
+from .models import (
+    PriceNegotiation,
+    Product,
+    ProductGeneratedImage,
+    ProductImage,
+    ProductMediaUpload,
+)
 from .permissions import CanAccessProduct
 from .pricing import latest_rate
 from .serializers import (
@@ -256,7 +262,8 @@ class ProductListCreateView(
         description=(
             "JSON creates a draft without photos. Upload photos to the draft and "
             "submit it when all uploads succeed. Multipart creation with photos "
-            "still submits the product immediately. Use Idempotency-Key to avoid "
+            "stores photos locally and submits the product immediately. "
+            "Use Idempotency-Key to avoid "
             "duplicate products when retrying."
         ),
     )
@@ -421,7 +428,19 @@ class ProductDetailView(
             last_moderation_decision=Subquery(latest_decision.values("decision")[:1])
         )
 
+    @transaction.atomic
     def perform_destroy(self, instance):
+        job = (
+            ProductMediaUpload.objects.select_for_update()
+            .filter(product=instance)
+            .first()
+        )
+        if job and job.status not in {job.Status.SUCCEEDED, job.Status.CANCELLED}:
+            from django.utils import timezone
+
+            job.status = job.Status.CANCELLED
+            job.finished_at = timezone.now()
+            job.save(update_fields=["status", "finished_at"])
         if not is_manager(self.request.user) and instance.status not in {
             Product.Status.DRAFT,
             Product.Status.REJECTED,

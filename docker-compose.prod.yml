@@ -14,6 +14,9 @@ x-app-common: &app-common
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/1
     REDIS_CACHE_URL: redis://redis:6379/2
+    PRODUCT_IMAGE_STAGING_ROOT: /app/product-media
+  volumes:
+    - product-media:/app/product-media
   depends_on:
     postgres:
       condition: service_healthy
@@ -52,6 +55,7 @@ services:
     volumes:
       - staticfiles:/app/staticfiles
       - runtime-data:/app/runtime
+      - product-media:/app/product-media
     healthcheck:
       test:
         [
@@ -96,12 +100,23 @@ services:
     <<: *app-common
     volumes:
       - ./secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
+      - product-media:/app/product-media
     command: >
       celery -A config worker --loglevel=INFO
       --queues=notifications
       --concurrency=2
       --max-tasks-per-child=500
     stop_grace_period: 60s
+
+  worker_media_uploads:
+    <<: *app-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=media_uploads
+      --concurrency=2
+      --prefetch-multiplier=1
+      --max-tasks-per-child=200
+    stop_grace_period: 630s
 
   worker_maintenance:
     <<: *app-common
@@ -171,5 +186,6 @@ volumes:
   redis_data:
   staticfiles:
   runtime-data:
+  product-media:
 
 
