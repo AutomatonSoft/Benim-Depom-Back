@@ -354,7 +354,7 @@ class ProductImage(models.Model):
 
 
 class ProductMediaUpload(models.Model):
-    """Durable queue entry for transferring a new product's local photos to FTP."""
+    """Durable queue entry for transferring a product's local photos to FTP."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

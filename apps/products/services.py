@@ -614,8 +614,6 @@ def upload_product_image(
     is_primary: bool,
     allow_after_approval: bool = False,
 ) -> ProductImage:
-    optimized_image, thumbnail = make_product_image_variants(image_file)
-
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(
         locked_product,
@@ -642,10 +640,11 @@ def upload_product_image(
         images_queryset.update(is_primary=False)
         is_primary = True
 
-    created = ProductImage.objects.create(
+    from .media_uploads import stage_product_image
+
+    created = stage_product_image(
         product=locked_product,
-        image=optimized_image,
-        thumbnail=thumbnail,
+        image_file=image_file,
         position=position,
         is_primary=is_primary,
     )
