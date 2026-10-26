@@ -6,6 +6,7 @@ import pytest
 from apps.ean.models import EanCode
 from apps.moderation.models import ModerationDecision
 from apps.notifications.models import Notification
+from apps.products.media_uploads import transfer_photos
 from apps.products.models import Product
 
 
@@ -88,6 +89,7 @@ def test_product_creation_requires_image_and_notifies_managers_without_reserving
     response = api_client.post("/api/v1/products/", payload, format="multipart")
     assert response.status_code == 201
     assert response.data["status"] == Product.Status.SUBMITTED
+    transfer_photos(response.data["id"])
     product = Product.objects.get(pk=response.data["id"])
     assert product.ean_jv == "" and product.ean_xl == ""
     assert Notification.objects.filter(

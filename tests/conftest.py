@@ -40,6 +40,11 @@ def api_client():
     return APIClient()
 
 
+@pytest.fixture(autouse=True)
+def isolated_product_photo_storage(settings, tmp_path):
+    settings.PRODUCT_IMAGE_STAGING_ROOT = tmp_path / "product-photos"
+
+
 @pytest.fixture
 def password():
     return "N7$kP4mQ2#zL"

@@ -145,6 +145,9 @@ FTP_MEDIA_TIMEOUT_SECONDS = env.int(
 )
 
 USE_FTP_MEDIA_STORAGE = True
+PRODUCT_IMAGE_STAGING_ROOT = env(
+    "PRODUCT_IMAGE_STAGING_ROOT", default=str(BASE_DIR / "product-media")
+)
 
 STORAGES = {
     "default": {
@@ -375,10 +378,14 @@ CELERY_TASK_QUEUES = (
     Queue("marketplace", Exchange("marketplace", type="direct"), "marketplace"),
     Queue("ai", Exchange("ai", type="direct"), "ai"),
     Queue("images", Exchange("images", type="direct"), "images"),
+    Queue("media_uploads", Exchange("media_uploads", type="direct"), "media_uploads"),
     Queue("notifications", Exchange("notifications", type="direct"), "notifications"),
     Queue("maintenance", Exchange("maintenance", type="direct"), "maintenance"),
 )
 CELERY_TASK_ROUTES = {
+    "apps.products.media_tasks.transfer_product_photos": {"queue": "media_uploads"},
+    "apps.products.media_tasks.recover_product_photo_uploads": {"queue": "maintenance"},
+    "apps.products.media_tasks.cleanup_product_local_photos": {"queue": "maintenance"},
     "apps.accounts.tasks.send_seller_registered_email": {"queue": "notifications"},
     "apps.products.tasks.send_product_created_email": {"queue": "notifications"},
     "apps.accounts.tasks.send_email_verification_code": {"queue": "notifications"},
@@ -673,6 +680,14 @@ GEMINI_IMAGE_MODEL = env(
 )
 
 CELERY_BEAT_SCHEDULE = {
+    "recover-product-photo-uploads": {
+        "task": "apps.products.media_tasks.recover_product_photo_uploads",
+        "schedule": crontab(minute="*"),
+    },
+    "cleanup-product-local-photos": {
+        "task": "apps.products.media_tasks.cleanup_product_local_photos",
+        "schedule": crontab(minute=45, hour=3),
+    },
     "send-product-availability-reminders-daily": {
         "task": ("apps.notifications.tasks.send_product_availability_reminders"),
         "schedule": crontab(hour=10, minute=0),

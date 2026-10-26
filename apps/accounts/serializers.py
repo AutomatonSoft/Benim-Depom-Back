@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -32,9 +34,24 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         return super().validate(attrs)
 
 
+class PersonNameField(serializers.CharField):
+    """Accept personal names of 2–40 Unicode letters without separators."""
+
+    def __init__(self, **kwargs):
+        super().__init__(min_length=2, max_length=40, trim_whitespace=False, **kwargs)
+
+    def to_internal_value(self, data):
+        value = unicodedata.normalize("NFC", super().to_internal_value(data))
+        if not value.isalpha():
+            raise serializers.ValidationError("Names must contain letters only.")
+        return value
+
+
 @extend_schema_serializer(component_name="AuthRegister")
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
+    first_name = PersonNameField()
+    last_name = PersonNameField()
     password = serializers.CharField(
         write_only=True,
         min_length=8,
@@ -56,8 +73,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
         extra_kwargs = {
-            "first_name": {"required": False},
-            "last_name": {"required": False},
             "phone": {"required": False},
         }
 
@@ -174,6 +189,8 @@ class PreferredLanguageSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="AuthProfile")
 class ProfileSerializer(serializers.ModelSerializer):
+    first_name = PersonNameField(required=False)
+    last_name = PersonNameField(required=False)
     product_count = serializers.SerializerMethodField()
 
     class Meta:
