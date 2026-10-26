@@ -9,6 +9,7 @@ x-worker-common: &worker-common
     CELERY_RESULT_BACKEND: redis://redis:6379/1
   volumes:
     - .:/app
+    - product-media:/app/product-media
   depends_on:
     postgres:
       condition: service_healthy
@@ -30,6 +31,7 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      - product-media:/app/product-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +61,16 @@ services:
       --queues=images
       --concurrency=2
       --max-tasks-per-child=200
+
+  worker_media_uploads:
+    <<: *worker-common
+    command: >
+      celery -A config worker --loglevel=INFO
+      --queues=media_uploads
+      --concurrency=2
+      --prefetch-multiplier=1
+      --max-tasks-per-child=200
+    stop_grace_period: 630s
 
   worker_notifications:
     <<: *worker-common
@@ -146,3 +158,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  product-media:
