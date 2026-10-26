@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 
-LISTING_BRAND_SUFFIX = " (BD)"
-_EXISTING_MARK_RE = re.compile(r"\s*\(bd\)\s*$", re.IGNORECASE)
+LISTING_BRAND_SUFFIX = " BD"
+_EXISTING_MARK_RE = re.compile(r"(?:\s*\(bd\)|(?:^|\s+)bd)\s*$", re.IGNORECASE)
 
 
 def with_listing_brand_mark(title: str, *, max_length: int) -> str:
-    """Append `` (BD)`` once, keeping the result within ``max_length``."""
+    """Normalize the old or current brand mark to `` BD`` within the title limit."""
 
     text = str(title or "").strip()
     if not text:
