@@ -7,7 +7,11 @@ validating and saving all source photos to the persistent `product-media` volume
 The response has `status: submitted`, as before; photo URLs already work.
 Submission and manager notifications happen during creation, independently of
 FTP transfer. The background worker never changes the product's moderation status.
-JSON draft creation and existing photo-editing endpoints keep their behavior.
+JSON draft creation keeps its behavior. The existing edit endpoint
+`POST /api/v1/products/{id}/images/` also returns after local staging, with a
+working signed photo URL; its FTP transfer runs in the same background worker.
+Product image replacement and generated image uploads still use their existing
+synchronous path.
 
 The new `worker_media_uploads` service runs two product transfers concurrently,
 each reusing one FTP connection. Beat recovers pending, failed and interrupted

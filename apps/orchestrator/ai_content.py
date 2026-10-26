@@ -77,7 +77,7 @@ Rules:
   the source data itself.
 - Do not use quotation marks around the generated product title.
 - Title must be at most 65 characters. Do not append a brand suffix;
-  the system adds `` (BD)`` later.
+  the system adds `` BD`` later.
 - Write a natural, appealing product title, not a bare name or keyword list.
   Always begin the title with a German word, never a digit or number. If a
   product type starts with a number (for example, ``4-Fußstuhl``), put a
@@ -88,7 +88,7 @@ Rules:
   specific detail over generic words such as "beautiful" or "high quality".
   Do not infer material, construction, comfort or durability from a photo.
   Aim for 45 to 65 characters when the supplied facts support it; never pad
-  the title, exceed 65 characters or append `` (BD)`` yourself.
+  the title, exceed 65 characters or append `` BD`` yourself.
   Example: ``Schwarzer 4-Fuß-Bürostuhl mit textilem Bezug im schlichten
   Design`` is preferable to ``Schwarzer Bürostuhl`` when those details are
   supported by the product data and photo.
@@ -117,7 +117,7 @@ UNIVERSAL_CONTENT_SCHEMA = {
                 "Natural, attractive German product title: exact product "
                 "type plus supported distinguishing details; starts with a "
                 "German word, never a number; maximum 65 "
-                "characters, without the system-added (BD) suffix."
+                "characters, without the system-added BD suffix."
             ),
         },
         "description": {
@@ -336,7 +336,7 @@ def build_universal_content_request(
         instructions=(
             f"{COMMON_INSTRUCTIONS}\n\n"
             "Create one universal German marketplace content draft.\n"
-            "- title: maximum 65 characters; do not add (BD), the system "
+            "- title: maximum 65 characters; do not add BD, the system "
             "appends it;\n"
             f"{description_rule}"
             "- bullet_points: exactly three to five concise points;\n"
@@ -358,7 +358,7 @@ def build_universal_content_request(
             "differentiator from the "
             "photo and one or two useful facts from the product data; aim "
             "for 45 to 65 characters when facts support it, but never pad, "
-            "exceed 65 characters or append (BD); do not infer material, "
+            "exceed 65 characters or append BD; do not infer material, "
             "construction, comfort or quality from the photo;\n"
             "- make descriptions informative and buyer-focused: explain the "
             "product's visible shape and design in the opening paragraph; "
