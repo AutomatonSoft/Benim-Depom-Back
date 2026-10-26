@@ -17,7 +17,8 @@ from apps.products.media_uploads import (
     staged_photo_url,
     transfer_photos,
 )
-from apps.products.models import Product, ProductMediaUpload
+from apps.products.models import Product, ProductImage, ProductMediaUpload
+from apps.products.services import upload_product_image
 from tests.integration.test_products_api import multipart_product_payload
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
@@ -106,6 +107,106 @@ def test_transfer_preserves_submission_and_is_idempotent(
     transfer_photos(product.pk)
     assert Notification.objects.filter(product=product).count() == notifications
     assert ProductMediaUpload.objects.get(product=product).attempts == 1
+
+
+def test_edit_stages_new_photo_without_ftp_and_preserves_approved_product(
+    api_client, seller, product_factory, product_image_factory, image_file
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    existing = product_image_factory(product=product)
+    api_client.force_authenticate(seller)
+
+    with patch.object(
+        default_storage, "save", side_effect=AssertionError("FTP in request")
+    ):
+        response = api_client.post(
+            f"/api/v1/products/{product.pk}/images/",
+            {"image": image_file("added.png")},
+            format="multipart",
+        )
+
+    assert response.status_code == 201, response.data
+    added = ProductImage.objects.get(pk=response.data["id"])
+    assert added.local_source and local_photo_storage().exists(added.local_source)
+    assert "/staged-photo/" in response.data["image"]
+    assert product.images.count() == 2
+    assert product.media_upload.status == ProductMediaUpload.Status.PENDING
+    product.refresh_from_db()
+    assert product.status == Product.Status.APPROVED
+
+    with patch.object(default_storage, "save", wraps=default_storage.save) as save:
+        transfer_photos(product.pk)
+    assert save.call_count == 2
+    existing.refresh_from_db()
+    assert existing.local_source == ""
+    assert product.media_upload.status == ProductMediaUpload.Status.SUCCEEDED
+
+
+def test_edit_reopens_completed_photo_job_without_reuploading_existing_images(
+    create_pending, image_file
+):
+    product, _ = create_pending(count=1)
+    transfer_photos(product.pk)
+    original = product.images.get()
+    Product.objects.filter(pk=product.pk).update(status=Product.Status.WITHDRAWN)
+    product.refresh_from_db()
+
+    added = upload_product_image(
+        product=product, image_file=image_file("later.png"), is_primary=False
+    )
+    assert (
+        ProductMediaUpload.objects.get(product=product).status
+        == ProductMediaUpload.Status.PENDING
+    )
+    with patch.object(default_storage, "save", wraps=default_storage.save) as save:
+        transfer_photos(product.pk)
+    assert save.call_count == 2
+    original.refresh_from_db()
+    added.refresh_from_db()
+    assert original.uploaded_at and added.uploaded_at
+    assert (
+        ProductMediaUpload.objects.get(product=product).status
+        == ProductMediaUpload.Status.SUCCEEDED
+    )
+
+
+def test_photo_added_during_transfer_gets_another_batch(create_pending, image_file):
+    product, _ = create_pending(count=1)
+    original = product.images.get()
+    Product.objects.filter(pk=product.pk).update(status=Product.Status.WITHDRAWN)
+    product.refresh_from_db()
+    save = default_storage.save
+    added = None
+
+    def append_during_ftp(name, file, **kwargs):
+        nonlocal added
+        if added is None:
+            added = upload_product_image(
+                product=product,
+                image_file=image_file("during.png"),
+                is_primary=False,
+            )
+        return save(name, file, **kwargs)
+
+    with patch.object(default_storage, "save", side_effect=append_during_ftp):
+        transfer_photos(product.pk)
+    original.refresh_from_db()
+    added.refresh_from_db()
+    assert original.uploaded_at and added.uploaded_at is None
+    assert (
+        ProductMediaUpload.objects.get(product=product).status
+        == ProductMediaUpload.Status.PENDING
+    )
+
+    with patch.object(default_storage, "save", wraps=save) as next_batch:
+        transfer_photos(product.pk)
+    assert next_batch.call_count == 2
+    added.refresh_from_db()
+    assert added.uploaded_at
+    assert (
+        ProductMediaUpload.objects.get(product=product).status
+        == ProductMediaUpload.Status.SUCCEEDED
+    )
 
 
 def test_failure_keeps_sources_and_retry_resumes_without_duplicate_uploads(

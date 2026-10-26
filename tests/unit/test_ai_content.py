@@ -89,19 +89,19 @@ def test_maps_one_draft_to_each_marketplace_configuration():
     )
 
     assert otto == {
-        "product_line": f"{content['title']} (BD)",
+        "product_line": f"{content['title']} BD",
         "description": content["description"],
         "bullet_points": content["bullet_points"],
         "materials": ["Holz", "Stoff"],
         "color": "Blau",
     }
-    assert hood["title"] == f"{content['title']} (BD)"
+    assert hood["title"] == f"{content['title']} BD"
     assert hood["description"] == ("<p>Erster Absatz.</p><p>Zweiter Absatz.</p>")
     assert hood["materials"] == ["Holz", "Stoff"]
     assert hood["color"] == "Blau"
     assert "material_composition" not in hood
     assert kaufland == {
-        "title": f"{content['title']} (BD)",
+        "title": f"{content['title']} BD",
         "description": content["description"],
         "materials": ["Holz", "Stoff"],
         "color": "Blau",

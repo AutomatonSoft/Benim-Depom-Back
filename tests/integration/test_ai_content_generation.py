@@ -224,7 +224,7 @@ def test_manager_applies_draft_without_overwriting_manual_text(
 
     assert (
         configuration.configuration["product_line"]
-        == f"{SUCCESSFUL_AI_CONTENT['title']} (BD)"
+        == f"{SUCCESSFUL_AI_CONTENT['title']} BD"
     )
     assert (
         configuration.configuration["bullet_points"]
