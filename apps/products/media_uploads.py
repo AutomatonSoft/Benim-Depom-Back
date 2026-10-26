@@ -34,6 +34,68 @@ def local_photo_storage():
     return FileSystemStorage(location=settings.PRODUCT_IMAGE_STAGING_ROOT)
 
 
+def stage_photo_source(image_file):
+    """Persist the original locally so the response does not wait for FTP."""
+    storage = local_photo_storage()
+    Path(storage.location).mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(storage.location).free < image_file.size + 100 * 1024 * 1024:
+        raise PhotoStorageUnavailable()
+    image_file.seek(0)
+    with Image.open(image_file) as parsed:
+        extension = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}[parsed.format]
+    image_file.seek(0)
+    return storage.save(f"{uuid4().hex}/source{extension}", image_file)
+
+
+def stage_product_image(*, product, image_file, position, is_primary):
+    """Append a local photo and reuse the product's durable transfer job."""
+    from .models import product_image_upload_to
+
+    name = stage_photo_source(image_file)
+    saved = [name]
+    try:
+        with transaction.atomic():
+            job, _ = ProductMediaUpload.objects.select_for_update().get_or_create(
+                product=product
+            )
+            image = ProductImage(
+                product=product,
+                local_source=name,
+                position=position,
+                is_primary=is_primary,
+            )
+            image.image = product_image_upload_to(image, "photo.jpg")
+            image.thumbnail = product_image_upload_to(image, "thumbnail.jpg")
+            image.save()
+            transaction.on_commit(saved.clear)
+            if job.status != job.Status.PROCESSING:
+                if job.status != job.Status.PENDING:
+                    job.queued_at = None
+                job.status = job.Status.PENDING
+                job.attempts = 0
+                job.available_at = timezone.now()
+                job.finished_at = None
+                job.error = ""
+                job.save(
+                    update_fields=[
+                        "status",
+                        "attempts",
+                        "available_at",
+                        "finished_at",
+                        "error",
+                        "queued_at",
+                    ]
+                )
+                transaction.on_commit(
+                    lambda: enqueue_photo_upload(product.pk), robust=True
+                )
+        return image
+    except Exception:
+        for name in saved:
+            local_photo_storage().delete(name)
+        raise
+
+
 def staged_photo_url(image, kind):
     signature = signing.Signer(salt=SIGNING_SALT).signature(f"{image.pk}:{kind}")
     return reverse("products:staged-photo", args=[image.pk, kind, signature])
@@ -76,21 +138,10 @@ def stage_product_photos(*, owner, data, variants_data, image_files, set_parts_d
     from .services import create_product
 
     storage = local_photo_storage()
-    Path(storage.location).mkdir(parents=True, exist_ok=True)
-    required = sum(file.size for file in image_files) + 100 * 1024 * 1024
-    if shutil.disk_usage(storage.location).free < required:
-        raise PhotoStorageUnavailable()
     saved = []
     try:
         for file in image_files:
-            file.seek(0)
-            with Image.open(file) as parsed:
-                extension = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}[
-                    parsed.format
-                ]
-            file.seek(0)
-            name = storage.save(f"{uuid4().hex}/source{extension}", file)
-            saved.append(name)
+            saved.append(stage_photo_source(file))
         with transaction.atomic():
             product = create_product(
                 owner=owner,
@@ -149,11 +200,11 @@ def transfer_photos(product_id):
         from .services import _reuse_media_connection
 
         with _reuse_media_connection():
-            for image in ProductImage.objects.filter(product_id=product_id).order_by(
-                "position", "id"
+            for image in (
+                ProductImage.objects.filter(product_id=product_id, uploaded_at=None)
+                .exclude(local_source="")
+                .order_by("position", "id")
             ):
-                if image.uploaded_at:
-                    continue
                 if not ProductImage.objects.filter(pk=image.pk).exists():
                     continue
                 directory = str(Path(image.local_source).parent)
@@ -185,6 +236,22 @@ def transfer_photos(product_id):
         with transaction.atomic():
             job = ProductMediaUpload.objects.select_for_update().get(pk=job.pk)
             if job.status == job.Status.CANCELLED:
+                return
+            if (
+                ProductImage.objects.filter(product_id=product_id, uploaded_at=None)
+                .exclude(local_source="")
+                .exists()
+            ):
+                job.status = job.Status.PENDING
+                job.attempts = 0
+                job.available_at = timezone.now()
+                job.queued_at = None
+                job.save(
+                    update_fields=["status", "attempts", "available_at", "queued_at"]
+                )
+                transaction.on_commit(
+                    lambda: enqueue_photo_upload(product_id), robust=True
+                )
                 return
             job.status = job.Status.SUCCEEDED
             job.finished_at = timezone.now()
