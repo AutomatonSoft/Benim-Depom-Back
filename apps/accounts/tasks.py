@@ -86,8 +86,7 @@ def send_password_reset_code(*, email: str, code: str, username: str = "") -> No
     subject = "Reset your Benim Depom password"
     account = f"Account: {username}\n\n" if username else ""
     text_body = (
-        account
-        + f"Your password reset code: {code}\n\n"
+        account + f"Your password reset code: {code}\n\n"
         f"The code expires in {settings.PASSWORD_RESET_CODE_TTL_MINUTES} minutes."
     )
     html_body = render_to_string(
