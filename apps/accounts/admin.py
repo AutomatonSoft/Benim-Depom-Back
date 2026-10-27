@@ -1,7 +1,21 @@
 from django.contrib import admin
+from django.contrib.admin.forms import AdminAuthenticationForm
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import User
+
+
+class StaffAuthenticationForm(AdminAuthenticationForm):
+    """Keep staff email login usable after the primary identity becomes phone."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].label = "Email or phone"
+        self.fields["username"].max_length = 254
+        self.fields["username"].widget.attrs["maxlength"] = 254
+
+
+admin.site.login_form = StaffAuthenticationForm
 
 
 @admin.register(User)

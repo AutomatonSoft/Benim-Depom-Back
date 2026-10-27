@@ -29,9 +29,9 @@ from apps.common.throttles import (
 from .models import User
 from .purge import purge_seller
 from .serializers import (
-    EmailTokenObtainPairSerializer,
     EmailVerificationResendSerializer,
     EmailVerificationSerializer,
+    LoginSerializer,
     LogoutSerializer,
     ManagerCreateSerializer,
     ManagerSellerSerializer,
@@ -62,6 +62,7 @@ class RegisterView(generics.CreateAPIView):
     throttle_classes = [RegistrationRateThrottle]
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+    profile_serializer_class = ProfileSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -80,7 +81,7 @@ class RegisterView(generics.CreateAPIView):
 
         return Response(
             {
-                "user": ProfileSerializer(
+                "user": self.profile_serializer_class(
                     user,
                     context={"request": request},
                 ).data,
@@ -90,21 +91,23 @@ class RegisterView(generics.CreateAPIView):
         )
 
 
-class EmailVerificationView(APIView):
+class EmailVerificationView(generics.GenericAPIView):
+    serializer_class = EmailVerificationSerializer
+    profile_serializer_class = ProfileSerializer
     permission_classes = [AllowAny]
     throttle_classes = [EmailVerificationRateThrottle]
 
     @extend_schema(
-        request=EmailVerificationSerializer,
         responses={200: dict},
         description=("Verifies the six-digit email code and returns JWT tokens."),
     )
     def post(self, request):
-        serializer = EmailVerificationSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         user = verify_email_code(
             email=serializer.validated_data["email"],
+            phone=serializer.validated_data.get("phone"),
             code=serializer.validated_data["code"],
         )
 
@@ -112,7 +115,7 @@ class EmailVerificationView(APIView):
 
         return Response(
             {
-                "user": ProfileSerializer(
+                "user": self.profile_serializer_class(
                     user,
                     context={"request": request},
                 ).data,
@@ -123,21 +126,22 @@ class EmailVerificationView(APIView):
         )
 
 
-class EmailVerificationResendView(APIView):
+class EmailVerificationResendView(generics.GenericAPIView):
+    serializer_class = EmailVerificationResendSerializer
     permission_classes = [AllowAny]
     throttle_classes = [EmailVerificationResendRateThrottle]
 
     @extend_schema(
-        request=EmailVerificationResendSerializer,
         responses={202: dict},
         description="Sends a new six-digit email verification code.",
     )
     def post(self, request):
-        serializer = EmailVerificationResendSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         result = resend_email_verification_code(
             email=serializer.validated_data["email"],
+            phone=serializer.validated_data.get("phone"),
         )
 
         # Не раскрывает, существует ли такой email в системе.
@@ -165,7 +169,15 @@ REFRESH_COOKIE_NAME = "benim_refresh"
 REFRESH_COOKIE_PATH = "/api/v1/auth/"
 
 
-def _set_refresh_cookie(response, token):
+def _refresh_cookie_path(request):
+    return (
+        "/api/v2/auth/"
+        if request.path_info.startswith("/api/v2/")
+        else REFRESH_COOKIE_PATH
+    )
+
+
+def _set_refresh_cookie(response, token, request):
     lifetime = settings.SIMPLE_JWT.get("REFRESH_TOKEN_LIFETIME", timedelta(days=7))
     response.set_cookie(
         REFRESH_COOKIE_NAME,
@@ -174,14 +186,14 @@ def _set_refresh_cookie(response, token):
         httponly=True,
         secure=not settings.DEBUG,
         samesite="Lax",
-        path=REFRESH_COOKIE_PATH,
+        path=_refresh_cookie_path(request),
     )
 
 
-def _clear_refresh_cookie(response):
+def _clear_refresh_cookie(response, request):
     response.delete_cookie(
         REFRESH_COOKIE_NAME,
-        path=REFRESH_COOKIE_PATH,
+        path=_refresh_cookie_path(request),
         samesite="Lax",
     )
 
@@ -204,7 +216,7 @@ def _is_same_origin(request):
 
 
 class LoginView(TokenObtainPairView):
-    serializer_class = EmailTokenObtainPairSerializer
+    serializer_class = LoginSerializer
     throttle_classes = [LoginRateThrottle]
     permission_classes = [AllowAny]
 
@@ -212,7 +224,7 @@ class LoginView(TokenObtainPairView):
         response = super().post(request, *args, **kwargs)
         cookie_mode = request.headers.get("X-Refresh-Token-Cookie")
         if cookie_mode in {"seller", "manager"} and response.status_code < 400:
-            _clear_refresh_cookie(response)
+            _clear_refresh_cookie(response, request)
             refresh = response.data.pop("refresh", None)
             if refresh:
                 token = RefreshToken(refresh)
@@ -228,7 +240,7 @@ class LoginView(TokenObtainPairView):
                     else {User.Role.MANAGER, User.Role.ADMIN}
                 )
                 if role in allowed_roles:
-                    _set_refresh_cookie(response, refresh)
+                    _set_refresh_cookie(response, refresh, request)
             response["Cache-Control"] = "no-store"
         return response
 
@@ -244,7 +256,7 @@ class RefreshView(TokenRefreshView):
                 {"detail": "Refresh requests must come from this site."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-            _clear_refresh_cookie(response)
+            _clear_refresh_cookie(response, request)
             return response
 
         serializer = self.get_serializer(data={"refresh": refresh})
@@ -252,14 +264,14 @@ class RefreshView(TokenRefreshView):
             serializer.is_valid(raise_exception=True)
         except APIException as exc:
             response = self.handle_exception(exc)
-            _clear_refresh_cookie(response)
+            _clear_refresh_cookie(response, request)
             return response
 
         data = dict(serializer.validated_data)
         rotated_refresh = data.pop("refresh", None)
         response = Response(data, status=status.HTTP_200_OK)
         if rotated_refresh:
-            _set_refresh_cookie(response, rotated_refresh)
+            _set_refresh_cookie(response, rotated_refresh, request)
         response["Cache-Control"] = "no-store"
         return response
 
@@ -478,11 +490,11 @@ class LogoutView(APIView):
                 serializer.save()
             except APIException as exc:
                 response = self.handle_exception(exc)
-                _clear_refresh_cookie(response)
+                _clear_refresh_cookie(response, request)
                 return response
 
         response = Response(status=status.HTTP_204_NO_CONTENT)
-        _clear_refresh_cookie(response)
+        _clear_refresh_cookie(response, request)
         response["Cache-Control"] = "no-store"
         return response
 
@@ -515,12 +527,12 @@ class PasswordChangeView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class PasswordResetRequestView(APIView):
+class PasswordResetRequestView(generics.GenericAPIView):
+    serializer_class = PasswordResetRequestSerializer
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetRequestRateThrottle]
 
     @extend_schema(
-        request=PasswordResetRequestSerializer,
         responses={202: PasswordResetRequestResponseSerializer},
         description=(
             "Отправляет шестизначный код сброса пароля на email. Ответ не "
@@ -528,12 +540,13 @@ class PasswordResetRequestView(APIView):
         ),
     )
     def post(self, request):
-        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():
             result = request_password_reset(
-                email=serializer.validated_data["email"],
+                email=serializer.validated_data.get("email", ""),
+                phone=serializer.validated_data.get("phone"),
             )
             if result is not None:
                 user, code = result
@@ -554,12 +567,12 @@ class PasswordResetRequestView(APIView):
         )
 
 
-class PasswordResetVerifyView(APIView):
+class PasswordResetVerifyView(generics.GenericAPIView):
+    serializer_class = PasswordResetVerifySerializer
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetVerifyRateThrottle]
 
     @extend_schema(
-        request=PasswordResetVerifySerializer,
         responses={200: PasswordResetVerifyResponseSerializer},
         description=(
             "Проверяет шестизначный код и возвращает короткоживущий "
@@ -567,10 +580,11 @@ class PasswordResetVerifyView(APIView):
         ),
     )
     def post(self, request):
-        serializer = PasswordResetVerifySerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reset_token = verify_password_reset_code(
-            email=serializer.validated_data["email"],
+            email=serializer.validated_data.get("email", ""),
+            phone=serializer.validated_data.get("phone"),
             code=serializer.validated_data["code"],
         )
         return Response({"reset_token": reset_token}, status=status.HTTP_200_OK)

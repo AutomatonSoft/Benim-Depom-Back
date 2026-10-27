@@ -260,13 +260,21 @@ def _resolve_seller_email(value: str | None):
     email = (value or "").strip()
     if not email:
         return None
-    seller = User.objects.filter(
-        email__iexact=email,
-        role=User.Role.SELLER,
-    ).first()
-    if seller is None:
+    sellers = list(
+        User.objects.filter(
+            email__iexact=email,
+            role=User.Role.SELLER,
+        )[:2]
+    )
+    if not sellers:
         raise ValidationError({"seller_email": "Seller not found."})
-    return seller
+    if len(sellers) > 1:
+        raise ValidationError(
+            {
+                "seller_email": "Multiple sellers use this email. Filter by EAN without seller email."
+            }
+        )
+    return sellers[0]
 
 
 def _resolve_ean(*, value: str | None, seller=None) -> Product | None:

@@ -328,6 +328,12 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
             for field, kind in [("image", "original"), ("thumbnail", "thumbnail")]:
                 url = staged_photo_url(instance, kind)
+                if (
+                    request
+                    and request.resolver_match
+                    and request.resolver_match.namespace.startswith("v2:")
+                ):
+                    url = url.replace("/api/v1/", "/api/v2/", 1)
                 data[field] = request.build_absolute_uri(url) if request else url
 
         if request and not is_manager(request.user):
