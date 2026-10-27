@@ -110,7 +110,7 @@ def test_phone_login_and_staff_email_stay_separate(api_client, user_factory, pas
         email=seller.email, phone="+905552222222", password="AnotherPassword123!"
     )
     manager = user_factory(email=seller.email, role=User.Role.MANAGER)
-    for phone in [seller.phone, "0090 (555) 111-1111"]:
+    for phone in [seller.phone, seller.phone.lstrip("+"), "0090 (555) 111-1111"]:
         login = api_client.post(
             "/api/v2/auth/login/", {"phone": phone, "password": password}, format="json"
         )
@@ -255,7 +255,11 @@ def test_reset_requires_matching_phone_and_email(
                 {"phone": first.phone, "email": second.email},
                 format="json",
             )
-        assert mismatch.status_code == 202
+        assert mismatch.status_code == 400
+        assert (
+            mismatch.data["detail"]
+            == "Phone number and email do not match an active account."
+        )
         send.assert_not_called()
         first.refresh_from_db()
         assert not first.password_reset_code_hash
@@ -266,7 +270,7 @@ def test_reset_requires_matching_phone_and_email(
                 {"phone": first.phone, "email": f" {first.email.upper()} "},
                 format="json",
             )
-        assert matched.status_code == 202 and matched.data == mismatch.data
+        assert matched.status_code == 202
         send.assert_called_once()
         assert send.call_args.kwargs["username"] == first.username
         code = send.call_args.kwargs["code"]
@@ -294,6 +298,52 @@ def test_v2_password_reset_requires_a_valid_email(api_client, endpoint, email):
         f"/api/v2/auth/password/reset/{endpoint}/", payload, format="json"
     )
     assert result.status_code == 400 and "email" in result.data
+
+
+def test_reset_cooldown_does_not_claim_a_new_code_was_sent(
+    api_client, seller, django_capture_on_commit_callbacks
+):
+    payload = {"phone": seller.phone, "email": seller.email}
+    with patch("apps.accounts.views.send_password_reset_code.delay") as send:
+        with django_capture_on_commit_callbacks(execute=True):
+            first = api_client.post(
+                "/api/v2/auth/password/reset/request/", payload, format="json"
+            )
+        assert first.status_code == 202
+        seller.refresh_from_db()
+        code_hash = seller.password_reset_code_hash
+        with django_capture_on_commit_callbacks(execute=True):
+            repeated = api_client.post(
+                "/api/v2/auth/password/reset/request/", payload, format="json"
+            )
+        assert repeated.status_code == 429 and int(repeated["Retry-After"]) > 0
+        send.assert_called_once()
+        seller.refresh_from_db()
+        assert seller.password_reset_code_hash == code_hash
+        legacy = api_client.post(
+            "/api/v1/auth/password/reset/request/",
+            {"email": seller.email},
+            format="json",
+        )
+        assert legacy.status_code == 202
+
+
+@pytest.mark.parametrize("case", ["wrong_phone", "wrong_email", "inactive"])
+def test_reset_rejects_an_unmatched_or_inactive_account(api_client, seller, case):
+    payload = {"phone": seller.phone, "email": seller.email}
+    if case == "wrong_phone":
+        payload["phone"] = "+905559999999"
+    elif case == "wrong_email":
+        payload["email"] = "unknown@example.com"
+    else:
+        seller.is_active = False
+        seller.save(update_fields=["is_active"])
+    with patch("apps.accounts.views.send_password_reset_code.delay") as send:
+        result = api_client.post(
+            "/api/v2/auth/password/reset/request/", payload, format="json"
+        )
+        assert result.status_code == 400
+        send.assert_not_called()
 
 
 def test_phone_has_database_uniqueness(user_factory):
@@ -350,8 +400,11 @@ def test_sales_filter_does_not_choose_arbitrary_seller(
     assert "seller_email" in result.data
 
 
-def test_migration_normalizes_legacy_phones_and_keeps_missing_phones(user_factory):
+def test_migration_normalizes_legacy_phones_and_keeps_missing_phones(
+    user_factory, api_client, password
+):
     user = user_factory(phone="0090 (555) 111-1111")
+    digits = user_factory(phone="77474412519")
     blank = user_factory(phone="")
     migration = import_module("apps.accounts.migrations.0009_phone_login")
     migration.normalize_existing_phones(apps, SimpleNamespace(connection=connection))
@@ -359,6 +412,13 @@ def test_migration_normalizes_legacy_phones_and_keeps_missing_phones(user_factor
     blank.refresh_from_db()
     assert user.phone == "+905551111111"
     assert blank.phone is None
+    digits.refresh_from_db()
+    assert digits.phone == "+77474412519"
+    for phone in ["77474412519", "+77474412519"]:
+        login = api_client.post(
+            "/api/v2/auth/login/", {"phone": phone, "password": password}, format="json"
+        )
+        assert login.status_code == 200
 
 
 def test_migration_refuses_duplicate_legacy_phones_without_changing_them(user_factory):

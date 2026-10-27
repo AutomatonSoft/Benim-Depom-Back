@@ -531,12 +531,14 @@ class PasswordResetRequestView(generics.GenericAPIView):
     serializer_class = PasswordResetRequestSerializer
     permission_classes = [AllowAny]
     throttle_classes = [PasswordResetRequestRateThrottle]
+    report_reset_errors = True
 
     @extend_schema(
-        responses={202: PasswordResetRequestResponseSerializer},
+        responses={202: PasswordResetRequestResponseSerializer, 400: dict, 429: dict},
         description=(
-            "Отправляет шестизначный код сброса пароля на email. Ответ не "
-            "раскрывает, зарегистрирован ли такой пользователь."
+            "Отправляет шестизначный код сброса пароля на email. В v2 неверная "
+            "пара телефона и email возвращает 400, повторный запрос до истечения "
+            "периода ожидания — 429. V1 сохраняет прежний ответ 202 без раскрытия аккаунта."
         ),
     )
     def post(self, request):
@@ -547,6 +549,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
             result = request_password_reset(
                 email=serializer.validated_data.get("email", ""),
                 phone=serializer.validated_data.get("phone"),
+                report_errors=self.report_reset_errors,
             )
             if result is not None:
                 user, code = result
@@ -561,7 +564,9 @@ class PasswordResetRequestView(generics.GenericAPIView):
         return Response(
             {
                 "detail": (
-                    "If an active account uses this email, a reset code was sent."
+                    "A reset code has been sent to your email."
+                    if self.report_reset_errors
+                    else "If an active account uses this email, a reset code was sent."
                 )
             },
             status=status.HTTP_202_ACCEPTED,
