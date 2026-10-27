@@ -25,6 +25,21 @@ def test_password_reset_email_task_sends_code():
 
 
 @pytest.mark.integration
+def test_password_reset_email_identifies_account_and_escapes_its_name():
+    username = 'Seller <script>alert("test")</script> & Co'
+    send_password_reset_code.run(
+        email="reset@example.com", code="123456", username=username
+    )
+    message = mail.outbox[-1]
+    assert f"Account: {username}" in message.body
+    html = message.alternatives[0].content
+    assert "Account" in html and "123456" in html
+    assert "&lt;script&gt;" in html and "&amp; Co" in html
+    assert "<script>" not in html
+    assert "Reset your password" in html
+
+
+@pytest.mark.integration
 @pytest.mark.django_db
 def test_registration_email_verification_login_and_manager_creation(
     api_client,

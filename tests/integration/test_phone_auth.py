@@ -208,21 +208,22 @@ def test_reset_targets_phone_and_sends_code_to_shared_email(
         with django_capture_on_commit_callbacks(execute=True):
             result = api_client.post(
                 "/api/v2/auth/password/reset/request/",
-                {"phone": second.phone},
+                {"phone": second.phone, "email": second.email},
                 format="json",
             )
         assert result.status_code == 202
         assert send.call_args.kwargs["email"] == first.email
+        assert send.call_args.kwargs["username"] == second.username
         code = send.call_args.kwargs["code"]
     wrong = api_client.post(
         "/api/v2/auth/password/reset/verify/",
-        {"phone": first.phone, "code": code},
+        {"phone": first.phone, "email": first.email, "code": code},
         format="json",
     )
     assert wrong.status_code == 400
     verified = api_client.post(
         "/api/v2/auth/password/reset/verify/",
-        {"phone": second.phone, "code": code},
+        {"phone": second.phone, "email": second.email, "code": code},
         format="json",
     )
     assert verified.status_code == 200
@@ -240,6 +241,59 @@ def test_reset_targets_phone_and_sends_code_to_shared_email(
     second.refresh_from_db()
     assert first.check_password(password)
     assert second.check_password("ChangedPassword123!")
+
+
+def test_reset_requires_matching_phone_and_email(
+    api_client, user_factory, django_capture_on_commit_callbacks
+):
+    first = user_factory(email="first@example.com")
+    second = user_factory(email="second@example.com")
+    with patch("apps.accounts.views.send_password_reset_code.delay") as send:
+        with django_capture_on_commit_callbacks(execute=True):
+            mismatch = api_client.post(
+                "/api/v2/auth/password/reset/request/",
+                {"phone": first.phone, "email": second.email},
+                format="json",
+            )
+        assert mismatch.status_code == 202
+        send.assert_not_called()
+        first.refresh_from_db()
+        assert not first.password_reset_code_hash
+
+        with django_capture_on_commit_callbacks(execute=True):
+            matched = api_client.post(
+                "/api/v2/auth/password/reset/request/",
+                {"phone": first.phone, "email": f" {first.email.upper()} "},
+                format="json",
+            )
+        assert matched.status_code == 202 and matched.data == mismatch.data
+        send.assert_called_once()
+        assert send.call_args.kwargs["username"] == first.username
+        code = send.call_args.kwargs["code"]
+    wrong_email = api_client.post(
+        "/api/v2/auth/password/reset/verify/",
+        {"phone": first.phone, "email": second.email, "code": code},
+        format="json",
+    )
+    assert wrong_email.status_code == 400 and "reset_token" not in wrong_email.data
+    verified = api_client.post(
+        "/api/v2/auth/password/reset/verify/",
+        {"phone": first.phone, "email": first.email, "code": code},
+        format="json",
+    )
+    assert verified.status_code == 200 and verified.data["reset_token"]
+
+
+@pytest.mark.parametrize("endpoint", ["request", "verify"])
+@pytest.mark.parametrize("email", [None, "", "invalid-email"])
+def test_v2_password_reset_requires_a_valid_email(api_client, endpoint, email):
+    payload = {"phone": "+905551111111", "code": "123456"}
+    if email is not None:
+        payload["email"] = email
+    result = api_client.post(
+        f"/api/v2/auth/password/reset/{endpoint}/", payload, format="json"
+    )
+    assert result.status_code == 400 and "email" in result.data
 
 
 def test_phone_has_database_uniqueness(user_factory):

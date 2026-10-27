@@ -11,7 +11,7 @@ Changing the API version does not invalidate JWTs or create separate accounts.
 | Seller login | `email`, `password` | `phone`, `password` |
 | Registration | Unique email; phone optional | Unique required phone; email may repeat |
 | Email verification/resend | `email`, `code` where needed | `email`, `phone`, `code` where needed |
-| Password reset request/verify | `email`, `code` where needed | `phone`, `code` where needed |
+| Password reset request/verify | `email`, `code` where needed | Matching `phone` and `email`, `code` where needed |
 | Manager/admin login | `email`, `password` | `email`, `password` |
 | Products, photos, notifications, marketplaces | Shared behavior | Shared behavior |
 | OpenAPI schema | `/api/v1/schema/` | `/api/v2/schema/` |
@@ -195,7 +195,7 @@ OTTO / Hood / Kaufland / OpenAI / image AI / Firebase
 3. `POST /auth/email/verify/` с `email`, `phone`, `code` возвращает `access` и `refresh`.
 4. Если код не пришёл: `POST /auth/email/resend-verification/` с `email` и `phone`.
 5. Для следующих входов: `POST /auth/login/` с `phone` и `password`. Менеджеры и администраторы продолжают передавать `email` и `password`.
-6. Сброс пароля продавца: `password/reset/request/` с `phone`, затем `password/reset/verify/` с `phone` и `code`. Код отправляется на email выбранного аккаунта. Старые запросы только с email безопасно работают лишь при единственном совпадении.
+6. Сброс пароля продавца: `password/reset/request/` с обязательными `phone` и `email`, затем `password/reset/verify/` с той же парой и `code`. Аккаунт должен совпадать по обоим полям. Код отправляется на указанный email; письмо содержит имя пользователя аккаунта. В `v1` старые запросы только с email безопасно работают лишь при единственном совпадении.
 
 Перед выпуском применить миграцию `accounts.0009_phone_login`. Она нормализует существующие номера и останавливается при некорректных или дублирующихся номерах, не удаляя данные. Старым аккаунтам без телефона нужно заранее указать номер через администратора; миграция не выдумывает им номера. Мобильным клиентам также нужно обновить поля входа и привязки кодов до перехода.
 

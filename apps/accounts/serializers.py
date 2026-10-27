@@ -384,7 +384,7 @@ class PasswordChangeSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="AuthPasswordResetRequest")
 class PasswordResetRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=False)
+    email = serializers.EmailField(required=True)
     phone = PhoneField(required=True)
 
     def validate(self, attrs):

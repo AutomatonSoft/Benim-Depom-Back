@@ -554,6 +554,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
                     lambda: send_password_reset_code.delay(
                         email=user.email,
                         code=code,
+                        username=user.username,
                     )
                 )
 
