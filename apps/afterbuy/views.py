@@ -123,16 +123,22 @@ class ManagerSalesStatsView(APIView):
                 description="Product EAN (JV or XL).",
             ),
             OpenApiParameter(
+                name="seller_phone",
+                type=OpenApiTypes.STR,
+                required=False,
+                description="Seller phone including country code (with or without +).",
+            ),
+            OpenApiParameter(
                 name="seller_email",
                 type=OpenApiTypes.STR,
                 required=False,
-                description="Seller account email.",
+                description="Legacy seller email filter. Use seller_phone for unique lookup.",
             ),
         ],
         responses={200: ManagerSalesStatsSerializer},
         description=(
             "Company-wide Afterbuy sales totals using frozen card prices. "
-            "Filter by period, seller email, or product EAN."
+            "Filter by period, seller phone, or product EAN."
         ),
     )
     def get(self, request):
