@@ -1,6 +1,9 @@
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
+from django.db.models.functions import Lower
+
+from .phone import normalize_phone
 
 
 class User(AbstractUser):
@@ -24,15 +27,15 @@ class User(AbstractUser):
         max_length=150,
         unique=False,
         validators=[UnicodeUsernameValidator()],
-        help_text="Display name. Not unique; authentication uses email.",
+        help_text="Display name. Not unique; sellers authenticate using phone.",
     )
-    email = models.EmailField(unique=True)
+    email = models.EmailField(db_index=True)
 
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username"]
+    USERNAME_FIELD = "phone"
+    REQUIRED_FIELDS = ["username", "email"]
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.SELLER)
-    phone = models.CharField(max_length=32, blank=True)
+    phone = models.CharField(max_length=32, unique=True, null=True, blank=True)
     is_email_verified = models.BooleanField(default=False)
 
     registration_status = models.CharField(
@@ -82,6 +85,19 @@ class User(AbstractUser):
 
     class Meta:
         ordering = ("-date_joined",)
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=models.Q(role__in=["manager", "admin"])
+                | models.Q(is_staff=True)
+                | models.Q(is_superuser=True),
+                name="unique_staff_email",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        self.phone = normalize_phone(self.phone) if self.phone else None
 
     def __str__(self) -> str:
         return self.username

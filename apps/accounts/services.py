@@ -1,6 +1,7 @@
 import secrets
 from datetime import timedelta
 from functools import partial
+from math import ceil
 from typing import Any
 
 from django.conf import settings
@@ -10,13 +11,14 @@ from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
     OutstandingToken,
 )
 
 from .models import User
+from .phone import normalize_phone
 from .tasks import enqueue_seller_registered_email
 
 
@@ -91,15 +93,26 @@ def manager_confirm_seller_email(*, seller: User) -> User:
     return seller
 
 
-def verify_email_code(*, email: str, code: str) -> User:
+def _account_for_contact(*, email: str = "", phone: str | None = None, active=False):
+    """Never pick an arbitrary account when multiple sellers share an email."""
+    users = User.objects.select_for_update()
+    if phone:
+        users = users.filter(phone=normalize_phone(phone))
+    if email:
+        users = users.filter(email__iexact=email.strip())
+    if active:
+        users = users.filter(is_active=True)
+    if not email and not phone:
+        return None
+    matches = list(users[:2])
+    return matches[0] if len(matches) == 1 else None
+
+
+def verify_email_code(*, email: str, code: str, phone: str | None = None) -> User:
     invalid_error = ValidationError({"code": "Invalid or expired verification code."})
 
     with transaction.atomic():
-        user = (
-            User.objects.select_for_update()
-            .filter(email__iexact=email.strip().lower())
-            .first()
-        )
+        user = _account_for_contact(email=email, phone=phone)
 
         if not user or user.is_email_verified:
             raise invalid_error
@@ -151,12 +164,10 @@ def verify_email_code(*, email: str, code: str) -> User:
 
 
 @transaction.atomic
-def resend_email_verification_code(*, email: str) -> tuple[User, str] | None:
-    user = (
-        User.objects.select_for_update()
-        .filter(email__iexact=email.strip().lower())
-        .first()
-    )
+def resend_email_verification_code(
+    *, email: str, phone: str | None = None
+) -> tuple[User, str] | None:
+    user = _account_for_contact(email=email, phone=phone)
 
     if not user or user.is_email_verified:
         return None
@@ -205,34 +216,41 @@ def issue_password_reset_code(*, user: User) -> str:
 
 
 @transaction.atomic
-def request_password_reset(*, email: str) -> tuple[User, str] | None:
-    user = (
-        User.objects.select_for_update()
-        .filter(email__iexact=email.strip().lower(), is_active=True)
-        .first()
-    )
+def request_password_reset(
+    *, email: str = "", phone: str | None = None, report_errors: bool = False
+) -> tuple[User, str] | None:
+    user = _account_for_contact(email=email, phone=phone, active=True)
 
     if not user:
+        if report_errors:
+            raise ValidationError(
+                {"detail": "Phone number and email do not match an active account."}
+            )
         return None
 
     now = timezone.now()
     if user.password_reset_sent_at:
         elapsed_seconds = (now - user.password_reset_sent_at).total_seconds()
         if elapsed_seconds < settings.PASSWORD_RESET_RESEND_COOLDOWN_SECONDS:
+            if report_errors:
+                raise Throttled(
+                    wait=ceil(
+                        settings.PASSWORD_RESET_RESEND_COOLDOWN_SECONDS
+                        - elapsed_seconds
+                    )
+                )
             return None
 
     return user, issue_password_reset_code(user=user)
 
 
-def verify_password_reset_code(*, email: str, code: str) -> str:
+def verify_password_reset_code(
+    *, email: str = "", phone: str | None = None, code: str
+) -> str:
     invalid_error = ValidationError({"code": "Invalid or expired reset code."})
 
     with transaction.atomic():
-        user = (
-            User.objects.select_for_update()
-            .filter(email__iexact=email.strip().lower(), is_active=True)
-            .first()
-        )
+        user = _account_for_contact(email=email, phone=phone, active=True)
         now = timezone.now()
 
         if (
