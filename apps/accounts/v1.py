@@ -119,6 +119,7 @@ class EmailVerificationResendViewV1(views.EmailVerificationResendView):
 
 class PasswordResetRequestViewV1(views.PasswordResetRequestView):
     serializer_class = PasswordResetRequestSerializerV1
+    report_reset_errors = False
 
 
 class PasswordResetVerifyViewV1(views.PasswordResetVerifyView):
