@@ -161,6 +161,7 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
+AUTHENTICATION_BACKENDS = ["apps.accounts.backends.PhoneOrStaffEmailBackend"]
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
@@ -218,7 +219,7 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [
         {
             "name": "Mobile — Authentication",
-            "description": "Seller registration, profile and Firebase phone verification.",
+            "description": "Seller registration, profile and email code verification.",
         },
         {
             "name": "Authentication — Shared",

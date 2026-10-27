@@ -1,14 +1,19 @@
 import unicodedata
 
+from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
+from .phone import normalize_phone
 from .services import register_user
 
 
@@ -26,12 +31,79 @@ def _validate_password_value(*, password, user, field_name: str) -> None:
 
 
 @extend_schema_serializer(component_name="AuthLogin")
-class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
+class LoginSerializer(TokenObtainPairSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["phone"].required = False
+        self.fields["email"] = serializers.EmailField(required=False)
+
     def validate(self, attrs):
-        email = attrs.get(self.username_field)
-        if isinstance(email, str):
-            attrs[self.username_field] = email.strip().lower()
-        return super().validate(attrs)
+        if bool(attrs.get("phone")) == bool(attrs.get("email")):
+            raise serializers.ValidationError("Provide either phone or staff email.")
+        self.user = authenticate(
+            request=self.context.get("request"),
+            phone=attrs.get("phone"),
+            email=attrs.get("email"),
+            password=attrs["password"],
+        )
+        if self.user is None:
+            raise AuthenticationFailed(
+                self.error_messages["no_active_account"], "no_active_account"
+            )
+        refresh = self.get_token(self.user)
+        return {"refresh": str(refresh), "access": str(refresh.access_token)}
+
+
+class PhoneField(serializers.CharField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        try:
+            return normalize_phone(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+
+
+def _validate_unique_phone(value, instance=None):
+    if not value:
+        return None
+    if (
+        User.objects.filter(phone=value)
+        .exclude(pk=getattr(instance, "pk", None))
+        .exists()
+    ):
+        raise serializers.ValidationError(
+            "An account with this phone number already exists."
+        )
+    return value
+
+
+def _validate_staff_email(value, instance=None):
+    email = value.strip().lower()
+    if (
+        User.objects.filter(
+            Q(role__in=[User.Role.MANAGER, User.Role.ADMIN])
+            | Q(is_staff=True)
+            | Q(is_superuser=True),
+            email__iexact=email,
+        )
+        .exclude(pk=getattr(instance, "pk", None))
+        .exists()
+    ):
+        raise serializers.ValidationError("A user with this email already exists.")
+    return email
+
+
+class AccountSerializer(serializers.ModelSerializer):
+    def save(self, **kwargs):
+        try:
+            with transaction.atomic():
+                return super().save(**kwargs)
+        except IntegrityError:
+            # A concurrent registration or profile edit can win after validation.
+            phone = self.validated_data.get("phone")
+            if phone:
+                _validate_unique_phone(phone, self.instance)
+            raise
 
 
 class PersonNameField(serializers.CharField):
@@ -48,8 +120,9 @@ class PersonNameField(serializers.CharField):
 
 
 @extend_schema_serializer(component_name="AuthRegister")
-class RegisterSerializer(serializers.ModelSerializer):
+class RegisterSerializer(AccountSerializer):
     email = serializers.EmailField(required=True)
+    phone = PhoneField(required=True)
     first_name = PersonNameField()
     last_name = PersonNameField()
     password = serializers.CharField(
@@ -72,10 +145,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             "preferred_language",
         )
 
-        extra_kwargs = {
-            "phone": {"required": False},
-        }
-
     def validate(self, attrs):
         password = attrs["password"]
         password_confirm = attrs.pop("password_confirm")
@@ -97,20 +166,20 @@ class RegisterSerializer(serializers.ModelSerializer):
         return register_user(data=validated_data)
 
     def validate_email(self, value):
-        email = value.strip().lower()
+        return value.strip().lower()
 
-        if User.objects.filter(email__iexact=email).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-
-        return email
+    def validate_phone(self, value):
+        return _validate_unique_phone(value)
 
     def validate_preferred_language(self, value):
         return _canonical_preferred_language(value)
 
 
 @extend_schema_serializer(component_name="WebManagerCreate")
-class ManagerCreateSerializer(serializers.ModelSerializer):
+class ManagerCreateSerializer(AccountSerializer):
     """Manager-only user creation. This serializer never accepts a role."""
+
+    phone = PhoneField(required=False, allow_blank=True)
 
     password = serializers.CharField(
         write_only=True,
@@ -158,10 +227,10 @@ class ManagerCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_email(self, value):
-        email = value.strip().lower()
-        if User.objects.filter(email__iexact=email).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        return email
+        return _validate_staff_email(value)
+
+    def validate_phone(self, value):
+        return _validate_unique_phone(value)
 
     def validate_preferred_language(self, value):
         return _canonical_preferred_language(value)
@@ -188,7 +257,8 @@ class PreferredLanguageSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(component_name="AuthProfile")
-class ProfileSerializer(serializers.ModelSerializer):
+class ProfileSerializer(AccountSerializer):
+    phone = PhoneField(required=False, allow_blank=True)
     first_name = PersonNameField(required=False)
     last_name = PersonNameField(required=False)
     product_count = serializers.SerializerMethodField()
@@ -217,6 +287,20 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def validate_preferred_language(self, value):
         return _canonical_preferred_language(value)
+
+    def validate_phone(self, value):
+        if not value and self.instance.role == User.Role.SELLER:
+            raise serializers.ValidationError("This field may not be blank.")
+        return _validate_unique_phone(value, self.instance)
+
+    def validate_email(self, value):
+        if (
+            self.instance.role in {User.Role.MANAGER, User.Role.ADMIN}
+            or self.instance.is_staff
+            or self.instance.is_superuser
+        ):
+            return _validate_staff_email(value, self.instance)
+        return value.strip().lower()
 
     @extend_schema_field(serializers.IntegerField())
     def get_product_count(self, user) -> int:
@@ -300,15 +384,20 @@ class PasswordChangeSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="AuthPasswordResetRequest")
 class PasswordResetRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=True)
+    phone = PhoneField(required=True)
+
+    def validate(self, attrs):
+        if not attrs.get("phone") and not attrs.get("email"):
+            raise serializers.ValidationError({"phone": "This field is required."})
+        return attrs
 
     def validate_email(self, value):
         return value.strip().lower()
 
 
 @extend_schema_serializer(component_name="AuthPasswordResetVerify")
-class PasswordResetVerifySerializer(serializers.Serializer):
-    email = serializers.EmailField()
+class PasswordResetVerifySerializer(PasswordResetRequestSerializer):
     code = serializers.CharField(min_length=6, max_length=6, trim_whitespace=True)
 
     def validate_email(self, value):
@@ -356,6 +445,7 @@ class PasswordResetVerifyResponseSerializer(serializers.Serializer):
 @extend_schema_serializer(component_name="EmailVerification")
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    phone = PhoneField(required=True)
     code = serializers.CharField(
         min_length=6,
         max_length=6,
@@ -374,6 +464,7 @@ class EmailVerificationSerializer(serializers.Serializer):
 @extend_schema_serializer(component_name="EmailVerificationResend")
 class EmailVerificationResendSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    phone = PhoneField(required=True)
 
     def validate_email(self, value):
         return value.strip().lower()

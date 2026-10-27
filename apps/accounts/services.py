@@ -17,6 +17,7 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 
 from .models import User
+from .phone import normalize_phone
 from .tasks import enqueue_seller_registered_email
 
 
@@ -91,15 +92,26 @@ def manager_confirm_seller_email(*, seller: User) -> User:
     return seller
 
 
-def verify_email_code(*, email: str, code: str) -> User:
+def _account_for_contact(*, email: str = "", phone: str | None = None, active=False):
+    """Never pick an arbitrary account when multiple sellers share an email."""
+    users = User.objects.select_for_update()
+    if phone:
+        users = users.filter(phone=normalize_phone(phone))
+    if email:
+        users = users.filter(email__iexact=email.strip())
+    if active:
+        users = users.filter(is_active=True)
+    if not email and not phone:
+        return None
+    matches = list(users[:2])
+    return matches[0] if len(matches) == 1 else None
+
+
+def verify_email_code(*, email: str, code: str, phone: str | None = None) -> User:
     invalid_error = ValidationError({"code": "Invalid or expired verification code."})
 
     with transaction.atomic():
-        user = (
-            User.objects.select_for_update()
-            .filter(email__iexact=email.strip().lower())
-            .first()
-        )
+        user = _account_for_contact(email=email, phone=phone)
 
         if not user or user.is_email_verified:
             raise invalid_error
@@ -151,12 +163,10 @@ def verify_email_code(*, email: str, code: str) -> User:
 
 
 @transaction.atomic
-def resend_email_verification_code(*, email: str) -> tuple[User, str] | None:
-    user = (
-        User.objects.select_for_update()
-        .filter(email__iexact=email.strip().lower())
-        .first()
-    )
+def resend_email_verification_code(
+    *, email: str, phone: str | None = None
+) -> tuple[User, str] | None:
+    user = _account_for_contact(email=email, phone=phone)
 
     if not user or user.is_email_verified:
         return None
@@ -205,12 +215,10 @@ def issue_password_reset_code(*, user: User) -> str:
 
 
 @transaction.atomic
-def request_password_reset(*, email: str) -> tuple[User, str] | None:
-    user = (
-        User.objects.select_for_update()
-        .filter(email__iexact=email.strip().lower(), is_active=True)
-        .first()
-    )
+def request_password_reset(
+    *, email: str = "", phone: str | None = None
+) -> tuple[User, str] | None:
+    user = _account_for_contact(email=email, phone=phone, active=True)
 
     if not user:
         return None
@@ -224,15 +232,13 @@ def request_password_reset(*, email: str) -> tuple[User, str] | None:
     return user, issue_password_reset_code(user=user)
 
 
-def verify_password_reset_code(*, email: str, code: str) -> str:
+def verify_password_reset_code(
+    *, email: str = "", phone: str | None = None, code: str
+) -> str:
     invalid_error = ValidationError({"code": "Invalid or expired reset code."})
 
     with transaction.atomic():
-        user = (
-            User.objects.select_for_update()
-            .filter(email__iexact=email.strip().lower(), is_active=True)
-            .first()
-        )
+        user = _account_for_contact(email=email, phone=phone, active=True)
         now = timezone.now()
 
         if (

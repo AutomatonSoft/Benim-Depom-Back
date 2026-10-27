@@ -267,13 +267,15 @@ class MarketplaceAutoSchema(AutoSchema):
     }
 
     def get_summary(self) -> str:
+        if self.path == "/api/v2/auth/login/":
+            return "Войти по телефону (продавец) или email (менеджер)"
         return self.OPERATION_SUMMARIES.get(
-            (self.method.upper(), self.path),
+            (self.method.upper(), self.path.replace("/api/v2/", "/api/v1/", 1)),
             super().get_summary(),
         )
 
     def get_tags(self) -> list[str]:
-        path = self.path
+        path = self.path.replace("/api/v2/", "/api/v1/", 1)
 
         if path.startswith("/api/v1/contact/"):
             return ["Contact"]
