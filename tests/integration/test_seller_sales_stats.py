@@ -243,5 +243,35 @@ def test_manager_sales_stats_filters_by_ean_and_seller_email(
     assert by_email.data["seller_email"] == seller.email
     assert by_email.data["scope"] == "seller"
 
+    second_seller.email = seller.email
+    second_seller.save(update_fields=["email"])
+    for phone in [
+        seller.phone,
+        seller.phone.lstrip("+"),
+        f" {seller.phone[:3]} {seller.phone[3:]} ",
+    ]:
+        by_phone = api_client.get(
+            "/api/v2/manager/sales-stats/", {"seller_phone": phone}
+        )
+        assert by_phone.status_code == 200, by_phone.data
+        assert by_phone.data["seller_id"] == seller.pk
+        assert by_phone.data["quantity_sold"] == 2
+        assert by_phone.data["scope"] == "seller"
+    combined = api_client.get(
+        "/api/v2/manager/sales-stats/",
+        {"seller_phone": seller.phone, "ean": product.ean_jv},
+    )
+    assert combined.status_code == 200 and combined.data["product_id"] == product.pk
+    wrong_owner = api_client.get(
+        "/api/v2/manager/sales-stats/",
+        {"seller_phone": second_seller.phone, "ean": product.ean_jv},
+    )
+    assert wrong_owner.status_code == 400
+    for phone in ["15", "+905559999999", manager.phone]:
+        invalid = api_client.get(
+            "/api/v2/manager/sales-stats/", {"seller_phone": phone}
+        )
+        assert invalid.status_code == 400 and "seller_phone" in invalid.data
+
     missing = api_client.get("/api/v1/manager/sales-stats/?ean=0000000000000")
     assert missing.status_code == 400
