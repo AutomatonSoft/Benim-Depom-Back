@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import (
     Case,
     Count,
@@ -19,6 +20,7 @@ from django.db.models.functions import Coalesce
 from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import User
+from apps.accounts.phone import normalize_phone
 from apps.products.models import Product
 from apps.products.pricing import latest_rate
 
@@ -277,6 +279,17 @@ def _resolve_seller_email(value: str | None):
     return sellers[0]
 
 
+def _resolve_seller_phone(value: str):
+    try:
+        phone = normalize_phone(value)
+    except DjangoValidationError as exc:
+        raise ValidationError({"seller_phone": exc.messages}) from exc
+    seller = User.objects.filter(phone=phone, role=User.Role.SELLER).first()
+    if seller is None:
+        raise ValidationError({"seller_phone": "Seller not found."})
+    return seller
+
+
 def _resolve_ean(*, value: str | None, seller=None) -> Product | None:
     raw = (value or "").strip()
     if not raw:
@@ -296,7 +309,12 @@ def _resolve_ean(*, value: str | None, seller=None) -> Product | None:
 
 
 def manager_sales_stats_from_query(*, query_params) -> dict:
-    seller = _resolve_seller_email(query_params.get("seller_email"))
+    phone = (query_params.get("seller_phone") or "").strip()
+    seller = (
+        _resolve_seller_phone(phone)
+        if phone
+        else _resolve_seller_email(query_params.get("seller_email"))
+    )
     product = _resolve_ean(value=query_params.get("ean"), seller=seller)
     return sales_stats(
         seller=seller,
