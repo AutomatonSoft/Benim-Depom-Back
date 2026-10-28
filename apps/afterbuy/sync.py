@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -56,7 +57,15 @@ def upsert_sold_order(*, account: str, order: NormalizedSoldOrder) -> AfterbuyOr
             order.marketplace
         ):
             continue
+        marketplace = item.marketplace or order.marketplace
+        if (
+            marketplace == AfterbuyOrder.Marketplace.EBAY
+            and item.marketplace != marketplace
+        ):
+            item = replace(item, marketplace=marketplace)
         product = match_catalog_product(account=account, item=item)
+        if marketplace == AfterbuyOrder.Marketplace.EBAY and product is None:
+            continue
         stored_item, _item_created = AfterbuyOrderItem.objects.update_or_create(
             order=stored,
             item_key=_item_key(item)[:80],

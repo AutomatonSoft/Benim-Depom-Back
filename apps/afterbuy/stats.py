@@ -32,6 +32,7 @@ SALES_CHANNELS = (
     (AfterbuyOrder.Marketplace.OTTO, AfterbuyOrder.Account.XL),
     (AfterbuyOrder.Marketplace.KAUFLAND, AfterbuyOrder.Account.XL),
     (AfterbuyOrder.Marketplace.HOOD, AfterbuyOrder.Account.XL),
+    (AfterbuyOrder.Marketplace.EBAY, AfterbuyOrder.Account.JV),
 )
 
 

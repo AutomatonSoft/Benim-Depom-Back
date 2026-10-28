@@ -170,6 +170,18 @@ def _request(session, token, method, path, *, body=None, params=None):
 
 def _save_state(preparation, **values):
     """Сохраняет этап отдельно от сети: таймаут не откатывает сведения об отправке."""
+    if values.get("listing_id"):
+        values["listing_id_history"] = list(
+            dict.fromkeys(
+                value
+                for value in [
+                    *preparation.listing_id_history,
+                    preparation.listing_id,
+                    values["listing_id"],
+                ]
+                if value
+            )
+        )
     for name, value in values.items():
         setattr(preparation, name, value)
     preparation.save(update_fields=[*values, "updated_at"])
