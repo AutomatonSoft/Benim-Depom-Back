@@ -310,8 +310,7 @@ class MarketplaceContentGenerationRequestSerializer(serializers.Serializer):
 class MarketplaceContentGenerationApplyRequestSerializer(
     MarketplaceContentGenerationRequestSerializer
 ):
-    # eBay drafts are saved through their own validated API, not legacy configurations.
-    targets = MarketplaceTargetSerializer(many=True, allow_empty=False)
+    targets = MarketplaceContentTargetSerializer(many=True, allow_empty=False)
     overwrite = serializers.BooleanField(
         default=False,
         help_text=(
@@ -329,6 +328,7 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
         max_length=65,
         help_text="German marketplace title, maximum 65 characters. BD is added on publish.",
     )
+    ebay_title = serializers.CharField(max_length=75, required=False)
     description = serializers.CharField(
         help_text=(
             "German description consisting of two or three plain-text "

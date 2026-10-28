@@ -273,6 +273,7 @@ def build_product_snapshot(product) -> dict[str, Any]:
 def build_universal_content_request(
     *,
     product_snapshot: dict[str, Any],
+    include_ebay: bool = False,
 ) -> UniversalContentRequest:
     """Build a single content-generation request shared by all marketplaces."""
 
@@ -330,6 +331,18 @@ def build_universal_content_request(
             "not use HTML;\n"
         )
 
+    if include_ebay:
+        schema = {
+            **schema,
+            "properties": {
+                **schema["properties"],
+                "ebay_title": {
+                    "type": "string",
+                    "description": "German eBay title, maximum 75 characters, without BD. Same factual and set rules as title.",
+                },
+            },
+            "required": (*schema["required"], "ebay_title"),
+        }
     return UniversalContentRequest(
         schema_name="universal_marketplace_content",
         schema=schema,
@@ -371,6 +384,11 @@ def build_universal_content_request(
             "is made of textile twice;\n"
             "- use dimensions and materials only as factual product details."
             f"{set_instructions}"
+            + (
+                "\n- ebay_title: separate German eBay title up to 75 characters without BD. The 65-character title limit applies only to title, not ebay_title. Reuse description and color for eBay; do not generate categories or aspects."
+                if include_ebay
+                else ""
+            )
         ),
         input_text=json.dumps(
             {"product": product_snapshot},
@@ -475,6 +493,13 @@ def validate_universal_content(
         "color": color,
         "material_composition": composition,
     }
+    if "ebay_title" in data:
+        ebay_title = _ascii_hyphens(str(data["ebay_title"]).strip())
+        if not ebay_title or len(ebay_title) > 75:
+            raise GeneratedContentValidationError(
+                "AI eBay title must contain 1 to 75 characters."
+            )
+        result["ebay_title"] = ebay_title
     if snapshot_has_set_parts(product_snapshot):
         names = data.get("set_item_names")
         if isinstance(names, list) and len(names) == set_piece_count_from_snapshot(

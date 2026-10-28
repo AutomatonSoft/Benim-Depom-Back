@@ -1162,12 +1162,15 @@ class MarketplaceContentGenerationDetailView(
                     status=status.HTTP_409_CONFLICT,
                 )
 
+            previous_content = generation.result.get("universal", {}).get("content", {})
             try:
                 content = validate_universal_content(
                     {
-                        "set_item_names": generation.result.get("universal", {})
-                        .get("content", {})
-                        .get("set_item_names"),
+                        **{
+                            key: previous_content[key]
+                            for key in ("ebay_title", "set_item_names")
+                            if key in previous_content
+                        },
                         **serializer.validated_data,
                     },
                     product_snapshot=generation.input_snapshot,
@@ -1281,6 +1284,18 @@ class ProductMarketplaceContentGenerationApplyView(
                 marketplace = target["marketplace"]
                 account = target["account"]
                 target_key = f"{marketplace}:{account}"
+
+                if marketplace == "ebay":
+                    from apps.marketplace.ebay.manager import apply_ai_content
+
+                    changed, skipped = apply_ai_content(
+                        product, content, overwrite=overwrite
+                    )
+                    if changed:
+                        updated_targets.append(target)
+                    if skipped:
+                        skipped_fields[target_key] = skipped
+                    continue
 
                 patch = universal_content_to_marketplace_configuration(
                     marketplace=marketplace,

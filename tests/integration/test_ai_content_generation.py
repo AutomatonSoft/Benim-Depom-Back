@@ -52,10 +52,10 @@ def test_ai_generation_rejects_unsupported_account_pairs(marketplace, account):
     assert not serializer.is_valid()
 
 
-def test_ebay_ai_target_does_not_enable_legacy_publication_or_apply():
+def test_ebay_content_apply_does_not_enable_legacy_publication():
     target = {"marketplace": "ebay", "account": "depotum"}
     assert not MarketplaceTargetSerializer(data=target).is_valid()
-    assert not MarketplaceContentGenerationApplyRequestSerializer(
+    assert MarketplaceContentGenerationApplyRequestSerializer(
         data={"targets": [target]}
     ).is_valid()
 
