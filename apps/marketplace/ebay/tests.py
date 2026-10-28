@@ -172,6 +172,62 @@ def test_readiness_accepts_ebay_non_motor_policy():
     assert _policy_summary(policy, "fulfillmentPolicyId")["applicable_to_furniture"]
 
 
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+def test_readiness_registration_warning_is_sandbox_only(
+    settings, monkeypatch, environment
+):
+    from apps.marketplace.ebay import readiness
+    from apps.marketplace.ebay.views import EbayReadinessView
+
+    settings.EBAY_ENVIRONMENT = environment
+    monkeypatch.setattr(readiness, "get_access_token", lambda **kwargs: "test-token")
+    monkeypatch.setattr(readiness, "build_marketplace_session", MagicMock())
+    resources = {
+        "/sell/account/v1/privilege": {"sellerRegistrationCompleted": False},
+        "/sell/account/v1/program/get_opted_in_programs": {
+            "programs": [{"programType": "SELLING_POLICY_MANAGEMENT"}]
+        },
+        "/sell/inventory/v1/location": {
+            "locations": [
+                {
+                    "merchantLocationKey": "test-warehouse",
+                    "merchantLocationStatus": "ENABLED",
+                    "locationTypes": ["WAREHOUSE"],
+                    "location": {"address": {"country": "DE", "postalCode": "88483"}},
+                }
+            ]
+        },
+    }
+    for kind, response_key, id_field in readiness.POLICIES:
+        resources[f"/sell/account/v1/{kind}_policy"] = {
+            response_key: [
+                {
+                    id_field: "123",
+                    "name": "Test policy",
+                    "marketplaceId": "EBAY_DE",
+                    "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                }
+            ]
+        }
+    monkeypatch.setattr(
+        readiness, "get_seller_resource", lambda **kwargs: resources[kwargs["path"]]
+    )
+    request = APIRequestFactory().get("/", {"account": "depotum"})
+    force_authenticate(
+        request,
+        user=SimpleNamespace(is_authenticated=True, is_superuser=False, role="manager"),
+    )
+    response = EbayReadinessView.as_view()(request)
+    assert response.status_code == 200
+    assert response.data["seller_registration_completed"] is False
+    assert response.data["checks_complete"] is True
+    assert response.data["ready_for_listing_setup"] is (environment == "sandbox")
+    assert response.data["missing_requirements"] == (
+        [] if environment == "sandbox" else ["seller_registration"]
+    )
+    assert bool(response.data["warnings"]) is (environment == "sandbox")
+
+
 @pytest.fixture
 def local_catalog(settings, tmp_path, monkeypatch):
     """Создаёт маленький файловый каталог и запрещает обращения к eBay."""
@@ -1864,10 +1920,24 @@ def test_publish_image_check_refuses_private_dns(settings, monkeypatch):
     session.head.assert_not_called()
 
 
-def test_publish_blocks_incomplete_seller_registration(publish_api, monkeypatch):
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+def test_publish_registration_warning_is_sandbox_only(
+    publish_api, monkeypatch, settings, environment
+):
     from apps.marketplace.ebay import publishing
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+    from apps.marketplace.ebay.preparation import _payload_hash
+    from apps.marketplace.ebay.preview import build_draft_preview
 
     api = publish_api
+    settings.EBAY_ENVIRONMENT = environment
+    api.draft.environment = environment
+    api.draft.save(update_fields=["environment"])
+    api.fingerprint = _payload_hash(build_draft_preview(api.draft))
+    api.confirmation["preview_hash"] = api.fingerprint
+    EbayOfferPreparation.objects.update(
+        environment=environment, payload_hash=api.fingerprint
+    )
     monkeypatch.setattr(
         publishing,
         "get_seller_resource",
@@ -1875,13 +1945,50 @@ def test_publish_blocks_incomplete_seller_registration(publish_api, monkeypatch)
     )
     response = api.client.get(api.publish_url)
     assert response.status_code == 200
-    assert response.data["ready"] is False
-    assert "Seller registration" in str(response.data["blocking_reasons"])
-    api.session.request.assert_not_called()
+    assert response.data["ready"] is (environment == "sandbox")
+    assert bool(response.data["warnings"]) is (environment == "sandbox")
+    if environment == "production":
+        assert "Seller registration" in str(response.data["blocking_reasons"])
+        api.session.request.assert_not_called()
+
+    api.session.request.reset_mock()
+    api.session.request.side_effect = api.publish_replies()
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == (200 if environment == "sandbox" else 400)
+    if environment == "sandbox":
+        assert response.data["listing_id"] == "123456789012"
+    else:
+        api.session.request.assert_not_called()
 
 
-def test_publish_checks_image_failure_never_sends_publish(publish_api):
+@pytest.mark.parametrize("registered", [None, "false", 0])
+def test_publish_rejects_invalid_registration_status_even_in_sandbox(
+    publish_api, monkeypatch, registered
+):
+    from apps.marketplace.ebay import publishing
+
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": registered},
+    )
+    response = publish_api.client.get(publish_api.publish_url)
+    assert response.status_code == 502
+    publish_api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_publish_checks_image_failure_never_sends_publish(
+    publish_api, monkeypatch, registered
+):
+    from apps.marketplace.ebay import publishing
+
     api = publish_api
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": registered},
+    )
     api.images.side_effect = ValidationError("Image is unavailable.")
     response = api.client.post(api.publish_url, api.confirmation, format="json")
     assert response.status_code == 400

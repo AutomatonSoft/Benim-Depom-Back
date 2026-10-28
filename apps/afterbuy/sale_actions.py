@@ -58,7 +58,7 @@ def _order_item_from_notification(notification: Notification) -> AfterbuyOrderIt
         )
     if order_item.matched_product_id is None:
         raise ValidationError({"detail": "Afterbuy line is not matched to a product."})
-    if order_item.marketplace not in TRACKED_MARKETPLACES:
+    if order_item.marketplace not in TRACKED_MARKETPLACES - {"ebay"}:
         raise ValidationError(
             {"detail": "Stock sync is only available for OTTO, Hood and Kaufland."}
         )

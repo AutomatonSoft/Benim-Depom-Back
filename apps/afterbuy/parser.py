@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from .types import NormalizedSoldItem, NormalizedSoldOrder
 
 BERLIN = ZoneInfo("Europe/Berlin")
-TRACKED_MARKETPLACES = frozenset({"otto", "hood", "kaufland"})
+TRACKED_MARKETPLACES = frozenset({"otto", "hood", "kaufland", "ebay"})
 _AFTERBUY_DATETIME = re.compile(
     r"^(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})"
     r"(?:\s+(?P<H>\d{1,2}):(?P<M>\d{2})(?::(?P<S>\d{2}))?)?$"
@@ -128,6 +128,8 @@ def detect_marketplace(
         or domain.startswith("kaufland-marktplatz")
     ):
         return "kaufland"
+    if platform in {"ebay", "ebay.de"} or method == "ebaymanagedpayment":
+        return "ebay"
     return ""
 
 
@@ -221,7 +223,7 @@ def _parse_order(order: ElementTree.Element) -> NormalizedSoldOrder | None:
 
     buyer_platform_user_id = _text(billing, "UserIDPlattform", "UserIDPlatform")
     buyer_email = _text(billing, "Mail", "Email").split(" OTTO", 1)[0].strip()
-    payment_method = _text(payment, "PaymentMethod", "PaymentID")
+    payment_method = _first_text(payment, (("PaymentMethod",), ("PaymentID",)))
     buyer_name = " ".join(
         part
         for part in (

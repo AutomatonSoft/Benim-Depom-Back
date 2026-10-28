@@ -10,6 +10,7 @@ class AfterbuyOrder(models.Model):
         OTTO = "otto", "OTTO"
         HOOD = "hood", "Hood"
         KAUFLAND = "kaufland", "Kaufland"
+        EBAY = "ebay", "eBay"
         OTHER = "other", "Other"
 
     account = models.CharField(max_length=2, choices=Account.choices, db_index=True)

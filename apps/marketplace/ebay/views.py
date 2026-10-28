@@ -37,6 +37,7 @@ class EbayReadinessSerializer(serializers.Serializer):
     policies = serializers.JSONField()
     inventory_locations = serializers.JSONField(allow_null=True)
     missing_requirements = serializers.ListField(child=serializers.CharField())
+    warnings = serializers.ListField(child=serializers.CharField())
     errors = serializers.DictField(child=serializers.CharField())
 
 
