@@ -94,7 +94,7 @@ def test_common_ai_apply_saves_depotum_text_and_keeps_legacy_channel(
     legacy = MarketplaceListingConfiguration.objects.get(
         product=product, marketplace="otto", account="jv"
     )
-    assert legacy.configuration["product_line"] == "Stuhl (BD)"
+    assert legacy.configuration["product_line"] == "Stuhl BD"
     assert not MarketplaceListingConfiguration.objects.filter(
         marketplace="ebay"
     ).exists()
@@ -168,7 +168,7 @@ def test_manager_save_uses_card_facts_jv_images_set_dimensions_and_environment_s
             f"/api/v1/ebay/drafts/depotum/{product.pk}/",
             {
                 "sync_product": True,
-                "title": "Sofagarnitur (BD)",
+                "title": "Sofagarnitur BD",
                 "description": "Beschreibung",
                 "category_id": "38208",
                 "aspects": {"Farbe": ["Blau"]},
