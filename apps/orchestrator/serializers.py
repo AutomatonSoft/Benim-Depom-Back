@@ -271,9 +271,23 @@ class MarketplaceJobSerializer(serializers.ModelSerializer):
         )
 
 
+class MarketplaceContentTargetSerializer(MarketplaceTargetSerializer):
+    """eBay reuses the universal AI draft without joining legacy publication jobs."""
+
+    marketplace = serializers.ChoiceField(choices=("hood", "otto", "kaufland", "ebay"))
+    account = serializers.ChoiceField(choices=("jv", "xl", "depotum"))
+
+    def validate(self, attrs):
+        if (attrs["marketplace"] == "ebay") != (attrs["account"] == "depotum"):
+            raise serializers.ValidationError(
+                "eBay content is available only for Depotum."
+            )
+        return attrs
+
+
 @extend_schema_serializer(component_name="MarketplaceContentGenerationRequest")
 class MarketplaceContentGenerationRequestSerializer(serializers.Serializer):
-    targets = MarketplaceTargetSerializer(
+    targets = MarketplaceContentTargetSerializer(
         many=True,
         allow_empty=False,
         help_text="Marketplace/account pairs that will receive the generated draft.",
@@ -296,6 +310,8 @@ class MarketplaceContentGenerationRequestSerializer(serializers.Serializer):
 class MarketplaceContentGenerationApplyRequestSerializer(
     MarketplaceContentGenerationRequestSerializer
 ):
+    # eBay drafts are saved through their own validated API, not legacy configurations.
+    targets = MarketplaceTargetSerializer(many=True, allow_empty=False)
     overwrite = serializers.BooleanField(
         default=False,
         help_text=(
