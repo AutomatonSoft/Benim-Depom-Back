@@ -2,10 +2,33 @@ import pytest
 
 from apps.orchestrator.ai_content import (
     GeneratedContentValidationError,
+    build_universal_content_request,
     universal_content_to_marketplace_configuration,
     universal_description_to_hood_html,
     validate_universal_content,
 )
+
+
+def test_common_generation_adds_75_character_ebay_title_without_changing_other_titles():
+    request = build_universal_content_request(product_snapshot={}, include_ebay=True)
+    assert "ebay_title" in request.schema["required"]
+    assert "75 characters" in request.schema["properties"]["ebay_title"]["description"]
+    assert "65" in request.schema["properties"]["title"]["description"]
+    assert (
+        "ebay_title"
+        not in build_universal_content_request(product_snapshot={}).schema["properties"]
+    )
+    data = {
+        "title": "Holzstuhl",
+        "ebay_title": "A" * 75,
+        "description": "Erster Absatz.\n\nZweiter Absatz.",
+        "bullet_points": ["A", "B", "C"],
+    }
+    assert validate_universal_content(data)["ebay_title"] == "A" * 75
+    with pytest.raises(GeneratedContentValidationError):
+        validate_universal_content({**data, "ebay_title": "A" * 76})
+    with pytest.raises(GeneratedContentValidationError):
+        validate_universal_content({**data, "title": "A" * 66})
 
 
 @pytest.mark.unit

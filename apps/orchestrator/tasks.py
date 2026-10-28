@@ -1644,6 +1644,9 @@ def generate_marketplace_content(
         service = OpenAITextService()
         request = build_universal_content_request(
             product_snapshot=generation.input_snapshot,
+            include_ebay=any(
+                target.get("marketplace") == "ebay" for target in generation.targets
+            ),
         )
         image_data_url = _primary_product_image_data_url(generation.product_id)
         ai_result = service.generate_json(
