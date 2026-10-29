@@ -94,7 +94,7 @@ def test_common_ai_apply_saves_depotum_text_and_keeps_legacy_channel(
     legacy = MarketplaceListingConfiguration.objects.get(
         product=product, marketplace="otto", account="jv"
     )
-    assert legacy.configuration["product_line"] == "Stuhl BD"
+    assert legacy.configuration["product_line"] == "Stuhl (BD)"
     assert not MarketplaceListingConfiguration.objects.filter(
         marketplace="ebay"
     ).exists()
