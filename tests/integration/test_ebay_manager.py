@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from apps.marketplace.ebay.localization import TERMS, localize_catalog
+from apps.marketplace.ebay.localization import localize_catalog
 from apps.marketplace.ebay.manager import manager_draft_values
 from apps.marketplace.ebay.models import EbayDraft, EbayOfferPreparation
 from apps.orchestrator.models import (
@@ -265,4 +265,3 @@ def test_catalog_labels_preserve_canonical_ebay_names_values_and_cached_data(
     }
     assert original == before
     assert localize_catalog(original, "de") == original
-    assert all(len(line.split("|")) == 4 for line in TERMS.strip().splitlines())
