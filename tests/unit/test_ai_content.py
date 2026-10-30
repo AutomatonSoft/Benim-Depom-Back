@@ -12,7 +12,9 @@ from apps.orchestrator.ai_content import (
 @pytest.mark.unit
 @pytest.mark.parametrize("include_ebay", [False, True])
 @pytest.mark.parametrize("is_set", [False, True])
-def test_seller_description_supplements_copy_without_reducing_volume(include_ebay, is_set):
+def test_seller_description_supplements_copy_without_reducing_volume(
+    include_ebay, is_set
+):
     snapshot = {"seller_description": "Съёмный чехол, скрытый ящик для хранения."}
     if is_set:
         snapshot["set_parts"] = [{"description": "Кресло"}]
