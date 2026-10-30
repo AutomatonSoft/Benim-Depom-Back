@@ -37,6 +37,7 @@ from .preparation import (
     _save_state,
 )
 from .preview import build_draft_preview
+from .readiness import SANDBOX_REGISTRATION_WARNING
 from .services import get_access_token
 from .updating import _read_unpublished
 
@@ -66,6 +67,7 @@ class PublishChecksSerializer(serializers.Serializer):
     environment = serializers.CharField()
     preview_hash = serializers.CharField()
     blocking_reasons = serializers.ListField(child=serializers.CharField())
+    warnings = serializers.ListField(child=serializers.CharField())
     manual_checks = serializers.ListField(child=serializers.CharField())
 
 
@@ -186,6 +188,7 @@ def _publication_checks(preparation, *, claimed=False):
         "environment": preparation.environment,
         "preview_hash": _review_hash(preparation, fingerprint),
         "blocking_reasons": reasons,
+        "warnings": [],
         "manual_checks": [
             "actual_stock_location",
             "photo_quality_and_dimensions",
@@ -207,8 +210,17 @@ def _publication_checks(preparation, *, claimed=False):
             privileges = get_seller_resource(
                 session=session, access_token=token, path="/sell/account/v1/privilege"
             )
-            if privileges.get("sellerRegistrationCompleted") is not True:
-                raise ValidationError("Seller registration is not confirmed by eBay.")
+            registered = privileges.get("sellerRegistrationCompleted")
+            if not isinstance(registered, bool):
+                raise EbayAPIError("eBay returned an invalid registration status.")
+            if not registered:
+                if settings.EBAY_ENVIRONMENT == "sandbox":
+                    # Sandbox has accepted real publish calls while reporting false.
+                    report["warnings"].append(SANDBOX_REGISTRATION_WARNING)
+                else:
+                    raise ValidationError(
+                        "Seller registration is not confirmed by eBay."
+                    )
             _check_new_condition(session, token, draft.category_id)
             offer = _read_unpublished(session, token, preparation)
             inventory = _request(

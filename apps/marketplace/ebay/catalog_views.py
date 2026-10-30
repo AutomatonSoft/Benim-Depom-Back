@@ -6,10 +6,12 @@ from rest_framework.views import APIView
 from apps.common.permissions import IsManager
 
 from .catalog import get_categories, get_category_aspects
+from .localization import localize_catalog
 
 
 class EbayCategoriesQuerySerializer(serializers.Serializer):
     parent_id = serializers.RegexField(r"^[1-9][0-9]*$", max_length=20, required=False)
+    language = serializers.ChoiceField(choices=("de", "en", "ru", "tr"), default="de")
 
 
 class EbayCategoryIdSerializer(serializers.Serializer):
@@ -19,6 +21,7 @@ class EbayCategoryIdSerializer(serializers.Serializer):
 class EbayCategorySerializer(serializers.Serializer):
     id = serializers.CharField()
     name = serializers.CharField()
+    label = serializers.CharField(required=False)
     is_leaf = serializers.BooleanField()
 
 
@@ -66,7 +69,8 @@ class EbayCategoriesView(APIView):
         """Проверяет идентификатор родителя и выдаёт один уровень справочника."""
         query = EbayCategoriesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        result = get_categories(**query.validated_data)
+        language = query.validated_data.pop("language")
+        result = localize_catalog(get_categories(**query.validated_data), language)
         return Response(EbayCategoriesSerializer(result).data)
 
 
@@ -89,5 +93,12 @@ class EbayCategoryAspectsView(APIView):
         """Проверяет путь и читает характеристики выбранной конечной категории."""
         query = EbayCategoryIdSerializer(data={"category_id": category_id})
         query.is_valid(raise_exception=True)
-        result = get_category_aspects(**query.validated_data)
+        language_query = EbayCategoriesQuerySerializer(
+            data={"language": request.query_params.get("language", "de")}
+        )
+        language_query.is_valid(raise_exception=True)
+        result = localize_catalog(
+            get_category_aspects(**query.validated_data),
+            language_query.validated_data["language"],
+        )
         return Response(EbayCategoryAspectsSerializer(result).data)

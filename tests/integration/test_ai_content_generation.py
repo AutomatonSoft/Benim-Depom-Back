@@ -10,6 +10,11 @@ from apps.orchestrator.models import (
     MarketplaceContentGeneration,
     MarketplaceListingConfiguration,
 )
+from apps.orchestrator.serializers import (
+    MarketplaceContentGenerationApplyRequestSerializer,
+    MarketplaceContentGenerationRequestSerializer,
+    MarketplaceTargetSerializer,
+)
 from apps.orchestrator.tasks import generate_marketplace_content
 from apps.products.models import Product
 
@@ -30,14 +35,52 @@ SUCCESSFUL_AI_CONTENT = {
 }
 
 
+@pytest.mark.parametrize(
+    "marketplace,account",
+    [
+        ("ebay", "jv"),
+        ("ebay", "xl"),
+        ("otto", "depotum"),
+        ("hood", "depotum"),
+        ("kaufland", "depotum"),
+    ],
+)
+def test_ai_generation_rejects_unsupported_account_pairs(marketplace, account):
+    serializer = MarketplaceContentGenerationRequestSerializer(
+        data={"targets": [{"marketplace": marketplace, "account": account}]}
+    )
+    assert not serializer.is_valid()
+
+
+def test_ebay_depotum_target_is_supported_for_publication_and_content_apply():
+    target = {"marketplace": "ebay", "account": "depotum"}
+    serializer = MarketplaceTargetSerializer(data=target)
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data == target
+    assert MarketplaceContentGenerationApplyRequestSerializer(
+        data={"targets": [target]}
+    ).is_valid()
+
+
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "targets",
+    [
+        [
+            {"marketplace": "otto", "account": "jv"},
+            {"marketplace": "hood", "account": "jv"},
+        ],
+        [{"marketplace": "ebay", "account": "depotum"}],
+    ],
+)
 def test_manager_creates_ai_generation_and_queues_task(
     api_client,
     manager,
     seller,
     product_factory,
     django_capture_on_commit_callbacks,
+    targets,
 ):
     product = product_factory(
         owner=seller,
@@ -51,12 +94,7 @@ def test_manager_creates_ai_generation_and_queues_task(
     ):
         response = api_client.post(
             f"/api/v1/orchestrator/products/{product.id}/ai-content/generate/",
-            {
-                "targets": [
-                    {"marketplace": "otto", "account": "jv"},
-                    {"marketplace": "hood", "account": "jv"},
-                ]
-            },
+            {"targets": targets},
             format="json",
         )
 
@@ -67,10 +105,7 @@ def test_manager_creates_ai_generation_and_queues_task(
     assert generation.requested_by == manager
     assert generation.input_snapshot["product_id"] == product.id
     assert generation.input_snapshot["seller_title"] == product.title
-    assert generation.targets == [
-        {"marketplace": "otto", "account": "jv"},
-        {"marketplace": "hood", "account": "jv"},
-    ]
+    assert generation.targets == targets
     delay.assert_called_once_with(str(generation.id))
 
 
@@ -103,9 +138,17 @@ def test_seller_cannot_start_ai_generation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "target",
+    [
+        {"marketplace": "otto", "account": "jv"},
+        {"marketplace": "ebay", "account": "depotum"},
+    ],
+)
 def test_ai_task_saves_successful_universal_draft(
     manager,
     product_factory,
+    target,
 ):
     product = product_factory(
         owner=manager,
@@ -114,7 +157,7 @@ def test_ai_task_saves_successful_universal_draft(
     generation = MarketplaceContentGeneration.objects.create(
         product=product,
         requested_by=manager,
-        targets=[{"marketplace": "otto", "account": "jv"}],
+        targets=[target],
         input_snapshot={
             "product_id": product.id,
             "seller_title": product.title,

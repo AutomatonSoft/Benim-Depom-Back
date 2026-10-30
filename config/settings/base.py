@@ -498,6 +498,36 @@ EBAY_NOTIFICATION_VERIFICATION_TOKEN = env(
     "EBAY_NOTIFICATION_VERIFICATION_TOKEN", default=""
 )
 
+# Depotum policies belong to a seller and an environment, never to the frontend.
+_ebay_depotum_defaults = {
+    "sandbox": ("6263711000", "6263710000", "6263712000", "depotum-sandbox-de-88483"),
+    "production": (
+        "407159511023",
+        "14360268023",
+        "284233829023",
+        "warehub-dep-de-88483",
+    ),
+}.get(EBAY_ENVIRONMENT, ("", "", "", ""))
+EBAY_DEPOTUM_LISTING_DEFAULTS = {
+    field: env(variable, default=value)
+    for field, variable, value in zip(
+        (
+            "fulfillment_policy_id",
+            "payment_policy_id",
+            "return_policy_id",
+            "merchant_location_key",
+        ),
+        (
+            "EBAY_DEPOTUM_FULFILLMENT_POLICY_ID",
+            "EBAY_DEPOTUM_PAYMENT_POLICY_ID",
+            "EBAY_DEPOTUM_RETURN_POLICY_ID",
+            "EBAY_DEPOTUM_MERCHANT_LOCATION_KEY",
+        ),
+        _ebay_depotum_defaults,
+        strict=True,
+    )
+}
+
 KAUFLAND_API_BASE_URL = env(
     "KAUFLAND_API_BASE_URL",
     default="https://kl.automatonsoft.de",

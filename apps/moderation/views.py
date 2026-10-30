@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
@@ -63,6 +64,7 @@ ACTIVE_LISTING_CHANNELS = (
     (MarketplacePublication.Marketplace.OTTO, MarketplacePublication.Account.XL),
     (MarketplacePublication.Marketplace.KAUFLAND, MarketplacePublication.Account.XL),
     (MarketplacePublication.Marketplace.HOOD, MarketplacePublication.Account.XL),
+    (MarketplacePublication.Marketplace.EBAY, MarketplacePublication.Account.DEPOTUM),
 )
 
 
@@ -99,11 +101,15 @@ class ManagerDashboardView(APIView):
             total=Count("id"),
             today=Count("id", filter=Q(created_at__gte=today_start)),
         )
-        published = MarketplacePublication.objects.filter(
-            published_at__gte=today_start,
-        ).aggregate(
-            total=Count("id"),
-            marketplaces=Count("marketplace", distinct=True),
+        published = (
+            MarketplacePublication.objects.for_environment()
+            .filter(
+                published_at__gte=today_start,
+            )
+            .aggregate(
+                total=Count("id"),
+                marketplaces=Count("marketplace", distinct=True),
+            )
         )
         sellers = User.objects.filter(
             role=User.Role.SELLER,
@@ -115,7 +121,8 @@ class ManagerDashboardView(APIView):
         )
         listing_rows = {
             (row["marketplace"], row["account"]): row["total"]
-            for row in MarketplacePublication.objects.filter(
+            for row in MarketplacePublication.objects.for_environment()
+            .filter(
                 status=MarketplacePublication.Status.ACTIVE,
             )
             .values("marketplace", "account")
@@ -236,8 +243,18 @@ class ManagerProductListView(generics.ListAPIView):
             .annotate(
                 active_listing_count=Count(
                     "marketplace_publications",
-                    filter=Q(
-                        marketplace_publications__status=MarketplacePublication.Status.ACTIVE
+                    filter=(
+                        Q(
+                            marketplace_publications__status=MarketplacePublication.Status.ACTIVE
+                        )
+                        & (
+                            ~Q(
+                                marketplace_publications__marketplace=MarketplacePublication.Marketplace.EBAY
+                            )
+                            | Q(
+                                marketplace_publications__environment=settings.EBAY_ENVIRONMENT
+                            )
+                        )
                     ),
                     distinct=True,
                 )

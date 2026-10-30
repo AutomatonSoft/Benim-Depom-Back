@@ -3,7 +3,8 @@ from urllib.parse import quote
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -141,6 +142,9 @@ class EbayDraftSerializer(serializers.ModelSerializer):
     marketplace_id = serializers.CharField(read_only=True, default="EBAY_DE")
     missing_requirements = serializers.SerializerMethodField()
     regulatory = serializers.JSONField(required=False)
+    sync_product = serializers.BooleanField(
+        write_only=True, required=False, default=False
+    )
 
     class Meta:
         model = EbayDraft
@@ -166,6 +170,7 @@ class EbayDraftSerializer(serializers.ModelSerializer):
             "return_policy_id",
             "merchant_location_key",
             "regulatory",
+            "sync_product",
             "missing_requirements",
             "created_at",
             "updated_at",
@@ -204,6 +209,17 @@ class EbayDraftSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """Проверяет изменённые ссылки eBay, категорию и характеристики черновика."""
+        sync_product = attrs.pop("sync_product", False)
+        if sync_product:
+            if self.context.get("account") != "depotum":
+                raise serializers.ValidationError(
+                    "Product sync is available only for Depotum."
+                )
+            from .manager import manager_draft_values
+
+            attrs = manager_draft_values(
+                self.context["product"], draft=self.instance, values=attrs
+            )
         changed_settings = {
             field: attrs[field]
             for field in LISTING_SETTINGS_FIELDS
@@ -299,10 +315,26 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
             "account": self.account,
         }
 
-    @extend_schema(responses={200: EbayDraftSerializer}, tags=["eBay"])
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "preview",
+                bool,
+                description="Return outgoing Inventory Item and Offer payloads without sending them.",
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["eBay"],
+    )
     def get(self, request, product_id):
         """Возвращает сохранённый черновик или 404, не создавая запись при чтении."""
         draft = get_object_or_404(EbayDraft, **self._scope(product_id))
+        if request.query_params.get("preview") in {"1", "true"}:
+            from .preview import build_draft_preview
+
+            response = Response(build_draft_preview(draft))
+            response["Cache-Control"] = "no-store"
+            return response
         return Response(EbayDraftSerializer(draft).data)
 
     @transaction.atomic
@@ -322,7 +354,10 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
         if partial and draft is None:
             raise NotFound("Create the eBay draft with PUT first.")
         serializer = EbayDraftSerializer(
-            draft, data=request.data, partial=partial, context={"account": self.account}
+            draft,
+            data=request.data,
+            partial=partial,
+            context={"account": self.account, "product": scope["product"]},
         )
         serializer.is_valid(raise_exception=True)
         created = draft is None

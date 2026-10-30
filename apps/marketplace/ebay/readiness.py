@@ -10,6 +10,10 @@ from .client import EbayAPIError, get_seller_resource
 from .services import get_access_token
 
 MARKETPLACE = "EBAY_DE"
+SANDBOX_REGISTRATION_WARNING = (
+    "eBay Sandbox reports incomplete seller registration; "
+    "eBay will validate eligibility when publishing."
+)
 POLICIES = (
     ("fulfillment", "fulfillmentPolicies", "fulfillmentPolicyId"),
     ("payment", "paymentPolicies", "paymentPolicyId"),
@@ -77,6 +81,7 @@ def check_seller_readiness(*, account):
     deadline = monotonic() + 45
     errors = {}
     missing = []
+    warnings = []
     result = {
         "account": account,
         "environment": settings.EBAY_ENVIRONMENT,
@@ -111,7 +116,10 @@ def check_seller_readiness(*, account):
             result["seller_registration_completed"] = registered
             result["selling_limit"] = limit
             if not registered:
-                missing.append("seller_registration")
+                if settings.EBAY_ENVIRONMENT == "sandbox":
+                    warnings.append(SANDBOX_REGISTRATION_WARNING)
+                else:
+                    missing.append("seller_registration")
         except EbayAPIError as error:
             errors["privileges"] = str(error.detail)
 
@@ -171,6 +179,7 @@ def check_seller_readiness(*, account):
         checks_complete=not errors,
         ready_for_listing_setup=not errors and not missing,
         missing_requirements=missing,
+        warnings=warnings,
         errors=errors,
     )
     return result

@@ -2,15 +2,17 @@ import json
 import os
 from copy import deepcopy
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from django.conf import settings
 from django.core.cache import cache
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
-from apps.marketplace.ebay import catalog
+from apps.marketplace.ebay import catalog, localization
 from apps.marketplace.ebay.catalog_views import (
     EbayCategoriesView,
     EbayCategoryAspectsView,
@@ -98,6 +100,173 @@ def test_catalog_navigation_aspects_and_cache(catalog_api):
     )
 
 
+def test_furniture_catalog_translations_cover_categories_aspects_and_options():
+    data_dir = Path(settings.BASE_DIR) / "data" / "ebay"
+    categories = json.loads(
+        (data_dir / "sandbox" / "categories.json").read_text(encoding="utf-8")
+    )
+    category_names = set()
+
+    def collect_categories(node):
+        category = node.get("category", {})
+        if category.get("categoryName"):
+            category_names.add(category["categoryName"])
+        for child in node.get("childCategoryTreeNodes", []):
+            collect_categories(child)
+
+    collect_categories(categories["rootCategoryNode"])
+    aspect_schemas = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (data_dir / "sandbox" / "aspects").glob("*.json")
+    ]
+    untranslated_by_design = {
+        "Marke",
+        "Produktlinie",
+        "Modell",
+        "Charakter",
+        "Charakter Familie",
+        "Smart Home Kompatibilit\u00e4t",
+    }
+    untranslated_values = {
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "Bluetooth",
+        "Disney",
+        "FC Arsenal",
+        "FC Barcelona",
+        "Hawaii",
+        "Insteon",
+        "JDM",
+        "Justin Bieber",
+        "Kylie Minogue",
+        "Michigan",
+        "NBA",
+        "Powerline/UPB",
+        "Pulp Fiction",
+        "Rosie's Diner",
+        "Rosina Wachtmeister",
+        "Salvador Dal\u00ed",
+        "Suspiria",
+        "Tetris",
+        "Thread",
+        "Vespa",
+        "WWE",
+        "X10",
+        "Z-Wave",
+        "ZigBee",
+    }
+    color_examples = {
+        "ru": {
+            "Lila": "\u0424\u0438\u043e\u043b\u0435\u0442\u043e\u0432\u044b\u0439",
+            "Rosa": "\u0420\u043e\u0437\u043e\u0432\u044b\u0439",
+            "Silber": "\u0421\u0435\u0440\u0435\u0431\u0440\u0438\u0441\u0442\u044b\u0439",
+            "Transparent": "\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u044b\u0439",
+        },
+        "en": {
+            "Lila": "Purple",
+            "Rosa": "Pink",
+            "Silber": "Silver",
+            "Transparent": "Transparent",
+        },
+        "tr": {
+            "Lila": "Mor",
+            "Rosa": "Pembe",
+            "Silber": "G\u00fcm\u00fc\u015f",
+            "Transparent": "\u015eeffaf",
+        },
+    }
+    wlan_examples = {"ru": "Wi-Fi", "en": "Wi-Fi", "tr": "Kablosuz a\u011f"}
+    for language in ("ru", "en", "tr"):
+        labels = json.loads(
+            (data_dir / "translations" / f"{language}.json").read_text(encoding="utf-8")
+        )["labels"]
+        assert all(
+            labels[key] == value for key, value in color_examples[language].items()
+        )
+        assert labels["WLAN"] == wlan_examples[language]
+        assert category_names <= labels.keys()
+        catalog_payload = {
+            "categories": [{"name": "Sofas & Sessel"}],
+            "aspects": [
+                {
+                    "localizedAspectName": "Farbe",
+                    "aspectValues": [
+                        {"localizedValue": value} for value in color_examples[language]
+                    ],
+                }
+            ],
+        }
+        localized = localization.localize_catalog(catalog_payload, language)
+        assert localized["categories"][0]["label"] == labels["Sofas & Sessel"]
+        assert {
+            item["localizedValue"]: item["label"]
+            for item in localized["aspects"][0]["aspectValues"]
+        } == color_examples[language]
+        assert catalog_payload["aspects"][0]["aspectValues"] == [
+            {"localizedValue": value} for value in color_examples[language]
+        ]
+        for schema in aspect_schemas:
+            for aspect in schema["aspects"]:
+                name = aspect["localizedAspectName"]
+                assert name in labels
+                if name in untranslated_by_design:
+                    continue
+                for option in aspect.get("aspectValues", []):
+                    value = option["localizedValue"]
+                    if value[
+                        :1
+                    ].isdigit():  # dimensions, years and numeric codes stay unchanged
+                        continue
+                    if value in untranslated_values:  # proper names stay canonical
+                        continue
+                    assert value in labels, (language, name, value)
+
+
+def test_catalog_labels_refresh_when_translation_file_changes(tmp_path, monkeypatch):
+    translations = tmp_path / "data" / "ebay" / "translations"
+    translations.mkdir(parents=True)
+    path = translations / "ru.json"
+    monkeypatch.setattr(settings, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(
+        localization,
+        "get_otto_catalog",
+        lambda: (_ for _ in ()).throw(localization.OttoCatalogError("missing")),
+    )
+    path.write_text(
+        '{"language":"ru","labels":{"Lila":"\\u0424\\u0438\\u043e\\u043b\\u0435\\u0442\\u043e\\u0432\\u044b\\u0439"}}'
+    )
+    payload = {
+        "aspects": [
+            {
+                "localizedAspectName": "Farbe",
+                "aspectValues": [{"localizedValue": "Lila"}],
+            }
+        ]
+    }
+    assert (
+        localization.localize_catalog(payload, "ru")["aspects"][0]["aspectValues"][0][
+            "label"
+        ]
+        == "\u0424\u0438\u043e\u043b\u0435\u0442\u043e\u0432\u044b\u0439"
+    )
+    stat = path.stat()
+    path.write_text(
+        '{"language":"ru","labels":{"Lila":"\\u041b\\u0438\\u043b\\u043e\\u0432\\u044b\\u0439 \\u043e\\u0442\\u0442\\u0435\\u043d\\u043e\\u043a"}}'
+    )
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert (
+        localization.localize_catalog(payload, "ru")["aspects"][0]["aspectValues"][0][
+            "label"
+        ]
+        == "\u041b\u0438\u043b\u043e\u0432\u044b\u0439 \u043e\u0442\u0442\u0435\u043d\u043e\u043a"
+    )
+
+
 def test_catalog_cache_is_separate_for_environment_and_client(catalog_api, settings):
     """Не позволяет использовать дерево и токен другого окружения или приложения."""
     catalog.get_categories()
@@ -170,6 +339,62 @@ def test_readiness_accepts_ebay_non_motor_policy():
         "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
     }
     assert _policy_summary(policy, "fulfillmentPolicyId")["applicable_to_furniture"]
+
+
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+def test_readiness_registration_warning_is_sandbox_only(
+    settings, monkeypatch, environment
+):
+    from apps.marketplace.ebay import readiness
+    from apps.marketplace.ebay.views import EbayReadinessView
+
+    settings.EBAY_ENVIRONMENT = environment
+    monkeypatch.setattr(readiness, "get_access_token", lambda **kwargs: "test-token")
+    monkeypatch.setattr(readiness, "build_marketplace_session", MagicMock())
+    resources = {
+        "/sell/account/v1/privilege": {"sellerRegistrationCompleted": False},
+        "/sell/account/v1/program/get_opted_in_programs": {
+            "programs": [{"programType": "SELLING_POLICY_MANAGEMENT"}]
+        },
+        "/sell/inventory/v1/location": {
+            "locations": [
+                {
+                    "merchantLocationKey": "test-warehouse",
+                    "merchantLocationStatus": "ENABLED",
+                    "locationTypes": ["WAREHOUSE"],
+                    "location": {"address": {"country": "DE", "postalCode": "88483"}},
+                }
+            ]
+        },
+    }
+    for kind, response_key, id_field in readiness.POLICIES:
+        resources[f"/sell/account/v1/{kind}_policy"] = {
+            response_key: [
+                {
+                    id_field: "123",
+                    "name": "Test policy",
+                    "marketplaceId": "EBAY_DE",
+                    "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                }
+            ]
+        }
+    monkeypatch.setattr(
+        readiness, "get_seller_resource", lambda **kwargs: resources[kwargs["path"]]
+    )
+    request = APIRequestFactory().get("/", {"account": "depotum"})
+    force_authenticate(
+        request,
+        user=SimpleNamespace(is_authenticated=True, is_superuser=False, role="manager"),
+    )
+    response = EbayReadinessView.as_view()(request)
+    assert response.status_code == 200
+    assert response.data["seller_registration_completed"] is False
+    assert response.data["checks_complete"] is True
+    assert response.data["ready_for_listing_setup"] is (environment == "sandbox")
+    assert response.data["missing_requirements"] == (
+        [] if environment == "sandbox" else ["seller_registration"]
+    )
+    assert bool(response.data["warnings"]) is (environment == "sandbox")
 
 
 @pytest.fixture
@@ -642,6 +867,57 @@ def preview_draft(settings):
     )
 
 
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+@pytest.mark.parametrize("title", ["Schwarzes Sofa", ""])
+def test_draft_payload_preview_is_read_only(
+    preview_draft, settings, monkeypatch, environment, title
+):
+    from django.contrib.auth import get_user_model
+
+    from apps.marketplace.ebay import drafts
+
+    settings.EBAY_ENVIRONMENT = environment
+    settings.CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+    preview_draft.environment = environment
+    preview_draft.title = title
+    preview_draft.save = MagicMock()
+
+    def get_object(model, **scope):
+        if model is EbayDraft:
+            assert scope == {
+                "product": preview_draft.product,
+                "account": "depotum",
+                "environment": environment,
+            }
+            return preview_draft
+        assert scope == {"pk": preview_draft.product_id}
+        return preview_draft.product
+
+    monkeypatch.setattr(drafts, "get_object_or_404", get_object)
+    network = MagicMock(side_effect=AssertionError("Preview must not contact eBay."))
+    monkeypatch.setattr("requests.sessions.Session.request", network)
+    request = APIRequestFactory().get("/draft/", {"preview": "1"})
+    force_authenticate(request, user=get_user_model()(pk=1, role="manager"))
+    response = drafts.EbayDraftView.as_view(account="depotum")(
+        request, product_id=preview_draft.product_id
+    )
+    assert response.status_code == 200
+    assert response["Cache-Control"] == "no-store"
+    assert response.data["preview_only"] is True
+    assert response.data["environment"] == environment
+    assert response.data["draft_complete"] is bool(title)
+    assert response.data["inventory_item"]["body"]["product"]["aspects"] == {
+        "Farbe": ["Schwarz"]
+    }
+    assert (
+        response.data["offer"]["body"]["pricingSummary"]["price"]["value"] == "7049.00"
+    )
+    preview_draft.save.assert_not_called()
+    network.assert_not_called()
+
+
 def test_preview_builds_inventory_item_and_offer(preview_draft):
     """Проверяет NEW, цену, фото, характеристики и совпадение SKU с существующим JV EAN."""
     from apps.marketplace.ebay.description import render_listing_description
@@ -736,8 +1012,12 @@ def test_listing_html_gallery_and_plain_inventory_description(preview_draft):
         result["inventory_item"]["body"]["product"]["description"]
         == preview_draft.description
     )
-    assert 'href="#dep-img-2"' in html
-    assert "#dep-img-2:target~.dep-main .dep-slide-2{display:block}" in html
+    assert 'for="dep-img-2"' in html
+    assert "#dep-img-2:checked~.dep-main .dep-slide-2{display:block}" in html
+    assert 'href="#dep-img-' not in html
+    assert 'width="1042" height="6717"' in html
+    assert 'loading="lazy"' not in html
+    assert html.startswith("<!doctype html>")
     assert 'src="https://example.com/interior.jpg"' in html
     assert 'id="dep-details"' in html
     assert 'id="dep-colors"' in html
@@ -1864,10 +2144,24 @@ def test_publish_image_check_refuses_private_dns(settings, monkeypatch):
     session.head.assert_not_called()
 
 
-def test_publish_blocks_incomplete_seller_registration(publish_api, monkeypatch):
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+def test_publish_registration_warning_is_sandbox_only(
+    publish_api, monkeypatch, settings, environment
+):
     from apps.marketplace.ebay import publishing
+    from apps.marketplace.ebay.models import EbayOfferPreparation
+    from apps.marketplace.ebay.preparation import _payload_hash
+    from apps.marketplace.ebay.preview import build_draft_preview
 
     api = publish_api
+    settings.EBAY_ENVIRONMENT = environment
+    api.draft.environment = environment
+    api.draft.save(update_fields=["environment"])
+    api.fingerprint = _payload_hash(build_draft_preview(api.draft))
+    api.confirmation["preview_hash"] = api.fingerprint
+    EbayOfferPreparation.objects.update(
+        environment=environment, payload_hash=api.fingerprint
+    )
     monkeypatch.setattr(
         publishing,
         "get_seller_resource",
@@ -1875,13 +2169,50 @@ def test_publish_blocks_incomplete_seller_registration(publish_api, monkeypatch)
     )
     response = api.client.get(api.publish_url)
     assert response.status_code == 200
-    assert response.data["ready"] is False
-    assert "Seller registration" in str(response.data["blocking_reasons"])
-    api.session.request.assert_not_called()
+    assert response.data["ready"] is (environment == "sandbox")
+    assert bool(response.data["warnings"]) is (environment == "sandbox")
+    if environment == "production":
+        assert "Seller registration" in str(response.data["blocking_reasons"])
+        api.session.request.assert_not_called()
+
+    api.session.request.reset_mock()
+    api.session.request.side_effect = api.publish_replies()
+    response = api.client.post(api.publish_url, api.confirmation, format="json")
+    assert response.status_code == (200 if environment == "sandbox" else 400)
+    if environment == "sandbox":
+        assert response.data["listing_id"] == "123456789012"
+    else:
+        api.session.request.assert_not_called()
 
 
-def test_publish_checks_image_failure_never_sends_publish(publish_api):
+@pytest.mark.parametrize("registered", [None, "false", 0])
+def test_publish_rejects_invalid_registration_status_even_in_sandbox(
+    publish_api, monkeypatch, registered
+):
+    from apps.marketplace.ebay import publishing
+
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": registered},
+    )
+    response = publish_api.client.get(publish_api.publish_url)
+    assert response.status_code == 502
+    publish_api.session.request.assert_not_called()
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_publish_checks_image_failure_never_sends_publish(
+    publish_api, monkeypatch, registered
+):
+    from apps.marketplace.ebay import publishing
+
     api = publish_api
+    monkeypatch.setattr(
+        publishing,
+        "get_seller_resource",
+        lambda **kwargs: {"sellerRegistrationCompleted": registered},
+    )
     api.images.side_effect = ValidationError("Image is unavailable.")
     response = api.client.post(api.publish_url, api.confirmation, format="json")
     assert response.status_code == 400

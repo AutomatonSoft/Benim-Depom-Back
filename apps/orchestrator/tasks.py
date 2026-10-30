@@ -143,6 +143,7 @@ def extract_external_id(
         "hood": ("item_id", "itemID", "id"),
         "otto": ("id", "sku", "productId"),
         "kaufland": ("id", "product_id", "productId"),
+        "ebay": ("listingId", "listing_id"),
     }
 
     for key in possible_keys.get(marketplace, ()):
@@ -523,6 +524,10 @@ def get_targets_for_job(job: MarketplaceJob) -> list[dict[str, str]]:
     for marketplace in job.requested_channels:
         selected_account = accounts.get(marketplace)
 
+        if marketplace == "ebay":
+            result.append({"marketplace": "ebay", "account": "depotum"})
+            continue
+
         if selected_account:
             result.append(
                 {
@@ -543,7 +548,7 @@ def get_targets_for_job(job: MarketplaceJob) -> list[dict[str, str]]:
 
 
 def get_product_ean(*, product, account: str) -> str:
-    if account == "jv":
+    if account in {"jv", "depotum"}:
         return product.ean_jv.strip()
 
     if account == "xl":
@@ -836,6 +841,12 @@ def execute_marketplace_job(self, job_id: str) -> None:
         publication = None
         ean_consumed = False
         try:
+            if (
+                marketplace == "ebay"
+                and job.request_payload.get("ebay_environment")
+                != settings.EBAY_ENVIRONMENT
+            ):
+                raise ValueError("eBay job environment does not match this worker.")
             ean = get_product_ean(
                 product=job.product,
                 account=account,
@@ -855,7 +866,11 @@ def execute_marketplace_job(self, job_id: str) -> None:
                     request_payload=payload,
                 )
 
-            if marketplace == "hood":
+            if marketplace == "ebay":
+                from apps.marketplace.ebay.orchestration import execute as execute_ebay
+
+                result = execute_ebay(product=job.product, operation=job.operation)
+            elif marketplace == "hood":
                 result = execute_hood(
                     product=job.product,
                     operation=job.operation,
@@ -905,13 +920,12 @@ def execute_marketplace_job(self, job_id: str) -> None:
                         )
                     )
 
-                    if (
-                        job.operation == MarketplaceJob.Operation.PUBLISH
-                        and first_successful_publication
+                    if job.operation == MarketplaceJob.Operation.PUBLISH and (
+                        first_successful_publication or marketplace == "ebay"
                     ):
                         ean_consumed = consume_ean_code(
                             product=job.product,
-                            account=account,
+                            account="jv" if marketplace == "ebay" else account,
                         )
             else:
                 publication = mark_publication_failed(
@@ -1644,6 +1658,9 @@ def generate_marketplace_content(
         service = OpenAITextService()
         request = build_universal_content_request(
             product_snapshot=generation.input_snapshot,
+            include_ebay=any(
+                target.get("marketplace") == "ebay" for target in generation.targets
+            ),
         )
         image_data_url = _primary_product_image_data_url(generation.product_id)
         ai_result = service.generate_json(

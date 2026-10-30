@@ -1,11 +1,17 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+html,body{margin:0;padding:0;height:auto;min-height:0;overflow:visible}
 .dep-listing{max-width:1200px;margin:0 auto;padding:20px 16px;background:#fafafa;color:#202020;font:16px/1.6 Arial,sans-serif;overflow-wrap:anywhere}
 .dep-listing *{box-sizing:border-box}
 .dep-listing .dep-card{margin-bottom:18px;padding:24px;border:1px solid #e6e6e6;border-radius:18px;background:#fff;box-shadow:0 6px 22px #0000000a}
 .dep-listing .dep-company-header{padding:14px 0 22px;margin-bottom:24px;border-bottom:1px solid #e6e6e6}
-.dep-listing .dep-company-header img{display:block;width:100%;max-height:320px;object-fit:contain;border-radius:12px}
+.dep-listing .dep-company-header img{display:block;width:100%;height:auto;max-height:320px;object-fit:contain;border-radius:12px}
 .dep-listing .dep-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;align-items:start}
-.dep-listing .dep-sidebar{position:sticky;top:16px;padding:14px}
+.dep-listing .dep-sidebar{padding:14px}
 .dep-listing .dep-sidebar img{display:block;width:100%;height:auto;border-radius:12px}
 .dep-listing .dep-content{min-width:0}
 .dep-listing .dep-company-footer img{display:block;width:100%;height:auto;border-radius:12px}
@@ -14,18 +20,18 @@
 .dep-listing p{margin:0 0 12px}.dep-listing p:last-child{margin-bottom:0}
 .dep-listing .dep-meta{font-size:14px;color:#666}
 .dep-listing .dep-gallery{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:16px;position:relative}
-.dep-listing .dep-anchor{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden}
+.dep-listing .dep-gallery-input{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
 .dep-listing .dep-main{min-width:0;border:1px solid #eee;border-radius:14px;overflow:hidden}
-.dep-listing .dep-slide{display:none}.dep-listing .dep-slide:first-child{display:block}
+.dep-listing .dep-slide{display:none}
 .dep-listing .dep-main img{display:block;width:100%;height:600px;object-fit:contain;background:#fff}
 .dep-listing .dep-thumbs{display:flex;flex-direction:column;gap:12px;max-height:600px;overflow:auto;padding:2px 8px 2px 2px}
-.dep-listing .dep-thumb{display:block;flex-shrink:0;border:1px solid #ddd;border-radius:12px;overflow:hidden}
+.dep-listing .dep-thumb{display:block;cursor:pointer;flex-shrink:0;border:1px solid #ddd;border-radius:12px;overflow:hidden}
 .dep-listing .dep-thumb:hover,.dep-listing .dep-thumb:focus-visible{outline:2px solid #111;outline-offset:1px}
 .dep-listing .dep-thumb img{display:block;width:100%;height:95px;object-fit:contain;background:#fff}
-{% for image in images %}{% if not forloop.first %}
-.dep-listing #dep-img-{{ forloop.counter }}:target~.dep-main .dep-slide:first-child{display:none}
-.dep-listing #dep-img-{{ forloop.counter }}:target~.dep-main .dep-slide-{{ forloop.counter }}{display:block}
-{% endif %}{% endfor %}
+{% for image in images %}
+.dep-listing #dep-img-{{ forloop.counter }}:checked~.dep-main .dep-slide-{{ forloop.counter }}{display:block}
+.dep-listing #dep-img-{{ forloop.counter }}:focus-visible~.dep-thumbs label[for=dep-img-{{ forloop.counter }}]{outline:2px solid #111}
+{% endfor %}
 .dep-listing .dep-tab-input{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
 .dep-listing .dep-tabs{position:relative}
 .dep-listing .dep-tab-nav{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid #e6e6e6}
@@ -39,10 +45,12 @@
 @media(max-width:992px){.dep-listing .dep-layout{grid-template-columns:minmax(0,1fr)}.dep-listing .dep-sidebar{position:static;order:2;max-width:310px;justify-self:center}.dep-listing .dep-content{order:1}}
 @media(max-width:700px){.dep-listing{padding:10px;font-size:15px}.dep-listing .dep-card{padding:16px}.dep-listing h1{font-size:22px}.dep-listing .dep-gallery{grid-template-columns:minmax(0,1fr)}.dep-listing .dep-main img{height:340px}.dep-listing .dep-thumbs{flex-direction:row;max-height:none;overflow-x:auto}.dep-listing .dep-thumb{width:88px}.dep-listing .dep-thumb img{height:70px}.dep-listing .dep-tab-nav label{padding:9px 12px;font-size:14px}}
 </style>
+</head>
+<body>
 <div class="dep-listing" lang="de">
-  <div class="dep-company-header"><img src="https://productron.de/AfterbuyWebTag/webtag1_jv_10122.png" alt="JV Möbel — la design"></div>
+  <div class="dep-company-header"><img src="https://productron.de/AfterbuyWebTag/webtag1_jv_10122.png" width="1600" height="471" alt="JV Möbel — la design"></div>
   <div class="dep-layout">
-  <aside class="dep-card dep-sidebar" aria-label="Unser Unternehmen"><img src="https://productron.de/AfterbuyWebTag/webtag2_jv_women21321.png" alt="JV Möbel — Geschäft, Service und Unternehmensinformationen" loading="lazy"></aside>
+  <aside class="dep-card dep-sidebar" aria-label="Unser Unternehmen"><img src="https://productron.de/AfterbuyWebTag/webtag2_jv_women21321.png" width="1042" height="6717" alt="JV Möbel — Geschäft, Service und Unternehmensinformationen"></aside>
   <div class="dep-content">
   <header class="dep-card">
     <h1>{{ title }}</h1>
@@ -51,12 +59,12 @@
   {% if images %}
   <section class="dep-card" aria-label="Produktbilder">
     <div class="dep-gallery">
-      {% for image in images %}<span id="dep-img-{{ forloop.counter }}" class="dep-anchor" aria-hidden="true"></span>{% endfor %}
+      {% for image in images %}<input type="radio" name="dep-gallery" id="dep-img-{{ forloop.counter }}" class="dep-gallery-input" aria-label="Bild {{ forloop.counter }}"{% if forloop.first %} checked{% endif %}>{% endfor %}
       <div class="dep-main">
         {% for image in images %}<div class="dep-slide dep-slide-{{ forloop.counter }}"><img src="{{ image }}" alt="{{ title }} — Bild {{ forloop.counter }}"></div>{% endfor %}
       </div>
       <nav class="dep-thumbs" aria-label="Bild auswählen">
-        {% for image in images %}<a class="dep-thumb" href="#dep-img-{{ forloop.counter }}" aria-label="Bild {{ forloop.counter }} anzeigen"><img src="{{ image }}" alt="Vorschau {{ forloop.counter }}" loading="lazy"></a>{% endfor %}
+        {% for image in images %}<label class="dep-thumb" for="dep-img-{{ forloop.counter }}" aria-label="Bild {{ forloop.counter }} anzeigen"><img src="{{ image }}" alt="Vorschau {{ forloop.counter }}"></label>{% endfor %}
       </nav>
     </div>
   </section>
@@ -98,5 +106,7 @@
   </section>
   </div>
   </div>
-  <footer class="dep-company-footer"><img src="https://productron.de/AfterbuyWebTag/webtag3_jv_3330.png" alt="JV Möbel — Unternehmensbanner" loading="lazy"></footer>
+  <footer class="dep-company-footer"><img src="https://productron.de/AfterbuyWebTag/webtag3_jv_3330.png" width="1600" height="471" alt="JV Möbel — Unternehmensbanner"></footer>
 </div>
+</body>
+</html>

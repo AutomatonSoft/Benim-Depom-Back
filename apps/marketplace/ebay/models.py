@@ -118,6 +118,7 @@ class EbayOfferPreparation(models.Model):
     inventory_confirmed = models.BooleanField(default=False)
     offer_id = models.CharField(max_length=64, blank=True)
     listing_id = models.CharField(max_length=64, blank=True)
+    listing_id_history = models.JSONField(default=list, blank=True)
     last_error = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
