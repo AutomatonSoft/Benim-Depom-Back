@@ -1,6 +1,7 @@
 import pytest
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from apps.products.models import Product
 from apps.products.serializers import (
     MultipartJSONListField,
     OptionalSetPartsMultipartField,
@@ -22,6 +23,45 @@ def valid_variant(**overrides):
     }
     data.update(overrides)
     return data
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["", "   ", "ab", "a" * 201, None])
+def test_product_model_rejects_invalid_value_on_edit(value):
+    serializer = ProductSerializer(
+        instance=Product(), data={"model": value}, partial=True
+    )
+    assert not serializer.is_valid()
+    assert "model" in serializer.errors
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["abc", "a" * 200, "  Monza 42  "])
+def test_product_model_accepts_and_trims_value(value):
+    serializer = ProductSerializer(
+        instance=Product(), data={"model": value}, partial=True
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["model"] == value.strip()
+
+
+@pytest.mark.unit
+def test_product_model_is_required_on_create_but_optional_on_edit():
+    payload = {
+        "title": "Chair",
+        "product_type": "Chair",
+        "unit_price": "10.00",
+        "warehouse_city": "INE",
+        "variants": [valid_variant()],
+    }
+    serializer = ProductSerializer(data=payload)
+    assert not serializer.is_valid()
+    assert "model" in serializer.errors
+    serializer = ProductSerializer(data={**payload, "model": "Chair 100"})
+    assert serializer.is_valid(), serializer.errors
+    serializer = ProductSerializer(instance=Product(), data={}, partial=True)
+    assert serializer.is_valid(), serializer.errors
+    assert "model" not in serializer.validated_data
 
 
 @pytest.mark.unit

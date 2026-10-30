@@ -14,6 +14,7 @@ from apps.products.models import Product
 def product_payload():
     return {
         "title": "Idempotent chair",
+        "model": "Chair 100",
         "product_type": "Dining chair",
         "unit_price": "299.00",
         "currency": "EUR",

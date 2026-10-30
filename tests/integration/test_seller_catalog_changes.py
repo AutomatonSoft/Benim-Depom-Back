@@ -65,13 +65,15 @@ def test_seller_approved_patch_is_pending_until_manager_approves(
     authenticate(api_client, seller)
     response = api_client.patch(
         f"/api/v1/products/{product.id}/",
-        {"title": "New title"},
+        {"title": "New title", "model": "Chair 100"},
         format="json",
     )
     assert response.status_code == 200
     product.refresh_from_db()
     assert product.title == "Old"
     assert product.pending_changes["title"] == "New title"
+    assert product.model == ""
+    assert product.pending_changes["model"] == "Chair 100"
     assert Notification.objects.filter(
         notification_type=Notification.Type.PRODUCT_CHANGE_REQUESTED,
         product=product,
@@ -91,6 +93,7 @@ def test_seller_approved_patch_is_pending_until_manager_approves(
     assert approved.status_code == 200
     product.refresh_from_db()
     assert product.title == "New title"
+    assert product.model == "Chair 100"
     assert product.pending_changes == {}
     assert approved.data["marketplace_job"] is None
     assert Notification.objects.filter(

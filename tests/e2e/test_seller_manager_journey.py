@@ -51,6 +51,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
         "/api/v1/products/",
         {
             "title": "Journey chair",
+            "model": "Chair 100",
             "product_type": "Chair",
             "unit_price": "1000.00",
             "currency": "TRY",
@@ -163,6 +164,7 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
         "/api/v1/products/",
         {
             "title": "Wrong table",
+            "model": "Table 100",
             "product_type": "Table",
             "unit_price": "1000.00",
             "currency": "TRY",
