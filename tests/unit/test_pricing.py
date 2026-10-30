@@ -19,7 +19,9 @@ def test_round_example_from_formula():
 
 @pytest.mark.unit
 def test_percent_factor_matches_catalog_defaults():
-    assert percent_factor(get_pricing_catalog()) == Decimal("2.13")
+    catalog = get_pricing_catalog()
+    assert Decimal(str(catalog["margin"])) == Decimal("1.67")
+    assert percent_factor(catalog) == Decimal("3.05")
 
 
 @pytest.mark.unit

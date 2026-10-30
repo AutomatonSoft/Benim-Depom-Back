@@ -332,7 +332,7 @@ class MarketplaceContentGenerationEditRequestSerializer(serializers.Serializer):
 
     title = serializers.CharField(
         max_length=65,
-        help_text="German marketplace title, maximum 65 characters. (BD) is added on publish.",
+        help_text="German marketplace title, maximum 65 characters. BD is added on publish.",
     )
     ebay_title = serializers.CharField(max_length=75, required=False)
     description = serializers.CharField(
@@ -514,7 +514,7 @@ class OttoListingConfigurationSerializer(
         max_length=70,
         required=False,
         allow_blank=True,
-        help_text="German product name / product line (max 70 characters, including (BD)).",
+        help_text="German product name / product line (max 70 characters, including BD).",
     )
     standard_price = serializers.DecimalField(
         max_digits=12,

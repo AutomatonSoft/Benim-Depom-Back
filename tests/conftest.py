@@ -40,6 +40,11 @@ def api_client():
     return APIClient()
 
 
+@pytest.fixture(autouse=True)
+def isolated_product_photo_storage(settings, tmp_path):
+    settings.PRODUCT_IMAGE_STAGING_ROOT = tmp_path / "product-photos"
+
+
 @pytest.fixture
 def password():
     return "N7$kP4mQ2#zL"
@@ -50,11 +55,13 @@ def user_factory(db, password):
     sequence = count(1)
 
     def create(*, role=User.Role.SELLER, username=None, **kwargs):
-        username = username or f"user_{next(sequence)}"
+        user_number = next(sequence)
+        username = username or f"user_{user_number}"
         email = kwargs.pop("email", f"{username}@example.com")
         return User.objects.create_user(
             username=username,
             email=email,
+            phone=kwargs.pop("phone", f"+90555{user_number:07d}"),
             password=kwargs.pop("password", password),
             role=role,
             is_email_verified=kwargs.pop("is_email_verified", True),

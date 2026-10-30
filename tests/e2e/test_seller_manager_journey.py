@@ -6,6 +6,7 @@ from apps.accounts.models import User
 from apps.accounts.services import issue_email_verification_code
 from apps.ean.models import EanCode
 from apps.notifications.models import Notification
+from apps.products.media_uploads import transfer_photos
 from apps.products.models import Product
 
 
@@ -20,7 +21,10 @@ def test_seller_to_manager_approval_and_deactivation_journey(
 ):
     registration = {
         "username": "journey_seller",
+        "first_name": "Alihan",
+        "last_name": "Bulkair",
         "email": "journey_seller@example.com",
+        "phone": "+905551234567",
         "password": password,
         "password_confirm": password,
         "preferred_language": "ru",
@@ -72,6 +76,8 @@ def test_seller_to_manager_approval_and_deactivation_journey(
     assert create.status_code == 201
     product_id = create.data["id"]
     assert create.data["status"] == Product.Status.SUBMITTED
+    transfer_photos(product_id)
+    assert Product.objects.get(pk=product_id).status == Product.Status.SUBMITTED
 
     manager = User.objects.create_user(
         username="journey_manager",
@@ -115,7 +121,7 @@ def test_seller_to_manager_approval_and_deactivation_journey(
 
     seller_login = api_client.post(
         "/api/v1/auth/login/",
-        {"email": "journey_seller@example.com", "password": password},
+        {"email": seller.email, "password": password},
         format="json",
     )
     bearer(api_client, seller_login.data["access"])
@@ -144,6 +150,7 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
     user = User.objects.create_user(
         username="withdraw_seller",
         email="withdraw_seller@example.com",
+        phone="+905559999999",
         password=password,
     )
     login = api_client.post(
@@ -181,6 +188,8 @@ def test_seller_can_withdraw_before_manager_approval(api_client, image_file, pas
     product_id = create.data["id"]
     assert create.status_code == 201
     assert create.data["status"] == Product.Status.SUBMITTED
+    transfer_photos(product_id)
+    assert Product.objects.get(pk=product_id).status == Product.Status.SUBMITTED
     assert (
         api_client.post(f"/api/v1/products/{product_id}/withdraw/").status_code == 204
     )

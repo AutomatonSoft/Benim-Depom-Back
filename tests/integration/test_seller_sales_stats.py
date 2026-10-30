@@ -5,7 +5,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.afterbuy.models import AfterbuyOrder, AfterbuyOrderItem
-from apps.products.models import Product
+from apps.products.models import ExchangeRate, Product
 
 
 def _paid_item(
@@ -40,9 +40,12 @@ def _paid_item(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_seller_sales_stats_uses_frozen_card_prices(
+def test_seller_sales_stats_converts_try_at_stored_rate(
     api_client: APIClient, seller, second_seller, product_factory
 ):
+    ExchangeRate.objects.create(
+        as_of="2026-09-11", eur_to_try="40.123456", eur_to_usd="1.100000"
+    )
     old_price_product = product_factory(
         owner=seller,
         status=Product.Status.APPROVED,
@@ -110,7 +113,7 @@ def test_seller_sales_stats_uses_frozen_card_prices(
     assert response.data["quantity_sold"] == 5
     assert response.data["orders_count"] == 4
     assert response.data["amount_eur"] == "49.75"
-    assert response.data["amount_try"] == "1150.00"
+    assert response.data["amount_try"] == "1996.14"
     assert "amount" not in response.data
     assert "currency" not in response.data
     assert "currency_try" not in response.data
@@ -130,7 +133,7 @@ def test_seller_sales_stats_uses_frozen_card_prices(
     assert period.data["quantity_sold"] == 3
     assert period.data["orders_count"] == 2
     assert period.data["amount_eur"] == "29.85"
-    assert period.data["amount_try"] == "750.00"
+    assert period.data["amount_try"] == "1197.69"
     assert period.data["from"] == "2026-09-10"
     assert period.data["to"] == "2026-09-11"
 
@@ -144,6 +147,34 @@ def test_seller_sales_stats_uses_frozen_card_prices(
         f"/api/v1/products/sales-stats/?product_id={new_price_product.id}"
     )
     assert foreign.status_code == 400
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_seller_sales_stats_try_handles_missing_and_latest_rates(
+    api_client: APIClient, seller, product_factory
+):
+    api_client.force_authenticate(user=seller)
+    assert api_client.get("/api/v1/products/sales-stats/").data["amount_try"] is None
+
+    ExchangeRate.objects.create(
+        as_of="2026-09-10", eur_to_try="30.000000", eur_to_usd="1.100000"
+    )
+    ExchangeRate.objects.create(
+        as_of="2026-09-11", eur_to_try="40.100000", eur_to_usd="1.100000"
+    )
+    assert api_client.get("/api/v1/products/sales-stats/").data["amount_try"] == "0.00"
+
+    _paid_item(
+        product=product_factory(owner=seller, currency=Product.Currency.EUR),
+        quantity=1,
+        settled_price="200.00",
+        paid_at=datetime(2026, 9, 11, 10, 0, tzinfo=UTC),
+    )
+    response = api_client.get("/api/v1/products/sales-stats/")
+    assert response.status_code == 200, response.data
+    assert response.data["amount_eur"] == "9.95"
+    assert response.data["amount_try"] == "399.00"
 
 
 @pytest.mark.integration
@@ -211,6 +242,36 @@ def test_manager_sales_stats_filters_by_ean_and_seller_email(
     assert by_email.data["quantity_sold"] == 2
     assert by_email.data["seller_email"] == seller.email
     assert by_email.data["scope"] == "seller"
+
+    second_seller.email = seller.email
+    second_seller.save(update_fields=["email"])
+    for phone in [
+        seller.phone,
+        seller.phone.lstrip("+"),
+        f" {seller.phone[:3]} {seller.phone[3:]} ",
+    ]:
+        by_phone = api_client.get(
+            "/api/v2/manager/sales-stats/", {"seller_phone": phone}
+        )
+        assert by_phone.status_code == 200, by_phone.data
+        assert by_phone.data["seller_id"] == seller.pk
+        assert by_phone.data["quantity_sold"] == 2
+        assert by_phone.data["scope"] == "seller"
+    combined = api_client.get(
+        "/api/v2/manager/sales-stats/",
+        {"seller_phone": seller.phone, "ean": product.ean_jv},
+    )
+    assert combined.status_code == 200 and combined.data["product_id"] == product.pk
+    wrong_owner = api_client.get(
+        "/api/v2/manager/sales-stats/",
+        {"seller_phone": second_seller.phone, "ean": product.ean_jv},
+    )
+    assert wrong_owner.status_code == 400
+    for phone in ["15", "+905559999999", manager.phone]:
+        invalid = api_client.get(
+            "/api/v2/manager/sales-stats/", {"seller_phone": phone}
+        )
+        assert invalid.status_code == 400 and "seller_phone" in invalid.data
 
     missing = api_client.get("/api/v1/manager/sales-stats/?ean=0000000000000")
     assert missing.status_code == 400

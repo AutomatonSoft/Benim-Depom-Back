@@ -33,7 +33,10 @@ def test_registration_notifies_only_after_first_email_confirmation(
                 "/api/v1/auth/register/",
                 {
                     "username": "new_seller",
+                    "first_name": "Alihan",
+                    "last_name": "Bulkair",
                     "email": "new-seller@example.com",
+                    "phone": "+905551234567",
                     "password": password,
                     "password_confirm": password,
                 },

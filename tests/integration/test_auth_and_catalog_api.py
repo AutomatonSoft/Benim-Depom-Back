@@ -25,6 +25,21 @@ def test_password_reset_email_task_sends_code():
 
 
 @pytest.mark.integration
+def test_password_reset_email_identifies_account_and_escapes_its_name():
+    username = 'Seller <script>alert("test")</script> & Co'
+    send_password_reset_code.run(
+        email="reset@example.com", code="123456", username=username
+    )
+    message = mail.outbox[-1]
+    assert f"Account: {username}" in message.body
+    html = message.alternatives[0].content
+    assert "Account" in html and "123456" in html
+    assert "&lt;script&gt;" in html and "&amp; Co" in html
+    assert "<script>" not in html
+    assert "Reset your password" in html
+
+
+@pytest.mark.integration
 @pytest.mark.django_db
 def test_registration_email_verification_login_and_manager_creation(
     api_client,
@@ -33,7 +48,10 @@ def test_registration_email_verification_login_and_manager_creation(
 ):
     registration = {
         "username": "new_seller",
+        "first_name": "Alihan",
+        "last_name": "Bulkair",
         "email": "new_seller@example.com",
+        "phone": "+905551234567",
         "password": password,
         "password_confirm": password,
         "preferred_language": "de",
@@ -82,15 +100,17 @@ def test_registration_email_verification_login_and_manager_creation(
 
 @pytest.mark.integration
 @pytest.mark.django_db
-def test_duplicate_usernames_are_allowed_and_login_uses_email(api_client, password):
+def test_duplicate_usernames_are_allowed_and_v1_login_uses_email(api_client, password):
     User.objects.create_user(
         username="same_name",
         email="first-same@example.com",
+        phone="+905551111111",
         password=password,
     )
     second = User.objects.create_user(
         username="same_name",
         email="second-same@example.com",
+        phone="+905552222222",
         password=password,
     )
 
@@ -557,18 +577,21 @@ def test_email_verification_rejects_missing_duplicate_expired_and_exhausted_code
     assert missing_email.status_code == 400
     assert "email" in missing_email.data
 
-    duplicate_email = api_client.post(
+    duplicate_phone = api_client.post(
         "/api/v1/auth/register/",
         {
             "username": "duplicate_email",
             "email": "EXISTING@example.com",
+            "phone": seller.phone,
+            "first_name": "Alihan",
+            "last_name": "Bulkair",
             "password": password,
             "password_confirm": password,
         },
         format="json",
     )
-    assert duplicate_email.status_code == 400
-    assert "email" in duplicate_email.data
+    assert duplicate_phone.status_code == 400
+    assert "phone" in duplicate_phone.data
 
     seller.is_active = False
     seller.is_email_verified = False

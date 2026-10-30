@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import (
     Case,
     Count,
@@ -19,6 +20,7 @@ from django.db.models.functions import Coalesce
 from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import User
+from apps.accounts.phone import normalize_phone
 from apps.products.models import Product
 from apps.products.pricing import latest_rate
 
@@ -213,17 +215,27 @@ def seller_sales_stats(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> dict:
+    """Return seller revenue with TRY converted at the latest stored EUR rate."""
     product = None
     if product_id is not None:
         product = Product.objects.filter(pk=product_id, owner=seller).first()
         if product is None:
             raise ValidationError({"product_id": "Product not found."})
-    return sales_stats(
+    payload = sales_stats(
         seller=seller,
         product=product,
         date_from=date_from,
         date_to=date_to,
     )
+    rate = latest_rate()
+    payload["amount_try"] = (
+        (payload["amount_eur"] * rate.eur_to_try).quantize(
+            Decimal("0.01"), ROUND_HALF_UP
+        )
+        if rate is not None and payload["amount_eur"] is not None
+        else None
+    )
+    return payload
 
 
 def _parse_product_id(value: str | None) -> int | None:
@@ -251,12 +263,31 @@ def _resolve_seller_email(value: str | None):
     email = (value or "").strip()
     if not email:
         return None
-    seller = User.objects.filter(
-        email__iexact=email,
-        role=User.Role.SELLER,
-    ).first()
-    if seller is None:
+    sellers = list(
+        User.objects.filter(
+            email__iexact=email,
+            role=User.Role.SELLER,
+        )[:2]
+    )
+    if not sellers:
         raise ValidationError({"seller_email": "Seller not found."})
+    if len(sellers) > 1:
+        raise ValidationError(
+            {
+                "seller_email": "Multiple sellers use this email. Filter by EAN without seller email."
+            }
+        )
+    return sellers[0]
+
+
+def _resolve_seller_phone(value: str):
+    try:
+        phone = normalize_phone(value)
+    except DjangoValidationError as exc:
+        raise ValidationError({"seller_phone": exc.messages}) from exc
+    seller = User.objects.filter(phone=phone, role=User.Role.SELLER).first()
+    if seller is None:
+        raise ValidationError({"seller_phone": "Seller not found."})
     return seller
 
 
@@ -279,7 +310,12 @@ def _resolve_ean(*, value: str | None, seller=None) -> Product | None:
 
 
 def manager_sales_stats_from_query(*, query_params) -> dict:
-    seller = _resolve_seller_email(query_params.get("seller_email"))
+    phone = (query_params.get("seller_phone") or "").strip()
+    seller = (
+        _resolve_seller_phone(phone)
+        if phone
+        else _resolve_seller_email(query_params.get("seller_email"))
+    )
     product = _resolve_ean(value=query_params.get("ean"), seller=seller)
     return sales_stats(
         seller=seller,

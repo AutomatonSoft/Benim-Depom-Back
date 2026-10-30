@@ -84,71 +84,25 @@ def create_product_with_images(
     image_files: list,
     set_parts_data: list[dict[str, Any]] | None = None,
 ) -> Product:
-    """Upload images first, then create and submit the product atomically.
+    """Persist local photos and a durable transfer job without waiting for FTP."""
+    from .media_uploads import stage_product_photos
 
-    FTP I/O stays outside the database transaction. The product and its image
-    rows are still committed together, and uploaded files are removed if that
-    transaction fails.
-    """
+    if not image_files:
+        raise ValidationError(
+            {"images": "The product must contain at least one image."}
+        )
     if len(image_files) > MAX_PRODUCT_IMAGES:
         raise ValidationError(
             {"image": f"A product cannot have more than {MAX_PRODUCT_IMAGES} images"}
         )
 
-    uploaded_image_names = []
-    uploaded_images = []
-    try:
-        # upload_to only needs the owner id, so the existing
-        # products/{owner_id}/... paths work before the Product row exists.
-        image_product = Product(owner=owner)
-        with _reuse_media_connection():
-            for image_file in image_files:
-                image = ProductImage(product=image_product)
-                optimized_image, thumbnail = make_product_image_variants(image_file)
-                image.image.save(optimized_image.name, optimized_image, save=False)
-                uploaded_image_names.append(image.image.name)
-                image.thumbnail.save(thumbnail.name, thumbnail, save=False)
-                uploaded_image_names.append(image.thumbnail.name)
-                uploaded_images.append((image.image.name, image.thumbnail.name))
-
-        with transaction.atomic():
-            product = create_product(
-                owner=owner,
-                data=data,
-                variants_data=variants_data,
-                set_parts_data=set_parts_data,
-            )
-
-            for position, (image_name, thumbnail_name) in enumerate(uploaded_images):
-                ProductImage.objects.create(
-                    product=product,
-                    image=image_name,
-                    thumbnail=thumbnail_name,
-                    position=position,
-                    is_primary=position == 0,
-                )
-
-            from apps.moderation.services import submit_product_for_moderation
-
-            return submit_product_for_moderation(product=product)
-    except Exception:
-        if uploaded_image_names:
-            try:
-                with _reuse_media_connection():
-                    for image_name in uploaded_image_names:
-                        try:
-                            default_storage.delete(image_name)
-                        except Exception:
-                            logger.exception(
-                                "Failed to clean up uploaded product image after "
-                                "product creation failed (name=%s)",
-                                image_name,
-                            )
-            except Exception:
-                logger.exception(
-                    "Failed to open media storage for product image cleanup"
-                )
-        raise
+    return stage_product_photos(
+        owner=owner,
+        data=data,
+        variants_data=variants_data,
+        image_files=image_files,
+        set_parts_data=set_parts_data,
+    )
 
 
 @transaction.atomic
@@ -660,8 +614,6 @@ def upload_product_image(
     is_primary: bool,
     allow_after_approval: bool = False,
 ) -> ProductImage:
-    optimized_image, thumbnail = make_product_image_variants(image_file)
-
     locked_product = Product.objects.select_for_update().get(pk=product.pk)
     ensure_product_is_editable(
         locked_product,
@@ -688,10 +640,11 @@ def upload_product_image(
         images_queryset.update(is_primary=False)
         is_primary = True
 
-    created = ProductImage.objects.create(
+    from .media_uploads import stage_product_image
+
+    created = stage_product_image(
         product=locked_product,
-        image=optimized_image,
-        thumbnail=thumbnail,
+        image_file=image_file,
         position=position,
         is_primary=is_primary,
     )

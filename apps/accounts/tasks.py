@@ -82,17 +82,20 @@ def send_email_verification_code(*, email: str, code: str) -> None:
     retry_jitter=True,
     max_retries=3,
 )
-def send_password_reset_code(*, email: str, code: str) -> None:
+def send_password_reset_code(*, email: str, code: str, username: str = "") -> None:
     subject = "Reset your Benim Depom password"
+    account = f"Account: {username}\n\n" if username else ""
     text_body = (
-        f"Your password reset code: {code}\n\n"
+        account + f"Your password reset code: {code}\n\n"
         f"The code expires in {settings.PASSWORD_RESET_CODE_TTL_MINUTES} minutes."
     )
-    html_body = (
-        "<p>Your password reset code:</p>"
-        f"<h2>{code}</h2>"
-        "<p>The code expires in "
-        f"{settings.PASSWORD_RESET_CODE_TTL_MINUTES} minutes.</p>"
+    html_body = render_to_string(
+        "emails/password_reset.html",
+        {
+            "username": username,
+            "code": code,
+            "minutes": settings.PASSWORD_RESET_CODE_TTL_MINUTES,
+        },
     )
 
     message = EmailMultiAlternatives(

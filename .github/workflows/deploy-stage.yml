@@ -100,7 +100,7 @@ jobs:
           compose run --rm --no-deps --no-TTY --interactive=false web python manage.py migrate --noinput </dev/null
           compose run --rm --no-deps --no-TTY --interactive=false web python manage.py collectstatic --noinput </dev/null
           compose up -d --force-recreate --no-deps --wait --wait-timeout 120 \
-            web worker_ai worker_images worker_maintenance worker_marketplace worker_notifications beat
+            web worker_ai worker_images worker_media_uploads worker_maintenance worker_marketplace worker_notifications beat
           compose up -d --force-recreate --no-deps --wait --wait-timeout 120 nginx
 
           curl --fail --silent --show-error "http://127.0.0.1:${APP_BIND_PORT}/api/v1/health/"

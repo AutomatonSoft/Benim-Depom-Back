@@ -1,13 +1,94 @@
 # BENIM DEPOM — Backend
 
+## API versions
+
+Both versions run against the same database, permissions and business services.
+The website uses `/api/v2/`; existing mobile clients can keep `/api/v1/`.
+Changing the API version does not invalidate JWTs or create separate accounts.
+
+| Contract | `/api/v1/` (legacy mobile) | `/api/v2/` (current) |
+| --- | --- | --- |
+| Seller login | `email`, `password` | `phone`, `password` |
+| Registration | Unique email; phone optional | Unique required phone; email may repeat |
+| Email verification/resend | `email`, `code` where needed | `email`, `phone`, `code` where needed |
+| Password reset request/verify | `email`, `code` where needed | Matching `phone` and `email`, `code` where needed |
+| Manager/admin login | `email`, `password` | `email`, `password` |
+| Products, photos, notifications, marketplaces | Shared behavior | Shared behavior |
+| OpenAPI schema | `/api/v1/schema/` | `/api/v2/schema/` |
+| Swagger | `/api/v1/docs/` | `/api/v2/docs/` |
+
+The unversioned `/api/schema/`, `/api/docs/` and `/api/scalar/` remain aliases
+for v1 documentation. Nginx protects versioned documentation with the same Basic
+Auth as these legacy URLs. Unknown versions return 404.
+
+Legacy email authentication and email codes work only when the email identifies
+one account. If multiple v2 accounts share an email, v1 never guesses which user
+to authenticate or reset. Those accounts require a client using phone-based v2.
+Existing accounts without a phone can still log in through v1; assign a valid
+unique phone before moving those users to v2. V1 profile updates retain unique
+email validation; v2 profile updates allow shared email and require seller phones.
+
+Deploy the backend (including `accounts.0009_phone_login`) before the v2 website.
+That migration validates existing phone data and refuses invalid/duplicate values;
+it does not invent phone numbers or delete accounts. Keep v1 available until old
+mobile clients have migrated. This code change does not deploy or apply migrations.
+Future breaking contracts belong in a new version with compatibility adapters;
+unchanged business logic stays shared. Do not redirect v1 requests to v2.
+
+The authentication examples below describe v2. Existing v1 product endpoint
+examples remain valid in both versions by substituting the prefix.
+
+## Background photo transfer
+
+Multipart `POST /api/v1/products/` keeps its existing fields and returns `201` after
+validating and saving all source photos to the persistent `product-media` volume.
+The response has `status: submitted`, as before; photo URLs already work.
+Submission and manager notifications happen during creation, independently of
+FTP transfer. The background worker never changes the product's moderation status.
+JSON draft creation keeps its behavior. The existing edit endpoint
+`POST /api/v1/products/{id}/images/` also returns after local staging, with a
+working signed photo URL; its FTP transfer runs in the same background worker.
+Product image replacement and generated image uploads still use their existing
+synchronous path.
+
+The new `worker_media_uploads` service runs two product transfers concurrently,
+each reusing one FTP connection. Beat recovers pending, failed and interrupted
+jobs every minute; after five attempts the seller can use
+`POST /api/v1/products/{id}/photo-upload/retry/`. No photos need to be reselected.
+Product editing, withdrawal, moderation and deletion keep their existing status
+rules. Photo transfer does not add a seller-facing preparation state.
+
+Web, media workers and maintenance workers must mount the same writable volume
+at `/app/product-media` (`PRODUCT_IMAGE_STAGING_ROOT`). Local URLs are signed
+capabilities and do not require an Authorization header on image requests.
+Daily cleanup removes local copies only 24 hours after successful transfer;
+old signed URLs then redirect to the permanent FTP image. Pending/failed sources
+are retained. Unreferenced staging folders older than 24 hours are also removed.
+Monitor disk usage: prolonged FTP outages intentionally keep the source files.
+
+Deployment requires migration `products.0030_background_photo_uploads`, the new
+worker and the updated Compose volume mounts. Never delete the volume on deploy.
+The standard stage/production workflows include the new worker. Existing mobile
+clients receive the usual `submitted` status immediately; request fields and the
+create endpoint do not change.
+
+## Release and hotfix flow
+
+- Normal releases: `feature/* → dev → main` (optionally through `local` before `dev`). A push to `dev` deploys staging; a push to `main` deploys production.
+- Urgent production fixes: create `hotfix/<name>` from the production revision on `main`, include only the fix, test locally, and open a PR into `main`. The existing CI checks still run; merging deploys production without merging unfinished integration work such as eBay.
+- Test with the production schema and configuration shape. Do not reuse a local database already migrated by unfinished features to validate a hotfix migration. Check compatibility with the currently deployed frontend and workers.
+- After release, open a PR from the same `hotfix/<name>` branch into `dev` before deleting it. This keeps the fix in future releases.
+- There is no separate hotfix environment. Coordinate frontend/backend fixes through separate PRs and backward-compatible deployment order.
+- Repository settings must protect `main` against direct pushes and require the `Validate branch flow`, `Test and lint`, and `Build production image` checks. Workflow files alone do not enforce these protections. Production deployment still starts automatically after a push to `main`, subject to any existing environment approvals.
+
 Backend сервиса, где продавцы создают товары из мобильного приложения, а менеджеры проверяют, дополняют и публикуют их на OTTO, Hood и Kaufland от аккаунтов JV и XL.
 
 Проект — модульный Django-монолит. PostgreSQL хранит бизнес-данные и историю, Redis/Celery выполняют фоновые операции, FTP/FTPS хранит изображения. Архитектура рассчитана на сотни пользователей с запасом примерно до 1 000 активных пользователей.
 
 ## Возможности
 
-- Регистрация seller по username, email и паролю; подтверждение email шестизначным SMTP-кодом.
-- JWT: login по email и паролю, refresh с rotation, logout с blacklist refresh-token, профиль.
+- Регистрация seller по username, обязательному уникальному телефону, email и паролю; подтверждение email шестизначным SMTP-кодом. Email продавцов может повторяться.
+- JWT: seller login по телефону и паролю, manager/admin login по email и паролю; refresh с rotation, logout с blacklist refresh-token, профиль.
 - Роли `seller`, `manager`, `admin` и разграничение доступа.
 - Товары с ценой за единицу (`TRY`, `EUR`, `USD`), вариантами, размерами, количеством, HEX-цветом и текстовыми материалами.
 - Выбор OTTO-категории и необязательных атрибутов из локального JSON-каталога.
@@ -20,7 +101,7 @@ Backend сервиса, где продавцы создают товары из
 - Подготовка, публикация, поиск, обновление, удаление/деактивация и отслеживание статусов OTTO, Hood и Kaufland.
 - Swagger, Scalar, Django Admin, Docker Compose, pytest unit/integration/e2e тесты.
 
-Не реализовано намеренно: чат менеджер ↔ продавец, SMS/phone authentication и Firebase Authentication. Firebase используется только для FCM push, телефон пока хранится как строка без проверки.
+Не реализовано намеренно: чат менеджер ↔ продавец, SMS-верификация и Firebase Authentication. Firebase используется только для FCM push. Телефон нормализуется к международному формату `+` и 8–15 цифр.
 
 ## Роли
 
@@ -98,7 +179,7 @@ OTTO / Hood / Kaufland / OpenAI / image AI / Firebase
 
 ### Общие правила
 
-- Base URL локально: `http://localhost:8000/api/v1`.
+- Base URL новой версии локально: `http://localhost:8000/api/v2`. Старые мобильные клиенты используют `/api/v1` с прежним email-входом.
 - JSON для всех запросов, кроме фото (`multipart/form-data`).
 - В protected запросах: `Authorization: Bearer <access>`.
 - Access живёт 15 минут, refresh — 7 дней. Хранить их только в `flutter_secure_storage`.
@@ -111,13 +192,18 @@ OTTO / Hood / Kaufland / OpenAI / image AI / Firebase
 
 1. `POST /auth/register/` создаёт seller и отправляет email-code.
 2. Показать экран ввода кода.
-3. `POST /auth/email/verify/` возвращает `access` и `refresh`.
-4. Если код не пришёл: `POST /auth/email/resend-verification/`.
-5. Для следующих входов: `POST /auth/login/` с email и паролем (`username` больше не уникален и не используется для входа).
+3. `POST /auth/email/verify/` с `email`, `phone`, `code` возвращает `access` и `refresh`.
+4. Если код не пришёл: `POST /auth/email/resend-verification/` с `email` и `phone`.
+5. Для следующих входов: `POST /auth/login/` с `phone` и `password`. Менеджеры и администраторы продолжают передавать `email` и `password`.
+6. Сброс пароля продавца: `password/reset/request/` с обязательными `phone` и `email`, затем `password/reset/verify/` с той же парой и `code`. Аккаунт должен совпадать по обоим полям. При несовпадении или неактивном аккаунте `v2` возвращает `400`, при повторном запросе до окончания периода ожидания — `429` с `Retry-After`. Код отправляется на указанный email; письмо содержит имя пользователя аккаунта. В `v1` старые запросы только с email безопасно работают лишь при единственном совпадении; прежний нейтральный ответ `202` сохранён.
+
+Перед выпуском применить миграцию `accounts.0009_phone_login`. Она нормализует существующие номера и останавливается при некорректных или дублирующихся номерах, не удаляя данные. Старым аккаунтам без телефона нужно заранее указать номер через администратора; миграция не выдумывает им номера. Мобильным клиентам также нужно обновить поля входа и привязки кодов до перехода.
 
 ```json
 {
   "username": "seller_01",
+  "first_name": "Alihan",
+  "last_name": "Bulkair",
   "email": "seller@example.com",
   "password": "StrongPassword123!",
   "password_confirm": "StrongPassword123!",
@@ -227,14 +313,14 @@ Swagger: `/api/docs/` · Scalar: `/api/scalar/` · OpenAPI schema: `/api/schema/
 
 ### Auth и profile
 
-Префикс `/api/v1/auth/`.
+Префикс `/api/v2/auth/`. Отличия legacy `/api/v1/auth/` описаны в разделе API versions.
 
 | Method | URL | Access | Назначение |
 | --- | --- | --- | --- |
 | `POST` | `register/` | public | Регистрация seller, отправка email-code. |
 | `POST` | `email/verify/` | public | Verify email-code, выдача JWT. |
 | `POST` | `email/resend-verification/` | public | Повторная отправка кода. |
-| `POST` | `login/` | public | Login email/password. |
+| `POST` | `login/` | public | Seller: phone/password. Manager/admin: email/password. |
 | `POST` | `refresh/` | public | Обновление JWT-пары. |
 | `POST` | `logout/` | authenticated | Blacklist refresh-token. |
 | `GET` | `me/` | authenticated | Получить профиль. |

@@ -44,28 +44,59 @@ def handler500(request):
     ) or defaults.server_error(request)
 
 
+def api_patterns(auth_urls):
+    """Share unchanged endpoints while keeping each auth contract explicit."""
+    return [
+        path("health/", healthcheck, name="healthcheck"),
+        path("", include("apps.common.urls")),
+        path("auth/", include(auth_urls)),
+        path("manager/users/", include("apps.accounts.manager_urls")),
+        path("catalog/", include("apps.catalog.urls")),
+        path("products/", include("apps.products.urls")),
+        path("", include("apps.moderation.urls")),
+        path("notifications/", include("apps.notifications.urls")),
+        path("manager/eans/", include("apps.ean.urls")),
+        path("orchestrator/", include("apps.orchestrator.urls")),
+        path("ebay/", include("apps.marketplace.ebay.urls")),
+    ]
+
+
+v1_routes = [path("api/v1/", include(api_patterns("apps.accounts.v1_urls")))]
+v2_routes = [
+    path(
+        "api/v2/", include((api_patterns("apps.accounts.urls"), "api"), namespace="v2")
+    )
+]
+schema_v1 = SpectacularAPIView.as_view(
+    patterns=v1_routes, custom_settings={"VERSION": "1.0.0"}
+)
+schema_v2 = SpectacularAPIView.as_view(
+    patterns=v2_routes, custom_settings={"VERSION": "2.0.0"}
+)
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/v1/health/", healthcheck, name="healthcheck"),
-    path("api/v1/", include("apps.common.urls")),
-    path("api/v1/auth/", include("apps.accounts.urls")),
-    path("api/v1/manager/users/", include("apps.accounts.manager_urls")),
-    path("api/v1/catalog/", include("apps.catalog.urls")),
-    path("api/v1/products/", include("apps.products.urls")),
-    path("api/v1/", include("apps.moderation.urls")),
+    path("api/v1/schema/", schema_v1, name="schema-v1"),
+    path("api/v2/schema/", schema_v2, name="schema-v2"),
     path(
-        "api/v1/notifications/",
-        include("apps.notifications.urls"),
+        "api/v1/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema-v1"),
+        name="swagger-v1",
     ),
-    path("api/v1/manager/eans/", include("apps.ean.urls")),
-    path("api/v1/orchestrator/", include("apps.orchestrator.urls")),
-    path("api/v1/ebay/", include("apps.marketplace.ebay.urls")),
+    path(
+        "api/v2/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema-v2"),
+        name="swagger-v2",
+    ),
+    *v1_routes,
+    *v2_routes,
     path(
         "api/demo/otto-form/",
         TemplateView.as_view(template_name="otto_form_demo.html"),
         name="otto-form-demo",
     ),
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema/", schema_v1, name="schema"),
     path(
         "api/docs/",
         SpectacularSwaggerView.as_view(url_name="schema"),

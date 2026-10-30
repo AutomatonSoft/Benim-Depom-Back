@@ -10,6 +10,11 @@ from django.template.loader import render_to_string
 
 from apps.common.tasks import enqueue_email_task
 
+from .media_tasks import (  # noqa: F401 -- Celery discovers tasks through this module.
+    cleanup_product_local_photos,
+    recover_product_photo_uploads,
+    transfer_product_photos,
+)
 from .models import ExchangeRate
 
 FRANKFURTER_URL = "https://api.frankfurter.dev/v2/rates"

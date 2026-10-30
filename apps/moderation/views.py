@@ -42,6 +42,7 @@ from .serializers import (
     ApproveSellerChangesSerializer,
     ChangeApprovedProductStatusSerializer,
     ManagerDashboardSerializer,
+    ManagerProductListSerializer,
     ModerationDecisionSerializer,
     RejectProductSerializer,
     RejectSellerChangesSerializer,
@@ -217,7 +218,7 @@ class ProductModerationHistoryView(generics.ListAPIView):
 
 
 class ManagerProductListView(generics.ListAPIView):
-    serializer_class = ProductSerializer
+    serializer_class = ManagerProductListSerializer
     permission_classes = [IsManager]
     pagination_class = ManagerProductPagination
 
@@ -242,13 +243,14 @@ class ManagerProductListView(generics.ListAPIView):
             .annotate(
                 active_listing_count=Count(
                     "marketplace_publications",
-                    filter=Q(marketplace_publications__status="active")
+                    filter=(
+                    Q(marketplace_publications__status=MarketplacePublication.Status.ACTIVE)
                     & (
-                        ~Q(marketplace_publications__marketplace="ebay")
-                        | Q(
-                            marketplace_publications__environment=settings.EBAY_ENVIRONMENT
-                        )
-                    ),
+                        ~Q(marketplace_publications__marketplace=MarketplacePublication.Marketplace.EBAY)
+                        | Q(marketplace_publications__environment=settings.EBAY_ENVIRONMENT)
+                    )
+                ),
+                    
                     distinct=True,
                 )
             )

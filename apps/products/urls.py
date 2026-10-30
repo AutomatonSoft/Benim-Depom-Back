@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .media_views import RetryProductPhotoUploadView, serve_staged_photo
 from .views import (
     ProductAvailabilityView,
     ProductDeactivateView,
@@ -24,6 +25,16 @@ from .views import (
 app_name = "products"
 
 urlpatterns = [
+    path(
+        "<int:product_id>/photo-upload/retry/",
+        RetryProductPhotoUploadView.as_view(),
+        name="retry-photo-upload",
+    ),
+    path(
+        "staged-photo/<int:image_id>/<str:kind>/<str:signature>/",
+        serve_staged_photo,
+        name="staged-photo",
+    ),
     path("", ProductListCreateView.as_view(), name="product-list-create"),
     path("sales-stats/", SellerSalesStatsView.as_view(), name="seller-sales-stats"),
     path("<int:pk>/", ProductDetailView.as_view(), name="product-detail"),
