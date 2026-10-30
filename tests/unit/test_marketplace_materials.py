@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from apps.marketplace.materials import listing_materials
@@ -23,6 +25,25 @@ def test_content_request_forbids_source_language_in_customer_text():
     assert "translate the seller colour" in instructions
     assert "materials_de" not in instructions
     assert "claims not present in product data;\n" in request.instructions
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "description", ["", "  Съёмный чехол, скрытый ящик для хранения.  "]
+)
+def test_product_description_reaches_generation_input(
+    product_factory, seller, description
+):
+    product = product_factory(owner=seller, description=description)
+    snapshot = build_product_snapshot(product)
+    request = build_universal_content_request(product_snapshot=snapshot)
+
+    assert snapshot["seller_description"] == description.strip()
+    assert (
+        json.loads(request.input_text)["product"]["seller_description"]
+        == description.strip()
+    )
 
 
 @pytest.mark.unit

@@ -353,6 +353,9 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
+    description = serializers.CharField(
+        required=False, allow_blank=True, min_length=10, max_length=1200
+    )
     model = serializers.CharField(min_length=3, max_length=200)
     product_type = serializers.CharField(max_length=255, trim_whitespace=True)
     seller = ProductOwnerSerializer(source="owner", read_only=True)
@@ -450,6 +453,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "seller",
             "title",
             "model",
+            "description",
             "product_type",
             "unit_price",
             "currency",
