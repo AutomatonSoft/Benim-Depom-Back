@@ -61,6 +61,14 @@ class MarketplaceJob(models.Model):
         )
 
 
+class MarketplacePublicationQuerySet(models.QuerySet):
+    def for_environment(self):
+        return self.filter(
+            ~models.Q(marketplace="ebay")
+            | models.Q(environment=settings.EBAY_ENVIRONMENT)
+        )
+
+
 class MarketplacePublication(models.Model):
     """Displays product statuses on marketplaces."""
 
@@ -68,10 +76,12 @@ class MarketplacePublication(models.Model):
         OTTO = "otto", "OTTO"
         HOOD = "hood", "Hood"
         KAUFLAND = "kaufland", "Kaufland"
+        EBAY = "ebay", "eBay"
 
     class Account(models.TextChoices):
         JV = "jv", "JV"
         XL = "xl", "XL"
+        DEPOTUM = "depotum", "Depotum"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -104,9 +114,11 @@ class MarketplacePublication(models.Model):
         choices=Marketplace.choices,
     )
     account = models.CharField(
-        max_length=2,
+        max_length=7,
         choices=Account.choices,
     )
+    environment = models.CharField(max_length=10, blank=True, default="")
+    objects = MarketplacePublicationQuerySet.as_manager()
     ean = models.CharField(
         max_length=14,
         db_index=True,
@@ -151,7 +163,7 @@ class MarketplacePublication(models.Model):
         ordering = ("marketplace", "account", "id")
         constraints = [
             models.UniqueConstraint(
-                fields=("product", "marketplace", "account"),
+                fields=("product", "marketplace", "account", "environment"),
                 name="unique_product_marketplace_account",
             ),
         ]
@@ -187,11 +199,11 @@ class MarketplaceListingConfiguration(models.Model):
     )
     marketplace = models.CharField(
         max_length=16,
-        choices=MarketplacePublication.Marketplace.choices,
+        choices=(("otto", "OTTO"), ("hood", "Hood"), ("kaufland", "Kaufland")),
     )
     account = models.CharField(
         max_length=2,
-        choices=MarketplacePublication.Account.choices,
+        choices=(("jv", "JV"), ("xl", "XL")),
     )
     configuration = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

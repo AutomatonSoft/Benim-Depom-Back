@@ -24,7 +24,8 @@ from .models import MarketplaceJob, MarketplacePublication
 def validate_reconciliation(publication):
     if publication.status not in {"failed", "active", "deactivated", "deleted"}:
         raise ValidationError({"detail": "This publication cannot be reconciled now."})
-    expected_ean = getattr(publication.product, f"ean_{publication.account}")
+    ean_account = "jv" if publication.marketplace == "ebay" else publication.account
+    expected_ean = getattr(publication.product, f"ean_{ean_account}")
     if not publication.ean or publication.ean != expected_ean:
         raise ValidationError({"detail": "Publication EAN does not match the product."})
     if MarketplaceJob.objects.filter(
@@ -44,7 +45,8 @@ def create_reconciliation(*, publication_id, user, action, target_status=None):
     ).get(pk=publication_id)
     Product.objects.select_for_update().get(pk=product_id)
     publication = (
-        MarketplacePublication.objects.select_for_update()
+        MarketplacePublication.objects.for_environment()
+        .select_for_update()
         .select_related("product")
         .get(pk=publication_id)
     )
@@ -52,7 +54,10 @@ def create_reconciliation(*, publication_id, user, action, target_status=None):
     if action == "set_manual":
         if target_status not in {"active", "deactivated", "failed"}:
             raise ValidationError({"status": "Select a publication status."})
-        if target_status == "deactivated" and publication.marketplace != "otto":
+        if target_status == "deactivated" and publication.marketplace not in {
+            "otto",
+            "ebay",
+        }:
             target_status = MarketplacePublication.Status.DELETED
     else:
         target_status = None
@@ -96,7 +101,10 @@ def finish_reconciliation(job, *, confirmed, details, external_id=""):
     )
     unchanged = publication.updated_at.isoformat() == job.request_payload[
         "publication_updated_at"
-    ] and publication.ean == getattr(publication.product, f"ean_{publication.account}")
+    ] and publication.ean == getattr(
+        publication.product,
+        f"ean_{'jv' if publication.marketplace == 'ebay' else publication.account}",
+    )
     other_job_running = (
         MarketplaceJob.objects.filter(
             product_id=job.product_id,
@@ -120,7 +128,10 @@ def finish_reconciliation(job, *, confirmed, details, external_id=""):
         if target_status != MarketplacePublication.Status.FAILED:
             try:
                 consume_ean_code(
-                    product=publication.product, account=publication.account
+                    product=publication.product,
+                    account="jv"
+                    if publication.marketplace == "ebay"
+                    else publication.account,
                 )
             except (ObjectDoesNotExist, DjangoValidationError) as exc:
                 raise ValidationError(
@@ -213,6 +224,34 @@ def check_publication(job):
     )
     client = MarketplaceClient(str(job.request_id))
     external_id = ""
+    if publication.marketplace == "ebay":
+        from apps.marketplace.ebay.listing import get_listing_snapshot
+        from apps.marketplace.ebay.preparation import _save_state
+
+        snapshot = get_listing_snapshot(publication.product_id)
+        active = (
+            snapshot["remote_status"] == "PUBLISHED"
+            and snapshot["listing_status"] in (None, "ACTIVE")
+            and bool(snapshot["remote_listing_id"])
+        )
+        withdrawn = snapshot["remote_status"] == "UNPUBLISHED"
+        external_id = snapshot["remote_listing_id"]
+        job.request_payload["target_status"] = "active" if active else "deactivated"
+        finish_reconciliation(
+            job,
+            confirmed=active or withdrawn,
+            details={
+                "remote_status": snapshot["remote_status"],
+                "listing_status": snapshot["listing_status"],
+            },
+            external_id=external_id,
+        )
+        if job.status == "succeeded":
+            state = {"status": "published" if active else "withdrawn", "last_error": ""}
+            if active:
+                state["listing_id"] = external_id
+            _save_state(snapshot["preparation"], **state)
+        return
     if publication.marketplace == "otto":
         result = get_otto_marketplace_status(
             client, sku=publication.ean, account=publication.account

@@ -1,4 +1,5 @@
 MARKETPLACE_OPERATIONS = {
+    "ebay": {"search", "publish", "update", "activate", "deactivate"},
     "hood": {
         "search",
         "publish",

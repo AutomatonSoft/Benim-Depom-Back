@@ -185,6 +185,10 @@ def _save_state(preparation, **values):
     for name, value in values.items():
         setattr(preparation, name, value)
     preparation.save(update_fields=[*values, "updated_at"])
+    if preparation.status in {"published", "withdrawn", "failed"}:
+        from .orchestration import sync_publication
+
+        sync_publication(preparation)
 
 
 def _check_local(draft, preview):

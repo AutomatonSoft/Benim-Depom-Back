@@ -2,15 +2,17 @@ import json
 import os
 from copy import deepcopy
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from django.conf import settings
 from django.core.cache import cache
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
-from apps.marketplace.ebay import catalog
+from apps.marketplace.ebay import catalog, localization
 from apps.marketplace.ebay.catalog_views import (
     EbayCategoriesView,
     EbayCategoryAspectsView,
@@ -95,6 +97,173 @@ def test_catalog_navigation_aspects_and_cache(catalog_api):
             "grant_type": "client_credentials",
             "scope": "https://api.ebay.com/oauth/api_scope",
         }
+    )
+
+
+def test_furniture_catalog_translations_cover_categories_aspects_and_options():
+    data_dir = Path(settings.BASE_DIR) / "data" / "ebay"
+    categories = json.loads(
+        (data_dir / "sandbox" / "categories.json").read_text(encoding="utf-8")
+    )
+    category_names = set()
+
+    def collect_categories(node):
+        category = node.get("category", {})
+        if category.get("categoryName"):
+            category_names.add(category["categoryName"])
+        for child in node.get("childCategoryTreeNodes", []):
+            collect_categories(child)
+
+    collect_categories(categories["rootCategoryNode"])
+    aspect_schemas = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (data_dir / "sandbox" / "aspects").glob("*.json")
+    ]
+    untranslated_by_design = {
+        "Marke",
+        "Produktlinie",
+        "Modell",
+        "Charakter",
+        "Charakter Familie",
+        "Smart Home Kompatibilit\u00e4t",
+    }
+    untranslated_values = {
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "Bluetooth",
+        "Disney",
+        "FC Arsenal",
+        "FC Barcelona",
+        "Hawaii",
+        "Insteon",
+        "JDM",
+        "Justin Bieber",
+        "Kylie Minogue",
+        "Michigan",
+        "NBA",
+        "Powerline/UPB",
+        "Pulp Fiction",
+        "Rosie's Diner",
+        "Rosina Wachtmeister",
+        "Salvador Dal\u00ed",
+        "Suspiria",
+        "Tetris",
+        "Thread",
+        "Vespa",
+        "WWE",
+        "X10",
+        "Z-Wave",
+        "ZigBee",
+    }
+    color_examples = {
+        "ru": {
+            "Lila": "\u0424\u0438\u043e\u043b\u0435\u0442\u043e\u0432\u044b\u0439",
+            "Rosa": "\u0420\u043e\u0437\u043e\u0432\u044b\u0439",
+            "Silber": "\u0421\u0435\u0440\u0435\u0431\u0440\u0438\u0441\u0442\u044b\u0439",
+            "Transparent": "\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u044b\u0439",
+        },
+        "en": {
+            "Lila": "Purple",
+            "Rosa": "Pink",
+            "Silber": "Silver",
+            "Transparent": "Transparent",
+        },
+        "tr": {
+            "Lila": "Mor",
+            "Rosa": "Pembe",
+            "Silber": "G\u00fcm\u00fc\u015f",
+            "Transparent": "\u015eeffaf",
+        },
+    }
+    wlan_examples = {"ru": "Wi-Fi", "en": "Wi-Fi", "tr": "Kablosuz a\u011f"}
+    for language in ("ru", "en", "tr"):
+        labels = json.loads(
+            (data_dir / "translations" / f"{language}.json").read_text(encoding="utf-8")
+        )["labels"]
+        assert all(
+            labels[key] == value for key, value in color_examples[language].items()
+        )
+        assert labels["WLAN"] == wlan_examples[language]
+        assert category_names <= labels.keys()
+        catalog_payload = {
+            "categories": [{"name": "Sofas & Sessel"}],
+            "aspects": [
+                {
+                    "localizedAspectName": "Farbe",
+                    "aspectValues": [
+                        {"localizedValue": value} for value in color_examples[language]
+                    ],
+                }
+            ],
+        }
+        localized = localization.localize_catalog(catalog_payload, language)
+        assert localized["categories"][0]["label"] == labels["Sofas & Sessel"]
+        assert {
+            item["localizedValue"]: item["label"]
+            for item in localized["aspects"][0]["aspectValues"]
+        } == color_examples[language]
+        assert catalog_payload["aspects"][0]["aspectValues"] == [
+            {"localizedValue": value} for value in color_examples[language]
+        ]
+        for schema in aspect_schemas:
+            for aspect in schema["aspects"]:
+                name = aspect["localizedAspectName"]
+                assert name in labels
+                if name in untranslated_by_design:
+                    continue
+                for option in aspect.get("aspectValues", []):
+                    value = option["localizedValue"]
+                    if value[
+                        :1
+                    ].isdigit():  # dimensions, years and numeric codes stay unchanged
+                        continue
+                    if value in untranslated_values:  # proper names stay canonical
+                        continue
+                    assert value in labels, (language, name, value)
+
+
+def test_catalog_labels_refresh_when_translation_file_changes(tmp_path, monkeypatch):
+    translations = tmp_path / "data" / "ebay" / "translations"
+    translations.mkdir(parents=True)
+    path = translations / "ru.json"
+    monkeypatch.setattr(settings, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(
+        localization,
+        "get_otto_catalog",
+        lambda: (_ for _ in ()).throw(localization.OttoCatalogError("missing")),
+    )
+    path.write_text(
+        '{"language":"ru","labels":{"Lila":"\\u0424\\u0438\\u043e\\u043b\\u0435\\u0442\\u043e\\u0432\\u044b\\u0439"}}'
+    )
+    payload = {
+        "aspects": [
+            {
+                "localizedAspectName": "Farbe",
+                "aspectValues": [{"localizedValue": "Lila"}],
+            }
+        ]
+    }
+    assert (
+        localization.localize_catalog(payload, "ru")["aspects"][0]["aspectValues"][0][
+            "label"
+        ]
+        == "\u0424\u0438\u043e\u043b\u0435\u0442\u043e\u0432\u044b\u0439"
+    )
+    stat = path.stat()
+    path.write_text(
+        '{"language":"ru","labels":{"Lila":"\\u041b\\u0438\\u043b\\u043e\\u0432\\u044b\\u0439 \\u043e\\u0442\\u0442\\u0435\\u043d\\u043e\\u043a"}}'
+    )
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert (
+        localization.localize_catalog(payload, "ru")["aspects"][0]["aspectValues"][0][
+            "label"
+        ]
+        == "\u041b\u0438\u043b\u043e\u0432\u044b\u0439 \u043e\u0442\u0442\u0435\u043d\u043e\u043a"
     )
 
 
@@ -792,8 +961,12 @@ def test_listing_html_gallery_and_plain_inventory_description(preview_draft):
         result["inventory_item"]["body"]["product"]["description"]
         == preview_draft.description
     )
-    assert 'href="#dep-img-2"' in html
-    assert "#dep-img-2:target~.dep-main .dep-slide-2{display:block}" in html
+    assert 'for="dep-img-2"' in html
+    assert "#dep-img-2:checked~.dep-main .dep-slide-2{display:block}" in html
+    assert 'href="#dep-img-' not in html
+    assert 'width="1042" height="6717"' in html
+    assert 'loading="lazy"' not in html
+    assert html.startswith("<!doctype html>")
     assert 'src="https://example.com/interior.jpg"' in html
     assert 'id="dep-details"' in html
     assert 'id="dep-colors"' in html

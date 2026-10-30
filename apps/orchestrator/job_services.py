@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.conf import settings
+
 from apps.marketplace.hood.payload_builder import (
     HoodPayloadValidationError,
     build_hood_payload,
@@ -201,6 +203,8 @@ def create_marketplace_job(
         "accounts": accounts or {},
         "targets": targets,
     }
+    if any(target["marketplace"] == "ebay" for target in targets):
+        payload["ebay_environment"] = settings.EBAY_ENVIRONMENT
     if extra_payload:
         payload.update(extra_payload)
 
@@ -222,10 +226,12 @@ def create_update_job_for_active_listings(
 ) -> MarketplaceJob | None:
     targets = [
         {"marketplace": publication.marketplace, "account": publication.account}
-        for publication in MarketplacePublication.objects.filter(
+        for publication in MarketplacePublication.objects.for_environment()
+        .filter(
             product=product,
             status=MarketplacePublication.Status.ACTIVE,
-        ).order_by("marketplace", "account")
+        )
+        .order_by("marketplace", "account")
     ]
     if not targets:
         return None

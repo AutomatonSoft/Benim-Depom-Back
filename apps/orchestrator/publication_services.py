@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -92,7 +93,9 @@ def start_publication_attempt(
         ean=ean,
     )
 
-    publications = MarketplacePublication.objects.select_for_update()
+    publications = MarketplacePublication.objects.select_for_update().filter(
+        environment=settings.EBAY_ENVIRONMENT if marketplace == "ebay" else ""
+    )
 
     if job.operation == MarketplaceJob.Operation.PUBLISH:
         publication, created = publications.get_or_create(
@@ -102,6 +105,9 @@ def start_publication_attempt(
             defaults={
                 "ean": ean,
                 "status": MarketplacePublication.Status.PENDING,
+                "environment": settings.EBAY_ENVIRONMENT
+                if marketplace == "ebay"
+                else "",
             },
         )
     else:
@@ -122,6 +128,14 @@ def start_publication_attempt(
         raise ValueError(
             "Publication EAN does not match the EAN assigned to this product."
         )
+
+    if (
+        marketplace == "ebay"
+        and not created
+        and publication.status in {"pending", "publishing", "deactivating"}
+        and publication.last_job_id != job.pk
+    ):
+        raise ValueError("An eBay operation is already in progress.")
 
     allowed_statuses = {
         MarketplaceJob.Operation.UPDATE: {
