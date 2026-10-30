@@ -3,7 +3,8 @@ from urllib.parse import quote
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -314,10 +315,26 @@ class EbayDraftView(ManagerMutationThrottleMixin, APIView):
             "account": self.account,
         }
 
-    @extend_schema(responses={200: EbayDraftSerializer}, tags=["eBay"])
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "preview",
+                bool,
+                description="Return outgoing Inventory Item and Offer payloads without sending them.",
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+        tags=["eBay"],
+    )
     def get(self, request, product_id):
         """Возвращает сохранённый черновик или 404, не создавая запись при чтении."""
         draft = get_object_or_404(EbayDraft, **self._scope(product_id))
+        if request.query_params.get("preview") in {"1", "true"}:
+            from .preview import build_draft_preview
+
+            response = Response(build_draft_preview(draft))
+            response["Cache-Control"] = "no-store"
+            return response
         return Response(EbayDraftSerializer(draft).data)
 
     @transaction.atomic

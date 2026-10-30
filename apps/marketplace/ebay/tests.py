@@ -867,6 +867,57 @@ def preview_draft(settings):
     )
 
 
+@pytest.mark.parametrize("environment", ["sandbox", "production"])
+@pytest.mark.parametrize("title", ["Schwarzes Sofa", ""])
+def test_draft_payload_preview_is_read_only(
+    preview_draft, settings, monkeypatch, environment, title
+):
+    from django.contrib.auth import get_user_model
+
+    from apps.marketplace.ebay import drafts
+
+    settings.EBAY_ENVIRONMENT = environment
+    settings.CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+    preview_draft.environment = environment
+    preview_draft.title = title
+    preview_draft.save = MagicMock()
+
+    def get_object(model, **scope):
+        if model is EbayDraft:
+            assert scope == {
+                "product": preview_draft.product,
+                "account": "depotum",
+                "environment": environment,
+            }
+            return preview_draft
+        assert scope == {"pk": preview_draft.product_id}
+        return preview_draft.product
+
+    monkeypatch.setattr(drafts, "get_object_or_404", get_object)
+    network = MagicMock(side_effect=AssertionError("Preview must not contact eBay."))
+    monkeypatch.setattr("requests.sessions.Session.request", network)
+    request = APIRequestFactory().get("/draft/", {"preview": "1"})
+    force_authenticate(request, user=get_user_model()(pk=1, role="manager"))
+    response = drafts.EbayDraftView.as_view(account="depotum")(
+        request, product_id=preview_draft.product_id
+    )
+    assert response.status_code == 200
+    assert response["Cache-Control"] == "no-store"
+    assert response.data["preview_only"] is True
+    assert response.data["environment"] == environment
+    assert response.data["draft_complete"] is bool(title)
+    assert response.data["inventory_item"]["body"]["product"]["aspects"] == {
+        "Farbe": ["Schwarz"]
+    }
+    assert (
+        response.data["offer"]["body"]["pricingSummary"]["price"]["value"] == "7049.00"
+    )
+    preview_draft.save.assert_not_called()
+    network.assert_not_called()
+
+
 def test_preview_builds_inventory_item_and_offer(preview_draft):
     """Проверяет NEW, цену, фото, характеристики и совпадение SKU с существующим JV EAN."""
     from apps.marketplace.ebay.description import render_listing_description
