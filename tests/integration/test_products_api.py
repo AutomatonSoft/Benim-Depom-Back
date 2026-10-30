@@ -14,6 +14,7 @@ def authenticate(client, user):
 def product_payload(product_type, **overrides):
     payload = {
         "title": "API chair",
+        "model": "Chair 100",
         "product_type": product_type,
         "unit_price": "1000.00",
         "currency": "TRY",
@@ -57,6 +58,8 @@ def test_seller_creates_product_and_other_seller_cannot_access_it(
     product_id = response.data["id"]
     assert response.data["status"] == Product.Status.SUBMITTED
     assert response.data["variants"][0]["color"] == "beyaz"
+    assert response.data["model"] == "Chair 100"
+    assert Product.objects.get(pk=product_id).model == "Chair 100"
 
     authenticate(api_client, second_seller)
     assert api_client.get(f"/api/v1/products/{product_id}/").status_code == 404
