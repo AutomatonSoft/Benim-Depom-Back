@@ -48,6 +48,7 @@ class Product(models.Model):
         related_name="products",
     )
     title = models.CharField(max_length=255)
+    description = models.TextField(max_length=1200, blank=True, default="")
     model = models.CharField(max_length=200, blank=True, default="")
     # A free-form type entered by the seller. The mobile UI may suggest values
     # in the selected language, but the backend does not maintain a type catalog.

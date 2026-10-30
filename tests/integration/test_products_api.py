@@ -45,6 +45,26 @@ def multipart_product_payload(product_type, image_file, **overrides):
 
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize("description", [None, "", "a" * 10, "a" * 1200])
+def test_seller_description_is_saved_and_visible_to_manager(
+    api_client, seller, manager, product_type, image_file, description
+):
+    payload = multipart_product_payload(product_type, image_file)
+    if description is not None:
+        payload["description"] = description
+    authenticate(api_client, seller)
+    response = api_client.post("/api/v2/products/", payload, format="multipart")
+    assert response.status_code == 201, response.data
+    product = Product.objects.get(pk=response.data["id"])
+    assert product.description == (description or "")
+    authenticate(api_client, manager)
+    detail = api_client.get(f"/api/v2/products/{product.pk}/")
+    assert detail.status_code == 200
+    assert detail.data["description"] == product.description
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_seller_creates_product_and_other_seller_cannot_access_it(
     api_client, seller, second_seller, product_type, image_file
 ):
