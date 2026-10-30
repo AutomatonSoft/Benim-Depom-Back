@@ -26,6 +26,28 @@ def valid_variant(**overrides):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "value", ["", "   ", "a" * 10, "a" * 1200, "  Описание товара  "]
+)
+def test_product_description_accepts_optional_text_and_trims(value):
+    serializer = ProductSerializer(
+        instance=Product(), data={"description": value}, partial=True
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["description"] == value.strip()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["a", "a" * 9, "a" * 1201, None])
+def test_product_description_rejects_invalid_length(value):
+    serializer = ProductSerializer(
+        instance=Product(), data={"description": value}, partial=True
+    )
+    assert not serializer.is_valid()
+    assert "description" in serializer.errors
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("value", ["", "   ", "ab", "a" * 201, None])
 def test_product_model_rejects_invalid_value_on_edit(value):
     serializer = ProductSerializer(
