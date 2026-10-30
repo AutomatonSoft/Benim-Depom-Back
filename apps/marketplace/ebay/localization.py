@@ -13,8 +13,8 @@ from apps.catalog.otto_catalog import (
 )
 
 
-@lru_cache(maxsize=3)
-def _labels(language):
+@lru_cache(maxsize=9)
+def _cached_labels(language, translation_path, modified_ns, size):
     labels = {}
     try:
         base = get_otto_catalog()
@@ -42,9 +42,7 @@ def _labels(language):
                     labels.setdefault(original, label)
     except OttoCatalogError:
         pass  # eBay-specific labels remain usable if the independent OTTO overlay is unavailable.
-    translation_file = (
-        settings.BASE_DIR / "data" / "ebay" / "translations" / f"{language}.json"
-    )
+    translation_file = translation_path
     payload = json.loads(translation_file.read_text(encoding="utf-8"))
     if payload.get("language") != language or not isinstance(
         payload.get("labels"), dict
@@ -52,6 +50,14 @@ def _labels(language):
         raise ValueError("eBay catalog translation data is invalid.")
     labels.update(payload["labels"])
     return labels
+
+
+def _labels(language):
+    translation_file = (
+        settings.BASE_DIR / "data" / "ebay" / "translations" / f"{language}.json"
+    )
+    stat = translation_file.stat()
+    return _cached_labels(language, translation_file, stat.st_mtime_ns, stat.st_size)
 
 
 def localize_catalog(payload, language):

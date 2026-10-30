@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -90,6 +91,10 @@ def resolve_requested_targets(data) -> list[dict[str, str]]:
 
     for marketplace in data["channels"]:
         account = accounts.get(marketplace)
+
+        if marketplace == "ebay":
+            resolved_targets.append({"marketplace": "ebay", "account": "depotum"})
+            continue
 
         if account:
             resolved_targets.append(
@@ -290,6 +295,11 @@ class ProductMarketplaceJobCreateView(ManagerMutationThrottleMixin, APIView):
                             "target_payloads": target_payloads,
                             "accounts": data.get("accounts", {}),
                             "targets": data.get("targets", []),
+                            **(
+                                {"ebay_environment": settings.EBAY_ENVIRONMENT}
+                                if "ebay" in data["channels"]
+                                else {}
+                            ),
                         }
                     ),
                 )
@@ -446,8 +456,13 @@ class MarketplaceJobListView(generics.ListAPIView):
 
     def get_queryset(self):
         filters = self.filters.validated_data
-        queryset = MarketplaceJob.objects.select_related("product").order_by(
-            "-created_at"
+        queryset = (
+            MarketplaceJob.objects.select_related("product")
+            .order_by("-created_at")
+            .filter(
+                Q(request_payload__ebay_environment=settings.EBAY_ENVIRONMENT)
+                | ~Q(request_payload__has_key="ebay_environment")
+            )
         )
 
         if filters.get("in_progress") is True:
@@ -496,7 +511,8 @@ class ProductMarketplacePublicationListView(APIView):
         product = get_object_or_404(Product, pk=product_pk)
 
         publications = (
-            MarketplacePublication.objects.filter(product=product)
+            MarketplacePublication.objects.for_environment()
+            .filter(product=product)
             .select_related("last_job")
             .order_by("marketplace", "account")
         )
@@ -519,7 +535,9 @@ class MarketplacePublicationReconciliationView(ManagerMutationThrottleMixin, API
     def post(self, request, publication_pk):
         from .publication_reconciliation import create_reconciliation
 
-        get_object_or_404(MarketplacePublication, pk=publication_pk)
+        get_object_or_404(
+            MarketplacePublication.objects.for_environment(), pk=publication_pk
+        )
         serializer = MarketplacePublicationReconciliationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         action = serializer.validated_data["action"]
@@ -569,11 +587,15 @@ class MarketplacePublicationListView(generics.ListAPIView):
     def get_queryset(self):
         filters = self.filters.validated_data
 
-        queryset = MarketplacePublication.objects.select_related(
-            "product",
-            "product__owner",
-            "last_job",
-        ).order_by("-updated_at")
+        queryset = (
+            MarketplacePublication.objects.for_environment()
+            .select_related(
+                "product",
+                "product__owner",
+                "last_job",
+            )
+            .order_by("-updated_at")
+        )
 
         publication_status = filters.get("status")
         if publication_status == "removed":
@@ -613,7 +635,7 @@ class ProductOttoListingConfigurationView(ManagerMutationThrottleMixin, APIView)
     permission_classes = (IsAuthenticated, IsManager)
 
     def _get_configuration(self, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return None
 
         product = get_object_or_404(Product, pk=product_pk)
@@ -689,7 +711,7 @@ class ProductOttoPayloadPreviewView(APIView):
         ),
     )
     def get(self, request, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return Response(
                 {"detail": "Account must be 'jv' or 'xl'."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -729,7 +751,7 @@ class ProductHoodListingConfigurationView(ManagerMutationThrottleMixin, APIView)
     permission_classes = (IsAuthenticated, IsManager)
 
     def _get_configuration(self, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return None
 
         product = get_object_or_404(Product, pk=product_pk)
@@ -805,7 +827,7 @@ class ProductHoodPayloadPreviewView(APIView):
         ),
     )
     def get(self, request, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return Response(
                 {"detail": "Account must be 'jv' or 'xl'."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -846,7 +868,7 @@ class ProductKauflandListingConfigurationView(ManagerMutationThrottleMixin, APIV
     permission_classes = (IsAuthenticated, IsManager)
 
     def _get_configuration(self, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return None
 
         product = get_object_or_404(Product, pk=product_pk)
@@ -920,7 +942,7 @@ class ProductKauflandCreatePayloadPreviewView(APIView):
         ),
     )
     def get(self, request, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return Response(
                 {"detail": "Account must be 'jv' or 'xl'."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -968,7 +990,7 @@ class ProductKauflandUpdatePayloadPreviewView(APIView):
         ),
     )
     def get(self, request, product_pk: int, account: str):
-        if account not in MarketplacePublication.Account.values:
+        if account not in {"jv", "xl"}:
             return Response(
                 {"detail": "Account must be 'jv' or 'xl'."},
                 status=status.HTTP_404_NOT_FOUND,

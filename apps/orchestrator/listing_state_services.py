@@ -14,6 +14,7 @@ def _operation_for(*, marketplace: str, action: str) -> str | None:
     """Translate a business action to the API operation of each marketplace."""
     reversible = {
         MarketplacePublication.Marketplace.OTTO,
+        MarketplacePublication.Marketplace.EBAY,
     }
     if action == "deactivate":
         return (
@@ -48,7 +49,9 @@ def create_listing_state_jobs(
 
     with transaction.atomic():
         publications = list(
-            MarketplacePublication.objects.select_for_update().filter(
+            MarketplacePublication.objects.for_environment()
+            .select_for_update()
+            .filter(
                 product=product,
                 status=desired_status,
             )

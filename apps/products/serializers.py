@@ -435,6 +435,7 @@ class ProductSerializer(serializers.ModelSerializer):
     )
     images = ProductImageSerializer(many=True, read_only=True)
     total_quantity = serializers.SerializerMethodField()
+    active_listing_count = serializers.IntegerField(read_only=True)
     total_amount = serializers.SerializerMethodField()
     last_moderation_decision = serializers.SerializerMethodField()
     active_price_negotiation = serializers.SerializerMethodField()
@@ -484,6 +485,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "images",
             "total_quantity",
             "created_at",
+            "active_listing_count",
             "updated_at",
         )
         read_only_fields = (

@@ -58,8 +58,13 @@ class GermanListingMaterialsMixin(serializers.Serializer):
 
 
 class MarketplaceTargetSerializer(serializers.Serializer):
-    marketplace = serializers.ChoiceField(choices=("hood", "otto", "kaufland"))
-    account = serializers.ChoiceField(choices=("jv", "xl"))
+    marketplace = serializers.ChoiceField(choices=("hood", "otto", "kaufland", "ebay"))
+    account = serializers.ChoiceField(choices=("jv", "xl", "depotum"))
+
+    def validate(self, attrs):
+        if (attrs["marketplace"] == "ebay") != (attrs["account"] == "depotum"):
+            raise serializers.ValidationError("eBay is available only for Depotum.")
+        return attrs
 
 
 class MarketplaceListingStateRequestSerializer(serializers.Serializer):
@@ -79,7 +84,7 @@ class MarketplaceListingStateRequestSerializer(serializers.Serializer):
 
 class MarketplaceJobRequestSerializer(serializers.Serializer):
     channels = serializers.ListField(
-        child=serializers.ChoiceField(choices=("hood", "otto", "kaufland")),
+        child=serializers.ChoiceField(choices=("hood", "otto", "kaufland", "ebay")),
         required=False,
         allow_empty=False,
     )
@@ -153,7 +158,7 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
             missing = [
                 channel
                 for channel in channels
-                if channel not in {"otto", "hood", "kaufland"}
+                if channel not in {"otto", "hood", "kaufland", "ebay"}
                 and channel not in payloads
             ]
 
@@ -191,12 +196,13 @@ class MarketplaceJobRequestSerializer(serializers.Serializer):
         invalid_accounts = {
             channel: account
             for channel, account in accounts.items()
-            if account not in {"jv", "xl"}
+            if (channel == "ebay" and account != "depotum")
+            or (channel != "ebay" and account not in {"jv", "xl"})
         }
 
         if invalid_accounts:
             raise serializers.ValidationError(
-                {"accounts": ("Account values must be either 'jv' or 'xl'.")}
+                {"accounts": "Use Depotum for eBay and JV/XL for other marketplaces."}
             )
 
         return attrs
@@ -272,7 +278,7 @@ class MarketplaceJobSerializer(serializers.ModelSerializer):
 
 
 class MarketplaceContentTargetSerializer(MarketplaceTargetSerializer):
-    """eBay reuses the universal AI draft without joining legacy publication jobs."""
+    """Targets for the common marketplace AI draft."""
 
     marketplace = serializers.ChoiceField(choices=("hood", "otto", "kaufland", "ebay"))
     account = serializers.ChoiceField(choices=("jv", "xl", "depotum"))
@@ -438,6 +444,19 @@ class MarketplacePublicationReconciliationSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="MarketplacePublication")
 class MarketplacePublicationSerializer(serializers.ModelSerializer):
+    listing_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.CharField())
+    def get_listing_url(self, publication):
+        if publication.marketplace != "ebay" or not publication.external_id.isdigit():
+            return ""
+        host = (
+            "www.sandbox.ebay.de"
+            if publication.environment == "sandbox"
+            else "www.ebay.de"
+        )
+        return f"https://{host}/itm/{publication.external_id}"
+
     product_id = serializers.IntegerField(read_only=True)
     product_title = serializers.CharField(
         source="product.title",
@@ -462,6 +481,8 @@ class MarketplacePublicationSerializer(serializers.ModelSerializer):
             "marketplace",
             "account",
             "ean",
+            "environment",
+            "listing_url",
             "status",
             "external_id",
             "external_reference",

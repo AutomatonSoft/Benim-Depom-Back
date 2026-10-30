@@ -70,6 +70,28 @@ class ListingSnapshotSerializer(serializers.Serializer):
     offer = serializers.JSONField(allow_null=True)
 
 
+def get_listing_snapshot(product_id):
+    preparation = _get_preparation(product_id, account="depotum")
+    token = get_access_token(account="depotum")
+    with build_marketplace_session() as session:
+        for adapter in session.adapters.values():
+            adapter.max_retries = Retry(total=0)
+        inventory, offer = _read_resources(session, token, preparation)
+    listing = (offer or {}).get("listing") or {}
+    return {
+        "product": product_id,
+        "account": "depotum",
+        "environment": preparation.environment,
+        "checked_at": timezone.now(),
+        "remote_status": (offer or {}).get("status"),
+        "listing_status": listing.get("listingStatus"),
+        "remote_listing_id": listing.get("listingId", ""),
+        "preparation": preparation,
+        "inventory_item": inventory,
+        "offer": offer,
+    }
+
+
 def _read_resources(session, token, preparation):
     """Читает два ресурса и проверяет принадлежность сохранённым SKU/Offer и площадке."""
     if not preparation.offer_id:
@@ -263,25 +285,7 @@ class EbayListingView(ManagerMutationThrottleMixin, APIView):
     @extend_schema(responses={200: ListingSnapshotSerializer}, tags=["eBay"])
     def get(self, request, product_id):
         """Возвращает текущие данные eBay без изменения локальных статусов."""
-        preparation = _get_preparation(product_id, account="depotum")
-        token = get_access_token(account="depotum")
-        with build_marketplace_session() as session:
-            for adapter in session.adapters.values():
-                adapter.max_retries = Retry(total=0)
-            inventory, offer = _read_resources(session, token, preparation)
-        listing = (offer or {}).get("listing") or {}
-        result = {
-            "product": product_id,
-            "account": "depotum",
-            "environment": preparation.environment,
-            "checked_at": timezone.now(),
-            "remote_status": (offer or {}).get("status"),
-            "listing_status": listing.get("listingStatus"),
-            "remote_listing_id": listing.get("listingId", ""),
-            "preparation": preparation,
-            "inventory_item": inventory,
-            "offer": offer,
-        }
+        result = get_listing_snapshot(product_id)
         response = Response(ListingSnapshotSerializer(result).data)
         response["Cache-Control"] = "no-store"
         return response

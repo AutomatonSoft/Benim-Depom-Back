@@ -33,7 +33,11 @@ def test_ebay_managed_payment_and_listing_number():
     )
 
 
-def test_publication_preserves_old_listing_ids():
+def test_publication_preserves_old_listing_ids(monkeypatch):
+    sync_publication = MagicMock()
+    monkeypatch.setattr(
+        "apps.marketplace.ebay.orchestration.sync_publication", sync_publication
+    )
     preparation = SimpleNamespace(
         listing_id="100", listing_id_history=["99"], save=MagicMock()
     )
@@ -42,6 +46,8 @@ def test_publication_preserves_old_listing_ids():
     _save_state(preparation, listing_id="101")
     assert preparation.listing_id_history == ["99", "100", "101"]
     assert "listing_id_history" in preparation.save.call_args.kwargs["update_fields"]
+    assert sync_publication.call_count == 2
+    sync_publication.assert_called_with(preparation)
 
 
 @pytest.mark.django_db
