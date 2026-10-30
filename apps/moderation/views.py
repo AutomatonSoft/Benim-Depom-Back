@@ -244,13 +244,18 @@ class ManagerProductListView(generics.ListAPIView):
                 active_listing_count=Count(
                     "marketplace_publications",
                     filter=(
-                    Q(marketplace_publications__status=MarketplacePublication.Status.ACTIVE)
-                    & (
-                        ~Q(marketplace_publications__marketplace=MarketplacePublication.Marketplace.EBAY)
-                        | Q(marketplace_publications__environment=settings.EBAY_ENVIRONMENT)
-                    )
-                ),
-                    
+                        Q(
+                            marketplace_publications__status=MarketplacePublication.Status.ACTIVE
+                        )
+                        & (
+                            ~Q(
+                                marketplace_publications__marketplace=MarketplacePublication.Marketplace.EBAY
+                            )
+                            | Q(
+                                marketplace_publications__environment=settings.EBAY_ENVIRONMENT
+                            )
+                        )
+                    ),
                     distinct=True,
                 )
             )
