@@ -353,6 +353,7 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="ProductsProduct")
 class ProductSerializer(serializers.ModelSerializer):
+    model = serializers.CharField(min_length=3, max_length=200)
     product_type = serializers.CharField(max_length=255, trim_whitespace=True)
     seller = ProductOwnerSerializer(source="owner", read_only=True)
     unit_price = serializers.DecimalField(
@@ -448,6 +449,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "owner",
             "seller",
             "title",
+            "model",
             "product_type",
             "unit_price",
             "currency",
@@ -690,6 +692,11 @@ class ProductSerializer(serializers.ModelSerializer):
                 )
             value["de_size_tiers"] = cleaned
         return value
+
+    def get_fields(self):
+        fields = super().get_fields()
+        fields["model"].required = self.instance is None
+        return fields
 
     def validate(self, attrs):
         """Validate draft data without requiring a complete OTTO form."""

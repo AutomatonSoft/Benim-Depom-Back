@@ -139,6 +139,7 @@ def update_product(
 
 _PENDING_PRODUCT_FIELDS = {
     "title",
+    "model",
     "product_type",
     "unit_price",
     "currency",

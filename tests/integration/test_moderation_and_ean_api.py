@@ -64,6 +64,7 @@ def test_product_creation_requires_image_and_notifies_managers_without_reserving
 
     payload = {
         "title": "Moderation chair",
+        "model": "Chair 100",
         "product_type": product_type,
         "unit_price": "1000.00",
         "currency": "TRY",
