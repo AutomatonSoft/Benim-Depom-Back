@@ -87,12 +87,18 @@ jobs:
           set -Eeuo pipefail
           cd "$DEPLOY_DIR"
 
+          compose_command=(docker compose)
+          if ! "${compose_command[@]}" version >/dev/null 2>&1; then
+            compose_command=(/usr/libexec/docker/cli-plugins/docker-compose)
+            "${compose_command[@]}" version
+          fi
+
           printf 'IMAGE_TAG=%s\nAPP_BIND_PORT=%s\n' "$IMAGE_TAG" "$APP_BIND_PORT" > .deploy.env.tmp
           mv .deploy.env.tmp .deploy.env
           chmod 600 .deploy.env
 
           compose() {
-            docker compose --project-name "$PROJECT_NAME" --env-file .deploy.env -f docker-compose.prod.yml "$@"
+            "${compose_command[@]}" --project-name "$PROJECT_NAME" --env-file .deploy.env -f docker-compose.prod.yml "$@"
           }
 
           compose pull
