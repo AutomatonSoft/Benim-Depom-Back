@@ -360,6 +360,7 @@ def build_universal_content_request(
             "for 45 to 65 characters when facts support it, but never pad, "
             "exceed 65 characters or append BD; do not infer material, "
             "construction, comfort or quality from the photo;\n"
+<<<<<<< Updated upstream
             "- title and ebay_title must not contain German conjunctions or "
             "prepositions as standalone words, including mit, und, oder, "
             "sowie, als, auch, aber, sondern, beziehungsweise, bzw., für, "
@@ -375,6 +376,13 @@ def build_universal_content_request(
             "linking phrases. This title-only rule takes precedence over "
             "earlier title examples; descriptions and bullet_points may "
             "use normal German grammar;\n"
+=======
+            "- keep titles elegant and concise; avoid connective filler "
+            "such as zusammen mit, gemeinsam mit, im Set mit, in Kombination "
+            "mit or bestehend aus. For sets, convey the relationship through "
+            "the product name or a set term rather than an explanatory "
+            "linking phrase;\n"
+>>>>>>> Stashed changes
             "- make descriptions informative and buyer-focused: explain the "
             "product's visible shape and design in the opening paragraph; "
             "use the second paragraph to describe its supported material "
