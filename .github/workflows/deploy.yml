@@ -93,37 +93,43 @@ jobs:
 
           cd "$DEPLOY_DIR"
 
+          compose_command=(docker compose)
+          if ! "${compose_command[@]}" version >/dev/null 2>&1; then
+            compose_command=(/usr/libexec/docker/cli-plugins/docker-compose)
+            "${compose_command[@]}" version
+          fi
+
           printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG" > .deploy.env.tmp
           mv .deploy.env.tmp .deploy.env
           chmod 600 .deploy.env
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
             pull
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
             up -d --wait postgres redis
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
             run --rm --no-deps --no-TTY --interactive=false \
             web python manage.py migrate --noinput </dev/null
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
             run --rm --no-deps --no-TTY --interactive=false \
             web python manage.py collectstatic --noinput </dev/null
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
@@ -131,7 +137,7 @@ jobs:
             web worker_ai worker_images worker_media_uploads worker_maintenance \
             worker_marketplace worker_notifications beat
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
@@ -141,7 +147,7 @@ jobs:
           expected_revision="${IMAGE_TAG#sha-}"
           expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image")"
           image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_image")"
-          web_container_id="$(docker compose \
+          web_container_id="$("${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
@@ -154,7 +160,7 @@ jobs:
           curl --fail --silent --show-error \
             http://127.0.0.1:18081/api/v1/health/
 
-          docker compose \
+          "${compose_command[@]}" \
             --project-name benim-depom \
             --env-file .deploy.env \
             -f docker-compose.prod.yml \
