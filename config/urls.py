@@ -63,6 +63,7 @@ def api_patterns(auth_urls):
 
 v1_routes = [path("api/v1/", include(api_patterns("apps.accounts.v1_urls")))]
 v2_routes = [
+    path("api/v2/ebay-bulk-end/", include("apps.ebay_bulk_end.urls")),
     path(
         "api/v2/", include((api_patterns("apps.accounts.urls"), "api"), namespace="v2")
     )
