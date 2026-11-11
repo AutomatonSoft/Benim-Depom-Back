@@ -51,11 +51,13 @@ class ReportStagingTests(SimpleTestCase):
                 path.write_bytes(b"csv")
 
             self.assertTrue(delete_snapshot_staging_files(snapshot_id, limit=2))
-            self.assertFalse(first.exists())
-            self.assertFalse(second.exists())
-            self.assertTrue(third.exists())
+            # Directory iteration order varies by filesystem.
+            remaining = set(first.parent.iterdir())
+            self.assertEqual(len(remaining), 1)
+            self.assertTrue(remaining.issubset({first, second, third}))
             self.assertFalse(delete_snapshot_staging_files(snapshot_id, limit=2))
-            self.assertFalse(third.exists())
+            for path in (first, second, third):
+                self.assertFalse(path.exists())
             self.assertFalse(
                 Path(directory, "ebay-bulk-end", str(snapshot_id)).exists()
             )
