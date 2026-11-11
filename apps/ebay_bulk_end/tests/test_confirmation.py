@@ -20,6 +20,7 @@ class ConfirmViewTests(SimpleTestCase):
             "manager_id": 7,
             "kind": "scan",
             "status": "preview",
+            "discovery_complete": True,
             "account": "jv",
             "environment": "sandbox",
             "preview_expires_at": (timezone.now() + timedelta(minutes=5)).isoformat(),
@@ -60,6 +61,18 @@ class ConfirmViewTests(SimpleTestCase):
         ):
             response = ConfirmView.as_view()(request, job_id=self.job_id)
         return response, confirm, lock
+
+    def test_rejects_a_preview_without_complete_discovery(self):
+        response, confirm, _ = self.post(
+            {
+                "item_ids": ["123456789012"],
+                "typed_account": "JV",
+                "confirm_unavailable_reason": True,
+            },
+            job={**self.job, "discovery_complete": False},
+        )
+        self.assertEqual(response.status_code, 409)
+        confirm.assert_not_called()
 
     def test_rejects_item_id_outside_the_immutable_preview(self):
         response, confirm, lock = self.post(

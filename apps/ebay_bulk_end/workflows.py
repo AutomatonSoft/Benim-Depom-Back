@@ -12,6 +12,7 @@ from .domain import (
     child,
     descendants,
     item_summary,
+    listing_status,
     safe_csv_cell,
     text,
 )
@@ -185,7 +186,11 @@ def _verify_item(token, selected, job):
     item = get_item(token, selected["item_id"])
     if item is None:
         return "not_found", "Объявление больше не найдено в eBay."
-    if text(item, "ListingStatus") != "Active":
+    if text(item, "ItemID") != selected["item_id"]:
+        return "blocked", "eBay вернул другое объявление; завершение заблокировано."
+    if listing_status(item) not in {"Active", "Completed", "Ended"}:
+        return "blocked", "Не удалось подтвердить статус объявления."
+    if listing_status(item) != "Active":
         return "already_ended", "Объявление уже не активно."
     seller_id = text(child(item, "Seller"), "UserID")
     if not seller_id or seller_id.casefold() != job["seller_id"].casefold():
@@ -616,9 +621,11 @@ def report_rows(job):
                 "eans": [ean],
                 "item_id": "",
                 "title": "",
-                "status": "not_found",
+                "status": job.get("unmatched_status_by_ean", {}).get(
+                    ean, job.get("unmatched_status", "not_found_in_sku_index")
+                ),
                 "error_code": "",
-                "message": "Нет активного объявления с точным совпадением EAN.",
+                "message": "EAN не найден в SKU-индексе; это не подтверждает отсутствие товара на eBay.",
                 "end_time": "",
                 "finished_at": job.get("finished_at", ""),
             }

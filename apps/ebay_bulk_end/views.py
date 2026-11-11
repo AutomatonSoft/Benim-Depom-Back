@@ -205,6 +205,11 @@ class ConfirmView(ManagerMutationThrottleMixin, ManagerAPI):
                     return _error(
                         "Это задание нельзя подтвердить.", status.HTTP_409_CONFLICT
                     )
+                if not job.get("discovery_complete"):
+                    return _error(
+                        "Поиск не завершён; подтверждение недоступно.",
+                        status.HTTP_409_CONFLICT,
+                    )
                 if datetime.fromisoformat(job["preview_expires_at"]) <= timezone.now():
                     return _error(
                         "Предпросмотр истёк. Запустите поиск заново.",
@@ -393,7 +398,10 @@ class HistoryListView(ManagerAPI):
         for parameter, lookup in (("date_from", "gte"), ("date_to", "lte")):
             value = request.query_params.get(parameter)
             if value:
-                parsed = parse_date(value)
+                try:
+                    parsed = parse_date(value)
+                except ValueError:
+                    parsed = None
                 if parsed is None:
                     return _error(f"Параметр {parameter} должен быть датой YYYY-MM-DD.")
                 jobs = jobs.filter(**{f"created_at__date__{lookup}": parsed})
@@ -593,7 +601,12 @@ class HistoryCSVView(ManagerAPI):
                         "",
                         "",
                         "",
-                        "not_found_in_sku_index",
+                        job.workflow_state.get("unmatched_status_by_ean", {}).get(
+                            ean,
+                            "not_found_in_sku_index"
+                            if job.discovery_complete
+                            else "not_verified",
+                        ),
                         "",
                         "",
                         "",

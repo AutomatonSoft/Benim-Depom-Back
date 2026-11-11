@@ -12,6 +12,7 @@ from .domain import (
     child,
     descendants,
     is_ack_success,
+    listing_status,
     local_name,
     text,
     trading_element,
@@ -174,4 +175,4 @@ def get_item_state(token, item_id):
     item = get_item(token, item_id)
     if item is None:
         return None
-    return text(item, "ListingStatus", "Unknown")
+    return listing_status(item)

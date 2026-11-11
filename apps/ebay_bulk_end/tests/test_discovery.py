@@ -20,9 +20,11 @@ from apps.ebay_bulk_end.inventory import (
     IMPORT_ROWS_PER_TASK,
     REPORT_DOWNLOADS_PER_24_HOURS,
     REPORT_POLL_SECONDS,
+    SCAN_PROGRESS_POLL_SECONDS,
     _claim_snapshot,
     _fail_snapshot,
     _heartbeat_snapshot,
+    _recover_inventory_task,
     _reserve_report_download,
     advance_inventory_snapshot_step,
     run_inventory_scan_chunk,
@@ -47,6 +49,27 @@ def _item(item_id, sku, seller="seller-jv", extra=""):
 
 
 class ExactIdentifierTests(SimpleTestCase):
+    def test_real_getitem_nested_status_is_preserved(self):
+        item = _item("123456789012", "4006381333931")
+        item.remove(item.find("ListingStatus"))
+        ET.SubElement(
+            ET.SubElement(item, "SellingStatus"), "ListingStatus"
+        ).text = "Active"
+        self.assertEqual(
+            item_summary(item, {"4006381333931"})["listing_status"], "Active"
+        )
+
+    def test_any_conflicting_duplicate_variation_sku_blocks_the_parent(self):
+        item = _item(
+            "123456789012",
+            "",
+            extra="""<Variations>
+        <Variation><SKU>4006381333931</SKU><VariationProductListingDetails><EAN>5901234123457</EAN></VariationProductListingDetails></Variation>
+        <Variation><SKU>4006381333931</SKU><VariationProductListingDetails><EAN>4006381333931</EAN></VariationProductListingDetails></Variation>
+        </Variations>""",
+        )
+        self.assertTrue(item_summary(item, {"4006381333931"})["identifier_conflict"])
+
     def test_matches_exact_ean_item_specifics_but_not_a_partial_value(self):
         item = ET.fromstring(
             "<Item><ItemSpecifics><NameValueList><Name>EAN</Name><Value>01234565</Value></NameValueList>"
@@ -87,6 +110,84 @@ class ExactIdentifierTests(SimpleTestCase):
 
 
 class LargeInventoryLookupTests(TestCase):
+    def test_sandbox_recovery_handles_observed_pacific_wall_time_but_not_production(
+        self,
+    ):
+        from datetime import datetime
+        from datetime import timezone as utc_timezone
+
+        started = datetime(2026, 11, 11, 9, 16, 26, tzinfo=utc_timezone.utc)
+        now = started + timedelta(minutes=2)
+        tasks = [
+            {
+                "taskId": "task-1",
+                "creationDate": "2026-11-11T02:16:26.378Z",
+                "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+            }
+        ]
+        with patch(
+            "apps.ebay_bulk_end.inventory.get_inventory_tasks", return_value=(tasks, 1)
+        ):
+            with self.settings(EBAY_ENVIRONMENT="sandbox"):
+                self.assertEqual(
+                    _recover_inventory_task("token", started, now), ("found", "task-1")
+                )
+            with self.settings(EBAY_ENVIRONMENT="production"):
+                self.assertEqual(
+                    _recover_inventory_task("token", started, now), ("missing", None)
+                )
+            with self.settings(EBAY_ENVIRONMENT="sandbox"):
+                self.assertEqual(
+                    _recover_inventory_task(
+                        "token", started, started + timedelta(hours=2)
+                    ),
+                    ("found", "task-1"),
+                )
+                tasks.append({**tasks[0], "taskId": "task-2"})
+                with patch(
+                    "apps.ebay_bulk_end.inventory.get_inventory_tasks",
+                    return_value=(tasks, 2),
+                ):
+                    self.assertEqual(
+                        _recover_inventory_task("token", started, now),
+                        ("ambiguous", None),
+                    )
+
+    def test_getitem_failure_does_not_poison_the_shared_complete_snapshot(self):
+        snapshot = self._snapshot()
+        EbayInventoryListing.objects.create(
+            snapshot=snapshot,
+            item_id="123456789012",
+            sku="4006381333931",
+            marketplace_id="EBAY_DE",
+        )
+        job = {
+            "id": str(uuid4()),
+            "kind": "scan",
+            "status": "queued",
+            "account": "jv",
+            "environment": "sandbox",
+            "eans": ["4006381333931"],
+            "inventory_snapshot_id": str(snapshot.pk),
+            "discovery_details": {},
+        }
+        with (
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
+            ),
+            patch("apps.ebay_bulk_end.inventory.save_job"),
+            patch(
+                "apps.ebay_bulk_end.inventory.get_item",
+                side_effect=EBayTransportError("timeout"),
+            ),
+        ):
+            self.assertIsNone(run_inventory_scan_chunk(job))
+        snapshot.refresh_from_db()
+        self.assertEqual(job["status"], "failed")
+        self.assertTrue(snapshot.complete)
+        self.assertEqual(snapshot.status, "complete")
+
     def _snapshot(self):
         return EbayInventorySnapshot.objects.create(
             account="jv",
@@ -264,6 +365,15 @@ class LargeInventoryLookupTests(TestCase):
         self.assertEqual(snapshot.status, "importing")
 
     def test_uncertain_creation_is_logged_and_saved_without_repeating_post(self):
+        connection = EbayConnection.objects.create(
+            environment="sandbox",
+            account="jv",
+            ebay_user_id="seller-jv",
+            access_token_encrypted="test",
+            refresh_token_encrypted="test",
+            access_token_expires_at=timezone.now() + timedelta(hours=1),
+            refresh_token_expires_at=timezone.now() + timedelta(days=1),
+        )
         snapshot = EbayInventorySnapshot.objects.create(
             account="jv",
             environment="sandbox",
@@ -286,7 +396,7 @@ class LargeInventoryLookupTests(TestCase):
             patch(
                 "apps.ebay_bulk_end.inventory.access_context",
                 return_value=(
-                    SimpleNamespace(ebay_user_id="seller-jv"),
+                    connection,
                     "secret-token",
                 ),
             ),
@@ -313,6 +423,40 @@ class LargeInventoryLookupTests(TestCase):
         self.assertIn(str(job_id), logs.output[0])
         self.assertIn(str(snapshot.pk), logs.output[0])
         self.assertNotIn("secret-token", str(logs.output) + str(event))
+
+        # Failed/uncertain creation intents also consume the rolling request budget.
+        now = timezone.now()
+        for _ in range(REPORT_DOWNLOADS_PER_24_HOURS - 1):
+            EbayInventorySnapshot.objects.create(
+                account="jv",
+                environment="sandbox",
+                ebay_seller_id="seller-jv",
+                marketplace_id="EBAY_DE",
+                status="failed",
+                report_request_started_at=now - timedelta(minutes=20),
+            )
+        snapshot.status = "failed"
+        snapshot.save(update_fields=("status",))
+        pending = EbayInventorySnapshot.objects.create(
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="requested",
+        )
+        with (
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(connection, "token"),
+            ),
+            patch("apps.ebay_bulk_end.inventory.record_event"),
+            patch("apps.ebay_bulk_end.inventory.create_inventory_task") as create,
+        ):
+            self.assertGreater(advance_inventory_snapshot_step(pending.pk, uuid4()), 0)
+            create.assert_not_called()
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, "requested")
+        self.assertIsNone(pending.report_request_started_at)
 
     def test_scan_reports_each_snapshot_stage_without_claiming_unconfirmed_processing(
         self,
@@ -356,7 +500,9 @@ class LargeInventoryLookupTests(TestCase):
                         "inventory_snapshot_id": str(snapshot.pk),
                         "discovery_details": {},
                     }
-                    self.assertEqual(run_inventory_scan_chunk(job), REPORT_POLL_SECONDS)
+                    self.assertEqual(
+                        run_inventory_scan_chunk(job), SCAN_PROGRESS_POLL_SECONDS
+                    )
                     self.assertEqual(job["progress"]["stage"], stage)
                     self.assertIsNone(job["progress"]["total"])
                     self.assertEqual(

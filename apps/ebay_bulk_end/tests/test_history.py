@@ -128,6 +128,8 @@ class DurableAuditTests(TestCase):
         first, second = job(first_id), job(second_id)
 
         self.assertTrue(reserve_end_batch(first, [item["item_id"]], uuid4()))
+        with self.assertRaises(BulkEndError):
+            reserve_end_batch(first, [item["item_id"]], uuid4())
         self.assertFalse(reserve_end_batch(second, [item["item_id"]], uuid4()))
         self.assertEqual(EbayBulkEndInFlight.objects.count(), 1)
 
@@ -147,9 +149,28 @@ class DurableAuditTests(TestCase):
         ):
             request_cancellation(job_id)
             self.assertTrue(cancellation_requested(job_id))
+            # A worker loaded this state before cancellation was requested.
+            persist_job(
+                {
+                    "id": str(job_id),
+                    "manager_id": self.manager.pk,
+                    "account": "jv",
+                    "environment": "sandbox",
+                    "kind": "end",
+                    "status": "ending",
+                    "cancel_requested": False,
+                }
+            )
+            self.assertTrue(cancellation_requested(job_id))
 
 
 class HistoryAPITests(TestCase):
+    def test_invalid_calendar_date_returns_validation_error(self):
+        response = self.client.get(
+            "/api/v2/ebay-bulk-end/history/?date_from=2026-02-31"
+        )
+        self.assertEqual(response.status_code, 400)
+
     def setUp(self):
         self.manager = User.objects.create_user(
             username="Manager",

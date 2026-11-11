@@ -9,6 +9,7 @@ import tempfile
 import time
 import zipfile
 from contextlib import contextmanager
+from urllib.parse import urlsplit
 
 import requests
 
@@ -21,10 +22,11 @@ from .errors import (
     EBayTransportError,
     ReportStorageError,
 )
+from .xml_report import iter_xml_inventory_rows
 
 FEED_TYPE = "LMS_ACTIVE_INVENTORY_REPORT"
 MARKETPLACE_ID = "EBAY_DE"
-MAX_SKU_LENGTH = 50
+MAX_SKU_LENGTH = 255
 REPORT_PATH = "/sell/feed/v1"
 
 
@@ -128,7 +130,11 @@ def create_inventory_task(token):
         ) from error
     _check_response(response, "create_inventory_task")
     location = response.headers.get("Location", "")
-    match = re.search(r"/inventory_task/([A-Za-z0-9._-]{1,255})/?$", location)
+    # eBay also returns /task/{id} for inventory report creation.
+    match = re.fullmatch(
+        r"/sell/feed/v1/(?:inventory_task|task)/([A-Za-z0-9._-]{1,255})/?",
+        urlsplit(location).path,
+    )
     if not match:
         raise EBayTransportError(
             "eBay не вернул идентификатор задания отчёта.",
@@ -299,23 +305,43 @@ def download_inventory_report_to_path(token, task_id, target_path, *, heartbeat=
         if os.path.getsize(raw_path) == 0:
             raise EBayTransportError("eBay вернул пустой файл отчёта.")
 
-        digest = hashlib.sha256()
-        normalized_size = 0
         with open(raw_path, "rb") as raw:
             try:
                 archive, raw_stream = _csv_stream(raw)
             except (zipfile.BadZipFile, EOFError, OSError) as error:
                 raise BulkEndError("Повреждённый ZIP-отчёт eBay.") from error
             try:
+                prefix = raw_stream.read(256)
+                raw_stream.seek(0)
                 with open(normalized_path, "xb") as normalized:
-                    while True:
-                        chunk = raw_stream.read(64 * 1024)
-                        if not chunk:
-                            break
-                        normalized.write(chunk)
-                        digest.update(chunk)
-                        normalized_size += len(chunk)
-                        pulse()
+                    if prefix.lstrip(b"\xef\xbb\xbf \r\n\t").startswith(b"<"):
+                        wrapper = io.TextIOWrapper(
+                            normalized, encoding="utf-8", newline=""
+                        )
+                        try:
+                            writer = csv.writer(wrapper)
+                            writer.writerow(("SKU", "ItemID", "Channel"))
+                            for row in iter_xml_inventory_rows(
+                                raw_stream, MARKETPLACE_ID, pulse
+                            ):
+                                row = _inventory_row(
+                                    row,
+                                    {
+                                        "sku": "sku",
+                                        "itemid": "item_id",
+                                        "channel": "marketplace_id",
+                                    },
+                                )
+                                writer.writerow(
+                                    (row["sku"], row["item_id"], row["marketplace_id"])
+                                )
+                            wrapper.flush()
+                        finally:
+                            wrapper.detach()
+                    else:
+                        while chunk := raw_stream.read(64 * 1024):
+                            normalized.write(chunk)
+                            pulse()
                     normalized.flush()
                     os.fsync(normalized.fileno())
             except (gzip.BadGzipFile, EOFError, OSError, zipfile.BadZipFile) as error:
@@ -326,14 +352,13 @@ def download_inventory_report_to_path(token, task_id, target_path, *, heartbeat=
                 elif raw_stream is not raw:
                     raw_stream.close()
 
-        if normalized_size == 0:
-            raise BulkEndError("eBay вернул пустой CSV-отчёт.")
+        staged = inspect_staged_inventory_report(normalized_path, heartbeat=heartbeat)
         os.chmod(normalized_path, 0o600)
         os.replace(normalized_path, target_path)
         return {
             "path": target_path,
-            "size": normalized_size,
-            "sha256": digest.hexdigest(),
+            "size": staged["size"],
+            "sha256": staged["sha256"],
         }
     except OSError as error:
         raise ReportStorageError(
@@ -375,11 +400,15 @@ def _csv_stream(fileobj):
         fileobj.seek(0)
         archive = zipfile.ZipFile(fileobj)
         csv_names = [
-            name for name in archive.namelist() if name.lower().endswith(".csv")
+            name
+            for name in archive.namelist()
+            if name.lower().endswith((".csv", ".xml"))
         ]
         if len(csv_names) != 1:
             archive.close()
-            raise BulkEndError("В ZIP-отчёте eBay отсутствует единственный CSV-файл.")
+            raise BulkEndError(
+                "В ZIP-отчёте eBay отсутствует единственный CSV/XML-файл."
+            )
         stream = archive.open(csv_names[0])
         return archive, stream
     if signature[:2] == b"\x1f\x8b":
@@ -394,7 +423,7 @@ def iter_inventory_rows(fileobj):
     archive, raw_stream = _csv_stream(fileobj)
     text_stream = io.TextIOWrapper(raw_stream, encoding="utf-8-sig", newline="")
     try:
-        reader = csv.DictReader(text_stream)
+        reader = csv.DictReader(text_stream, strict=True)
         if not reader.fieldnames:
             raise BulkEndError("В отчёте eBay отсутствует заголовок CSV.")
         columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
@@ -434,7 +463,7 @@ def iter_inventory_rows(fileobj):
 def iter_inventory_chunk(fileobj, start_cookie, max_rows):
     text_stream = io.TextIOWrapper(fileobj, encoding="utf-8-sig", newline="")
     try:
-        reader = csv.DictReader(_ReadlineIterator(text_stream))
+        reader = csv.DictReader(_ReadlineIterator(text_stream), strict=True)
         if not reader.fieldnames:
             raise BulkEndError("В отчёте eBay отсутствует заголовок CSV.")
         columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
@@ -446,7 +475,7 @@ def iter_inventory_chunk(fileobj, start_cookie, max_rows):
         if start_cookie:
             text_stream.seek(int(start_cookie))
             reader = csv.DictReader(
-                _ReadlineIterator(text_stream), fieldnames=fieldnames
+                _ReadlineIterator(text_stream), fieldnames=fieldnames, strict=True
             )
         else:
             start_cookie = str(text_stream.tell())

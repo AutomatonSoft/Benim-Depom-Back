@@ -39,6 +39,18 @@ def _postgres_job_lock(job_id):
     return lock if lock.acquired else None
 
 
+class _JobLocks:
+    def __init__(self, redis_lock, postgres_lock):
+        self.redis_lock = redis_lock
+        self.postgres_lock = postgres_lock
+
+    def release(self):
+        try:
+            self.redis_lock.release()
+        finally:
+            self.postgres_lock.release()
+
+
 def _job_lock(job_id, task):
     lock = redis_client().lock(
         "ebay-bulk-end:v1:job-lock:" + str(job_id),
@@ -50,7 +62,17 @@ def _job_lock(job_id, task):
             args=[job_id], queue="marketplace", countdown=JOB_LOCK_SECONDS + 5
         )
         return None
-    return lock
+    # PostgreSQL remains the common lock when another worker falls back after a Redis restart.
+    try:
+        postgres_lock = _postgres_job_lock(job_id)
+    except Exception:
+        lock.release()
+        raise
+    if postgres_lock is None:
+        lock.release()
+        task.apply_async(args=[job_id], queue="marketplace", countdown=60)
+        return None
+    return _JobLocks(lock, postgres_lock)
 
 
 @shared_task(
@@ -89,6 +111,9 @@ def scan_ebay_eans(job_id):
 
 @shared_task(
     name="apps.ebay_bulk_end.end_ebay_job",
+    # Ten preflight reads + one EndItems + ten reconciliation reads can exceed 300s.
+    soft_time_limit=540,
+    time_limit=570,
     acks_late=True,
     reject_on_worker_lost=True,
     ignore_result=True,

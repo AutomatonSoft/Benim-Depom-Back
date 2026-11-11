@@ -76,7 +76,7 @@ class InventoryReportParserTests(SimpleTestCase):
             b"SKU,ItemID\n001234565,10001\n",
             b"SKU,ItemID,Channel\n001234565,bad,EBAY_DE\n",
             b"SKU,ItemID,Channel\n001234565,10001,\n",
-            ("SKU,ItemID,Channel\n" + "S" * 51 + ",10001,EBAY_DE\n").encode(),
+            ("SKU,ItemID,Channel\n" + "S" * 256 + ",10001,EBAY_DE\n").encode(),
             b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE,extra\n",
         ):
             with self.subTest(value=value), self.assertRaises(BulkEndError):
