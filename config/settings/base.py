@@ -30,6 +30,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "apps.ebay_bulk_end.apps.EbayBulkEndConfig",
     "apps.accounts.apps.AccountsConfig",
     "apps.catalog.apps.CatalogConfig",
     "apps.products.apps.ProductsConfig",
