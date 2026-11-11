@@ -68,7 +68,9 @@ class SnapshotMaintenanceTaskTests(SimpleTestCase):
         self, cleanup_batch, enqueue_cleanup
     ):
         cleanup_batch.return_value = {
-            "snapshot_id": "snapshot-1", "more": True, "countdown": 0
+            "snapshot_id": "snapshot-1",
+            "more": True,
+            "countdown": 0,
         }
 
         cleanup_ebay_inventory_snapshots("snapshot-1")

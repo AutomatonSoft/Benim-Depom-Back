@@ -24,8 +24,14 @@ FINAL_ITEM_STATES = {
 }
 UNCERTAIN_ITEM_STATES = {"uncertain", "sending", "checking"}
 FAILED_ITEM_STATES = {
-    "failed", "blocked", "changed", "not_active", "not_found",
-    "already_ended", "ownership_mismatch", "cancelled",
+    "failed",
+    "blocked",
+    "changed",
+    "not_active",
+    "not_found",
+    "already_ended",
+    "ownership_mismatch",
+    "cancelled",
 }
 
 
@@ -43,9 +49,17 @@ def _date(value):
 
 
 def _job_items(job):
-    matches = {row["item_id"]: row for row in job.get("matches", []) if row.get("item_id")}
-    results = {row["item_id"]: row for row in job.get("results", []) if row.get("item_id")}
-    selected = {row["item_id"]: index for index, row in enumerate(job.get("selected", [])) if row.get("item_id")}
+    matches = {
+        row["item_id"]: row for row in job.get("matches", []) if row.get("item_id")
+    }
+    results = {
+        row["item_id"]: row for row in job.get("results", []) if row.get("item_id")
+    }
+    selected = {
+        row["item_id"]: index
+        for index, row in enumerate(job.get("selected", []))
+        if row.get("item_id")
+    }
     for item_id in matches.keys() | results.keys():
         match = matches.get(item_id, {})
         result = results.get(item_id, {})
@@ -53,7 +67,8 @@ def _job_items(job):
         yield {
             "item_id": item_id,
             "sku": match.get("sku", result.get("sku", ""))[:255],
-            "matched_eans": result.get("eans") or [row.get("ean") for row in match.get("matches", []) if row.get("ean")],
+            "matched_eans": result.get("eans")
+            or [row.get("ean") for row in match.get("matches", []) if row.get("ean")],
             "match_type": match.get("match_type", ""),
             "details": {"match": match, "result": result},
             "selected": item_id in selected or item_id in results,
@@ -83,9 +98,25 @@ def _uuid_or_none(value):
 
 def _checkpoint(job):
     excluded = {
-        "id", "manager_id", "account", "environment", "seller_id", "kind", "status",
-        "created_at", "updated_at", "finished_at", "eans", "matches", "results", "selected",
-        "progress", "message", "cancel_requested", "snapshot_item_ids", "verify_item_ids",
+        "id",
+        "manager_id",
+        "account",
+        "environment",
+        "seller_id",
+        "kind",
+        "status",
+        "created_at",
+        "updated_at",
+        "finished_at",
+        "eans",
+        "matches",
+        "results",
+        "selected",
+        "progress",
+        "message",
+        "cancel_requested",
+        "snapshot_item_ids",
+        "verify_item_ids",
         "candidate_item_ids",
     }
     return {key: value for key, value in job.items() if key not in excluded}
@@ -125,9 +156,17 @@ def persist_job(job):
             "unique_ean_count": len(set(job.get("eans", []))),
             "matched_item_count": len(job.get("matches", [])),
             "selected_item_count": len(job.get("selected", [])),
-            "ended_count": sum(row.get("status") == "ended" for row in job.get("results", [])),
-            "failed_count": sum(row.get("status") in FAILED_ITEM_STATES for row in job.get("results", [])),
-            "uncertain_count": sum(row.get("status") in UNCERTAIN_ITEM_STATES for row in job.get("results", [])),
+            "ended_count": sum(
+                row.get("status") == "ended" for row in job.get("results", [])
+            ),
+            "failed_count": sum(
+                row.get("status") in FAILED_ITEM_STATES
+                for row in job.get("results", [])
+            ),
+            "uncertain_count": sum(
+                row.get("status") in UNCERTAIN_ITEM_STATES
+                for row in job.get("results", [])
+            ),
             "not_found_count": len(job.get("unmatched_eans", [])),
             "report_task_id": str(job.get("report_task_id", ""))[:255],
             "preview_expires_at": _date(job.get("preview_expires_at")),
@@ -148,8 +187,7 @@ def persist_job(job):
             job_row.save()
 
         existing = {
-            row.item_id: row
-            for row in EbayBulkEndJobItem.objects.filter(job=job_row)
+            row.item_id: row for row in EbayBulkEndJobItem.objects.filter(job=job_row)
         }
         create_rows = []
         update_rows = []
@@ -175,15 +213,34 @@ def persist_job(job):
             EbayBulkEndJobItem.objects.bulk_update(
                 update_rows,
                 fields=(
-                    "sku", "matched_eans", "match_type", "details", "selected", "selection_order",
-                    "risky_variations", "auction_risk", "managed_by_benim", "status", "ebay_error_code",
-                    "ebay_error_message", "attempt_count", "batch_id", "ebay_correlation_id",
-                    "remote_end_time", "last_verified_at", "started_at", "finished_at",
+                    "sku",
+                    "matched_eans",
+                    "match_type",
+                    "details",
+                    "selected",
+                    "selection_order",
+                    "risky_variations",
+                    "auction_risk",
+                    "managed_by_benim",
+                    "status",
+                    "ebay_error_code",
+                    "ebay_error_message",
+                    "attempt_count",
+                    "batch_id",
+                    "ebay_correlation_id",
+                    "remote_end_time",
+                    "last_verified_at",
+                    "started_at",
+                    "finished_at",
                 ),
                 batch_size=500,
             )
         if created:
-            _append_event(job_row, "scan_created" if job_row.kind == "scan" else "job_created", {"account": job_row.account})
+            _append_event(
+                job_row,
+                "scan_created" if job_row.kind == "scan" else "job_created",
+                {"account": job_row.account},
+            )
         if old_status != job_row.status:
             event_type = {
                 "preview": "scan_completed",
@@ -193,14 +250,20 @@ def persist_job(job):
                 "cancelled": "job_cancelled",
                 "incomplete": "scan_incomplete",
             }.get(job_row.status, "job_status_changed")
-            _append_event(job_row, event_type, {"from": old_status, "to": job_row.status})
+            _append_event(
+                job_row, event_type, {"from": old_status, "to": job_row.status}
+            )
         item_lookup = {
-            row.item_id: row
-            for row in EbayBulkEndJobItem.objects.filter(job=job_row)
+            row.item_id: row for row in EbayBulkEndJobItem.objects.filter(job=job_row)
         }
         if create_rows:
             for row in create_rows:
-                _append_event(job_row, "item_discovered", {"item_id": row.item_id}, item=item_lookup[row.item_id])
+                _append_event(
+                    job_row,
+                    "item_discovered",
+                    {"item_id": row.item_id},
+                    item=item_lookup[row.item_id],
+                )
         event_for_status = {
             "ended": "item_ended",
             "failed": "item_failed",
@@ -211,7 +274,11 @@ def persist_job(job):
             _append_event(
                 job_row,
                 event_for_status.get(new_item_status, "item_status_changed"),
-                {"from": old_item_status, "to": new_item_status, "error_code": row.ebay_error_code},
+                {
+                    "from": old_item_status,
+                    "to": new_item_status,
+                    "error_code": row.ebay_error_code,
+                },
                 item=row,
             )
         for row, selected in changed_selection:
@@ -230,7 +297,9 @@ def persist_job(job):
 
 def load_persisted_job(job_id):
     try:
-        job_row = EbayBulkEndJob.objects.select_related("inventory_snapshot").get(pk=UUID(str(job_id)))
+        job_row = EbayBulkEndJob.objects.select_related("inventory_snapshot").get(
+            pk=UUID(str(job_id))
+        )
     except (EbayBulkEndJob.DoesNotExist, TypeError, ValueError):
         return None
     checkpoint = job_row.workflow_state
@@ -243,7 +312,9 @@ def load_persisted_job(job_id):
         "kind": job_row.kind,
         "status": job_row.status,
         "created_at": job_row.created_at.isoformat(),
-        "updated_at": job_row.finished_at.isoformat() if job_row.finished_at else job_row.created_at.isoformat(),
+        "updated_at": job_row.finished_at.isoformat()
+        if job_row.finished_at
+        else job_row.created_at.isoformat(),
         "finished_at": job_row.finished_at.isoformat() if job_row.finished_at else None,
         "progress": job_row.progress,
         "message": job_row.last_error,
@@ -254,9 +325,13 @@ def load_persisted_job(job_id):
         "discovery_complete": job_row.discovery_complete,
         "discovery_strategy": job_row.discovery_strategy,
         "discovery_details": job_row.discovery_details,
-        "inventory_snapshot_id": str(job_row.inventory_snapshot_id) if job_row.inventory_snapshot_id else None,
+        "inventory_snapshot_id": str(job_row.inventory_snapshot_id)
+        if job_row.inventory_snapshot_id
+        else None,
         "report_task_id": job_row.report_task_id,
-        "preview_expires_at": job_row.preview_expires_at.isoformat() if job_row.preview_expires_at else None,
+        "preview_expires_at": job_row.preview_expires_at.isoformat()
+        if job_row.preview_expires_at
+        else None,
         "cancel_requested": job_row.cancel_requested,
         **checkpoint,
     }
@@ -289,7 +364,9 @@ def reserve_end_batch(job, item_ids, batch_id):
     try:
         with transaction.atomic():
             persist_job(job)
-            job_row = EbayBulkEndJob.objects.select_for_update().get(pk=UUID(str(job["id"])))
+            job_row = EbayBulkEndJob.objects.select_for_update().get(
+                pk=UUID(str(job["id"]))
+            )
             items_by_id = {
                 row.item_id: row
                 for row in EbayBulkEndJobItem.objects.select_for_update().filter(

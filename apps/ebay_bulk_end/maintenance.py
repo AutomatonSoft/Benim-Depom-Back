@@ -24,11 +24,17 @@ def cleanup_snapshot_batch(snapshot_id=None):
     event_job_id = None
     with transaction.atomic():
         snapshots = EbayInventorySnapshot.objects.select_for_update(skip_locked=True)
-        eligible = snapshots.filter(status__in=FINAL_STATUSES).filter(
-            Q(status="complete", expires_at__lte=now)
-            | Q(status__in=("failed", "incomplete", "timed_out"), created_at__lte=now - timedelta(hours=1))
-        ).filter(Q(owner_token__isnull=True) | Q(owner_expires_at__lte=now)).exclude(
-            jobs__kind="scan", jobs__status__in=("queued", "scanning")
+        eligible = (
+            snapshots.filter(status__in=FINAL_STATUSES)
+            .filter(
+                Q(status="complete", expires_at__lte=now)
+                | Q(
+                    status__in=("failed", "incomplete", "timed_out"),
+                    created_at__lte=now - timedelta(hours=1),
+                )
+            )
+            .filter(Q(owner_token__isnull=True) | Q(owner_expires_at__lte=now))
+            .exclude(jobs__kind="scan", jobs__status__in=("queued", "scanning"))
         )
         if snapshot_uuid:
             snapshot = eligible.filter(pk=snapshot_uuid).first()
@@ -37,12 +43,20 @@ def cleanup_snapshot_batch(snapshot_id=None):
 
         if snapshot:
             snapshot_uuid = str(snapshot.pk)
-            event_job_id = snapshot.jobs.order_by("created_at").values_list("pk", flat=True).first()
+            event_job_id = (
+                snapshot.jobs.order_by("created_at")
+                .values_list("pk", flat=True)
+                .first()
+            )
             if not snapshot.cleanup_started_at:
                 snapshot.cleanup_started_at = now
                 snapshot.save(update_fields=("cleanup_started_at",))
                 if event_job_id:
-                    record_event(str(event_job_id), "snapshot_cleanup_started", {"snapshot_id": snapshot_uuid})
+                    record_event(
+                        str(event_job_id),
+                        "snapshot_cleanup_started",
+                        {"snapshot_id": snapshot_uuid},
+                    )
             listing_ids = list(
                 EbayInventoryListing.objects.filter(snapshot_id=snapshot.pk)
                 .order_by("pk")
@@ -58,16 +72,34 @@ def cleanup_snapshot_batch(snapshot_id=None):
                 snapshot.report_mtime_ns = 0
                 snapshot.checkpoint_cookie = ""
                 snapshot.cleanup_completed_at = now
-                snapshot.save(update_fields=(
-                    "report_path", "report_size", "report_mtime_ns", "checkpoint_cookie",
-                    "cleanup_completed_at",
-                ))
+                snapshot.save(
+                    update_fields=(
+                        "report_path",
+                        "report_size",
+                        "report_mtime_ns",
+                        "checkpoint_cookie",
+                        "cleanup_completed_at",
+                    )
+                )
                 if event_job_id:
-                    record_event(str(event_job_id), "snapshot_cleanup_completed", {"snapshot_id": snapshot_uuid})
-                if snapshot.last_report_download_attempt_at and snapshot.last_report_download_attempt_at > cutoff:
+                    record_event(
+                        str(event_job_id),
+                        "snapshot_cleanup_completed",
+                        {"snapshot_id": snapshot_uuid},
+                    )
+                if (
+                    snapshot.last_report_download_attempt_at
+                    and snapshot.last_report_download_attempt_at > cutoff
+                ):
                     next_delay = max(
                         1,
-                        math.ceil((snapshot.last_report_download_attempt_at + QUOTA_WINDOW - now).total_seconds()),
+                        math.ceil(
+                            (
+                                snapshot.last_report_download_attempt_at
+                                + QUOTA_WINDOW
+                                - now
+                            ).total_seconds()
+                        ),
                     )
                 else:
                     snapshot.delete()
@@ -82,13 +114,31 @@ def cleanup_snapshot_batch(snapshot_id=None):
                 if existing.status == "complete" and existing.expires_at
                 else existing.created_at + timedelta(hours=1)
             )
-            if existing.owner_token and existing.owner_expires_at and existing.owner_expires_at > now:
-                ready_at = max(ready_at, existing.owner_expires_at + timedelta(seconds=5))
-            if existing.jobs.filter(kind="scan", status__in=("queued", "scanning")).exists():
+            if (
+                existing.owner_token
+                and existing.owner_expires_at
+                and existing.owner_expires_at > now
+            ):
+                ready_at = max(
+                    ready_at, existing.owner_expires_at + timedelta(seconds=5)
+                )
+            if existing.jobs.filter(
+                kind="scan", status__in=("queued", "scanning")
+            ).exists():
                 ready_at = max(ready_at, now + timedelta(seconds=60))
             next_delay = min(3000, max(1, math.ceil((ready_at - now).total_seconds())))
-            return {"snapshot_id": snapshot_uuid, "more": False, "countdown": next_delay}
+            return {
+                "snapshot_id": snapshot_uuid,
+                "more": False,
+                "countdown": next_delay,
+            }
         if existing:
             snapshot_uuid = None
-    files_remain = delete_snapshot_staging_files(snapshot_uuid) if snapshot_uuid else False
-    return {"snapshot_id": snapshot_uuid, "more": more or files_remain, "countdown": next_delay}
+    files_remain = (
+        delete_snapshot_staging_files(snapshot_uuid) if snapshot_uuid else False
+    )
+    return {
+        "snapshot_id": snapshot_uuid,
+        "more": more or files_remain,
+        "countdown": next_delay,
+    }

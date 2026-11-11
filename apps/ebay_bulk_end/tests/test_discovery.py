@@ -3,8 +3,8 @@ from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile, TemporaryDirectory
 from types import SimpleNamespace
-from uuid import uuid4
 from unittest.mock import patch
+from uuid import uuid4
 from xml.etree import ElementTree as ET
 
 from django.db import DatabaseError
@@ -14,11 +14,12 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.ebay_bulk_end.domain import MAX_MATCHES, exact_listing_matches, item_summary
 from apps.ebay_bulk_end.errors import BulkEndError
+from apps.ebay_bulk_end.feed import iter_inventory_chunk
 from apps.ebay_bulk_end.inventory import (
     IMPORT_BATCH_SIZE,
     IMPORT_ROWS_PER_TASK,
-    REPORT_POLL_SECONDS,
     REPORT_DOWNLOADS_PER_24_HOURS,
+    REPORT_POLL_SECONDS,
     _claim_snapshot,
     _fail_snapshot,
     _heartbeat_snapshot,
@@ -27,7 +28,6 @@ from apps.ebay_bulk_end.inventory import (
     run_inventory_scan_chunk,
     snapshot_for_scan,
 )
-from apps.ebay_bulk_end.feed import iter_inventory_chunk
 from apps.ebay_bulk_end.maintenance import cleanup_snapshot_batch
 from apps.ebay_bulk_end.models import (
     EbayBulkEndEvent,
@@ -52,7 +52,10 @@ class ExactIdentifierTests(SimpleTestCase):
             "<Item><ItemSpecifics><NameValueList><Name>EAN</Name><Value>01234565</Value></NameValueList>"
             "<NameValueList><Name>MPN</Name><Value>4006381333931</Value></NameValueList></ItemSpecifics></Item>"
         )
-        self.assertEqual(exact_listing_matches(item, {"01234565", "4006381333931"}), {"01234565": "listing"})
+        self.assertEqual(
+            exact_listing_matches(item, {"01234565", "4006381333931"}),
+            {"01234565": "listing"},
+        )
         self.assertEqual(exact_listing_matches(item, {"0123456"}), {})
 
     def test_sku_only_variation_is_reported_with_its_real_match_type_and_label(self):
@@ -114,7 +117,10 @@ class LargeInventoryLookupTests(TestCase):
 
     def test_parses_100k_500k_and_over_a_million_rows_in_bounded_chunks(self):
         for count in (100_000, 500_000, 1_000_001):
-            with self.subTest(count=count), SpooledTemporaryFile(max_size=1024 * 1024) as report:
+            with (
+                self.subTest(count=count),
+                SpooledTemporaryFile(max_size=1024 * 1024) as report,
+            ):
                 report.write(b"SKU,ItemID,Channel\n")
                 for start in range(0, count, IMPORT_BATCH_SIZE):
                     end = min(start + IMPORT_BATCH_SIZE, count)
@@ -131,7 +137,9 @@ class LargeInventoryLookupTests(TestCase):
                 eof = False
                 while not eof:
                     report.seek(0)
-                    rows, cookie, eof = iter_inventory_chunk(report, cookie, IMPORT_ROWS_PER_TASK)
+                    rows, cookie, eof = iter_inventory_chunk(
+                        report, cookie, IMPORT_ROWS_PER_TASK
+                    )
                     max_chunk = max(max_chunk, len(rows))
                     rows_read += len(rows)
 
@@ -139,7 +147,9 @@ class LargeInventoryLookupTests(TestCase):
                 self.assertLessEqual(max_chunk, IMPORT_ROWS_PER_TASK)
 
     def _importing_snapshot(self, report_path):
-        content = b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE\n001234566,10002,EBAY_DE\n"
+        content = (
+            b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE\n001234566,10002,EBAY_DE\n"
+        )
         report_path.write_bytes(content)
         stat = report_path.stat()
         return EbayInventorySnapshot.objects.create(
@@ -160,11 +170,19 @@ class LargeInventoryLookupTests(TestCase):
             connection = SimpleNamespace(ebay_user_id="seller-jv")
             with (
                 patch("apps.ebay_bulk_end.inventory.record_event"),
-                patch("apps.ebay_bulk_end.inventory.access_context", return_value=(connection, "token")),
-                patch("apps.ebay_bulk_end.inventory.resolve_report_path", return_value=report_path),
+                patch(
+                    "apps.ebay_bulk_end.inventory.access_context",
+                    return_value=(connection, "token"),
+                ),
+                patch(
+                    "apps.ebay_bulk_end.inventory.resolve_report_path",
+                    return_value=report_path,
+                ),
                 patch("apps.ebay_bulk_end.inventory.delete_report_path"),
             ):
-                self.assertEqual(advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1)
+                self.assertEqual(
+                    advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1
+                )
                 snapshot.refresh_from_db()
                 self.assertEqual(snapshot.status, "verifying")
                 self.assertEqual(snapshot.checkpoint_row, 2)
@@ -185,18 +203,30 @@ class LargeInventoryLookupTests(TestCase):
             connection = SimpleNamespace(ebay_user_id="seller-jv")
             patchers = (
                 patch("apps.ebay_bulk_end.inventory.record_event"),
-                patch("apps.ebay_bulk_end.inventory.access_context", return_value=(connection, "token")),
-                patch("apps.ebay_bulk_end.inventory.resolve_report_path", return_value=report_path),
+                patch(
+                    "apps.ebay_bulk_end.inventory.access_context",
+                    return_value=(connection, "token"),
+                ),
+                patch(
+                    "apps.ebay_bulk_end.inventory.resolve_report_path",
+                    return_value=report_path,
+                ),
             )
             with patchers[0], patchers[1], patchers[2]:
-                with patch.object(EbayInventoryListing.objects, "bulk_create", side_effect=DatabaseError("db lost")):
+                with patch.object(
+                    EbayInventoryListing.objects,
+                    "bulk_create",
+                    side_effect=DatabaseError("db lost"),
+                ):
                     with self.assertRaises(DatabaseError):
                         advance_inventory_snapshot_step(snapshot.pk, uuid4())
                 snapshot.refresh_from_db()
                 self.assertEqual(snapshot.checkpoint_row, 0)
                 self.assertEqual(snapshot.listings.count(), 0)
 
-                self.assertEqual(advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1)
+                self.assertEqual(
+                    advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1
+                )
 
             snapshot.refresh_from_db()
             self.assertEqual(snapshot.checkpoint_row, 2)
@@ -205,11 +235,18 @@ class LargeInventoryLookupTests(TestCase):
     def test_expired_owner_can_be_reclaimed_and_stale_owner_is_fenced(self):
         stale_token = uuid4()
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="importing", owner_token=stale_token,
-            ownership_generation=3, owner_expires_at=timezone.now() - timedelta(seconds=1),
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="importing",
+            owner_token=stale_token,
+            ownership_generation=3,
+            owner_expires_at=timezone.now() - timedelta(seconds=1),
         )
-        _snapshot, token, generation, _previous_owner = _claim_snapshot(snapshot.pk, uuid4())
+        _snapshot, token, generation, _previous_owner = _claim_snapshot(
+            snapshot.pk, uuid4()
+        )
         snapshot.refresh_from_db()
         self.assertEqual(generation, 4)
         self.assertEqual(snapshot.ownership_generation, 4)
@@ -229,8 +266,11 @@ class LargeInventoryLookupTests(TestCase):
     def test_uncertain_report_request_recovers_the_unique_unfiltered_task(self):
         started_at = timezone.now() - timedelta(seconds=30)
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="requesting",
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="requesting",
             report_request_started_at=started_at,
         )
         task = {
@@ -241,8 +281,14 @@ class LargeInventoryLookupTests(TestCase):
         connection = SimpleNamespace(ebay_user_id="seller-jv")
         with (
             patch("apps.ebay_bulk_end.inventory.record_event"),
-            patch("apps.ebay_bulk_end.inventory.access_context", return_value=(connection, "token")),
-            patch("apps.ebay_bulk_end.inventory.get_inventory_tasks", return_value=([task], 1)),
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(connection, "token"),
+            ),
+            patch(
+                "apps.ebay_bulk_end.inventory.get_inventory_tasks",
+                return_value=([task], 1),
+            ),
             patch("apps.ebay_bulk_end.inventory.get_inventory_task") as get_task,
         ):
             self.assertEqual(advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1)
@@ -254,19 +300,36 @@ class LargeInventoryLookupTests(TestCase):
 
     def test_uncertain_report_request_with_multiple_candidates_fails_closed(self):
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="requesting",
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="requesting",
             report_request_started_at=timezone.now() - timedelta(seconds=30),
         )
         connection = SimpleNamespace(ebay_user_id="seller-jv")
         tasks = [
-            {"taskId": "task-1", "feedType": "LMS_ACTIVE_INVENTORY_REPORT", "creationDate": timezone.now().isoformat()},
-            {"taskId": "task-2", "feedType": "LMS_ACTIVE_INVENTORY_REPORT", "creationDate": timezone.now().isoformat()},
+            {
+                "taskId": "task-1",
+                "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+                "creationDate": timezone.now().isoformat(),
+            },
+            {
+                "taskId": "task-2",
+                "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+                "creationDate": timezone.now().isoformat(),
+            },
         ]
         with (
             patch("apps.ebay_bulk_end.inventory.record_event"),
-            patch("apps.ebay_bulk_end.inventory.access_context", return_value=(connection, "token")),
-            patch("apps.ebay_bulk_end.inventory.get_inventory_tasks", return_value=(tasks, 2)),
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(connection, "token"),
+            ),
+            patch(
+                "apps.ebay_bulk_end.inventory.get_inventory_tasks",
+                return_value=(tasks, 2),
+            ),
             patch("apps.ebay_bulk_end.inventory.create_inventory_task") as create_task,
         ):
             self.assertIsNone(advance_inventory_snapshot_step(snapshot.pk, uuid4()))
@@ -279,14 +342,20 @@ class LargeInventoryLookupTests(TestCase):
 
     def test_uncertain_report_request_times_out_without_resubmitting(self):
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="requesting",
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="requesting",
             report_request_started_at=timezone.now() - timedelta(minutes=11),
         )
         connection = SimpleNamespace(ebay_user_id="seller-jv")
         with (
             patch("apps.ebay_bulk_end.inventory.record_event"),
-            patch("apps.ebay_bulk_end.inventory.access_context", return_value=(connection, "token")),
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(connection, "token"),
+            ),
             patch("apps.ebay_bulk_end.inventory.get_inventory_tasks") as list_tasks,
             patch("apps.ebay_bulk_end.inventory.create_inventory_task") as create_task,
         ):
@@ -297,7 +366,9 @@ class LargeInventoryLookupTests(TestCase):
         list_tasks.assert_not_called()
         create_task.assert_not_called()
 
-    def test_100k_inventory_looks_up_only_matching_skus_and_reports_unmatched_eans(self):
+    def test_100k_inventory_looks_up_only_matching_skus_and_reports_unmatched_eans(
+        self,
+    ):
         snapshot = EbayInventorySnapshot.objects.create(
             account="jv",
             environment="sandbox",
@@ -333,8 +404,7 @@ class LargeInventoryLookupTests(TestCase):
             EbayInventoryListing.objects.bulk_create(batch, batch_size=1000)
 
         candidates = {
-            str(100_000_000_000 + index): requested[index]
-            for index in range(80)
+            str(100_000_000_000 + index): requested[index] for index in range(80)
         }
         candidates[str(100_000_000_080)] = requested[0]
         job = {
@@ -451,7 +521,9 @@ class LargeInventoryLookupTests(TestCase):
             self.assertIsNone(run_inventory_scan_chunk(job))
 
         self.assertEqual(job["status"], "incomplete")
-        self.assertEqual(job["discovery_details"]["candidate_item_count"], MAX_MATCHES + 1)
+        self.assertEqual(
+            job["discovery_details"]["candidate_item_count"], MAX_MATCHES + 1
+        )
         get_item.assert_not_called()
         candidate_rows.assert_not_called()
 
@@ -477,8 +549,7 @@ class LargeInventoryLookupTests(TestCase):
             patch("apps.ebay_bulk_end.inventory.record_event"),
         ):
             delays = [
-                advance_inventory_snapshot_step(snapshot.pk, uuid4())
-                for _ in range(6)
+                advance_inventory_snapshot_step(snapshot.pk, uuid4()) for _ in range(6)
             ]
 
         self.assertEqual(delays, [REPORT_POLL_SECONDS, 120, 240, 300, 300, 300])
@@ -542,8 +613,18 @@ class LargeInventoryLookupTests(TestCase):
         self.assertEqual(shared_ids, [snapshot.pk] * 3)
         self.assertEqual(
             EbayInventorySnapshot.objects.filter(
-                account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-                status__in=("requested", "requesting", "queued", "in_progress", "downloading", "importing", "verifying"),
+                account="jv",
+                environment="sandbox",
+                ebay_seller_id="seller-jv",
+                status__in=(
+                    "requested",
+                    "requesting",
+                    "queued",
+                    "in_progress",
+                    "downloading",
+                    "importing",
+                    "verifying",
+                ),
             ).count(),
             1,
         )
@@ -561,15 +642,23 @@ class LargeInventoryLookupTests(TestCase):
         )
         token = uuid4()
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="downloading", owner_token=token,
-            ownership_generation=1, owner_expires_at=now + timedelta(minutes=5),
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="downloading",
+            owner_token=token,
+            ownership_generation=1,
+            owner_expires_at=now + timedelta(minutes=5),
         )
         for index in range(REPORT_DOWNLOADS_PER_24_HOURS):
             attempted_at = now - timedelta(minutes=index + 1)
             EbayInventorySnapshot.objects.create(
-                account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-                marketplace_id="EBAY_DE", status="failed",
+                account="jv",
+                environment="sandbox",
+                ebay_seller_id="seller-jv",
+                marketplace_id="EBAY_DE",
+                status="failed",
                 report_download_attempted_at=[attempted_at.isoformat()],
                 last_report_download_attempt_at=attempted_at,
             )
@@ -633,11 +722,15 @@ class LargeInventoryLookupTests(TestCase):
             inventory_snapshot=expired,
         )
         EbayInventoryListing.objects.create(
-            snapshot=expired, item_id="100000000003", sku="4006381333931",
+            snapshot=expired,
+            item_id="100000000003",
+            sku="4006381333931",
             marketplace_id="EBAY_DE",
         )
 
-        with patch("apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files") as delete_files:
+        with patch(
+            "apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files"
+        ) as delete_files:
             result = cleanup_snapshot_batch(expired.pk)
 
         self.assertEqual(result["snapshot_id"], str(expired.pk))
@@ -648,11 +741,18 @@ class LargeInventoryLookupTests(TestCase):
 
     def test_cleanup_does_not_remove_files_for_an_active_snapshot(self):
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="importing", report_path="ebay-bulk-end/active.csv",
-            owner_token=uuid4(), owner_expires_at=timezone.now() + timedelta(minutes=5),
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="importing",
+            report_path="ebay-bulk-end/active.csv",
+            owner_token=uuid4(),
+            owner_expires_at=timezone.now() + timedelta(minutes=5),
         )
-        with patch("apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files") as delete_files:
+        with patch(
+            "apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files"
+        ) as delete_files:
             result = cleanup_snapshot_batch(snapshot.pk)
 
         self.assertIsNone(result["snapshot_id"])
@@ -660,11 +760,18 @@ class LargeInventoryLookupTests(TestCase):
 
     def test_cleanup_schedules_completed_snapshot_for_its_expiry(self):
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="complete", complete=True,
-            completed_at=timezone.now(), expires_at=timezone.now() + timedelta(minutes=30),
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="complete",
+            complete=True,
+            completed_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(minutes=30),
         )
-        with patch("apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files") as delete_files:
+        with patch(
+            "apps.ebay_bulk_end.maintenance.delete_snapshot_staging_files"
+        ) as delete_files:
             result = cleanup_snapshot_batch(snapshot.pk)
 
         self.assertEqual(result["snapshot_id"], str(snapshot.pk))
@@ -692,9 +799,13 @@ class LargeInventoryLookupTests(TestCase):
             status="preview",
             inventory_snapshot=snapshot,
         )
-        event = EbayBulkEndEvent.objects.create(job=job, event_type="snapshot_import_completed")
+        event = EbayBulkEndEvent.objects.create(
+            job=job, event_type="snapshot_import_completed"
+        )
         EbayInventoryListing.objects.create(
-            snapshot=snapshot, item_id="100000000002", sku="4006381333931",
+            snapshot=snapshot,
+            item_id="100000000002",
+            sku="4006381333931",
             marketplace_id="EBAY_DE",
         )
 
@@ -709,8 +820,12 @@ class LargeInventoryLookupTests(TestCase):
     def test_cleanup_retains_download_quota_history_until_the_window_ends(self):
         attempted_at = timezone.now() - timedelta(hours=2)
         snapshot = EbayInventorySnapshot.objects.create(
-            account="jv", environment="sandbox", ebay_seller_id="seller-jv",
-            marketplace_id="EBAY_DE", status="complete", complete=True,
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="complete",
+            complete=True,
             expires_at=timezone.now() - timedelta(minutes=1),
             report_download_attempted_at=[attempted_at.isoformat()],
             last_report_download_attempt_at=attempted_at,

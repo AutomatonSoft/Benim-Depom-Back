@@ -82,7 +82,11 @@ def exact_sku_matches(item, requested_eans):
     matches = {}
     listing_sku = text(item, "SKU")
     if listing_sku in requested_eans:
-        matches[listing_sku] = {"type": "listing", "sku": listing_sku, "variation": None}
+        matches[listing_sku] = {
+            "type": "listing",
+            "sku": listing_sku,
+            "variation": None,
+        }
     for variation in descendants(child(item, "Variations"), "Variation"):
         sku = text(variation, "SKU")
         if sku in requested_eans:
@@ -173,8 +177,10 @@ def item_summary(item, requested_eans, view_url=""):
     for ean in sorted(ean_matches.keys() | sku_matches.keys()):
         kind = sku_matches.get(ean, {}).get("type", ean_matches.get(ean, "listing"))
         source = (
-            "sku_and_ean" if ean in sku_matches and ean in ean_matches
-            else "sku" if ean in sku_matches
+            "sku_and_ean"
+            if ean in sku_matches and ean in ean_matches
+            else "sku"
+            if ean in sku_matches
             else "ean"
         )
         matched_sku = sku_matches.get(ean, {}).get("sku", "")
@@ -207,7 +213,8 @@ def item_summary(item, requested_eans, view_url=""):
     return {
         "item_id": item_id,
         "title": text(item, "Title")[:500],
-        "sku": listing_sku or next((row["sku"] for row in matched_rows if row["sku"]), ""),
+        "sku": listing_sku
+        or next((row["sku"] for row in matched_rows if row["sku"]), ""),
         "match_type": matched_rows[0]["match_type"],
         "identifier_conflict": identifier_conflict,
         "seller_id": seller_id,

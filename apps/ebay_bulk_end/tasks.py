@@ -1,8 +1,8 @@
 import logging
 from uuid import UUID
 
-from celery import shared_task
 from billiard.exceptions import SoftTimeLimitExceeded
+from celery import shared_task
 from django.db import DatabaseError, connection
 from redis.exceptions import RedisError
 
@@ -130,10 +130,14 @@ def process_ebay_inventory_snapshot(snapshot_id, job_id):
         try:
             schedule_snapshot_step(snapshot_id, job_id, countdown=countdown)
         except Exception:
-            EbayInventorySnapshot.objects.filter(pk=snapshot_id).update(step_scheduled_at=None)
+            EbayInventorySnapshot.objects.filter(pk=snapshot_id).update(
+                step_scheduled_at=None
+            )
         return
 
-    cleanup_ebay_inventory_snapshots.apply_async(args=[str(snapshot_id)], queue="maintenance")
+    cleanup_ebay_inventory_snapshots.apply_async(
+        args=[str(snapshot_id)], queue="maintenance"
+    )
     cleanup_ebay_inventory_snapshots.apply_async(args=[None], queue="maintenance")
 
 
@@ -156,6 +160,7 @@ def cleanup_ebay_inventory_snapshots(snapshot_id=None):
         return
     if result["more"] or result["countdown"]:
         cleanup_ebay_inventory_snapshots.apply_async(
-            args=[result["snapshot_id"]], queue="maintenance",
+            args=[result["snapshot_id"]],
+            queue="maintenance",
             countdown=max(1, result["countdown"] or 1),
         )

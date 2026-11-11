@@ -110,6 +110,7 @@ def run_scan_chunk(job_id):
 
     return run_inventory_scan_chunk(job)
 
+
 def confirm_job(
     job, item_ids, include_variations, include_auction_risk, confirm_unavailable_reason
 ):
@@ -191,7 +192,10 @@ def _verify_item(token, selected, job):
         return "ownership_mismatch", "Аккаунт продавца не совпал."
     current = item_summary(item, {match["ean"] for match in selected["matches"]})
     if current and current.get("identifier_conflict"):
-        return "blocked", "SKU совпал, но EAN в объявлении ему противоречит. Завершение заблокировано."
+        return (
+            "blocked",
+            "SKU совпал, но EAN в объявлении ему противоречит. Завершение заблокировано.",
+        )
     expected = [
         {
             "ean": match["ean"],
@@ -292,7 +296,9 @@ def _send_batch(token, ready, results, job):
         result_by_id[item_id]["status"] = "sending"
         result_by_id[item_id]["message"] = "Запрос отправлен в eBay."
         result_by_id[item_id]["batch_id"] = batch_id
-        result_by_id[item_id]["attempt_count"] = int(result_by_id[item_id].get("attempt_count", 0)) + 1
+        result_by_id[item_id]["attempt_count"] = (
+            int(result_by_id[item_id].get("attempt_count", 0)) + 1
+        )
         result_by_id[item_id]["started_at"] = attempt_time
     job["updated_at"] = timezone.now().isoformat()
     if not reserve_end_batch(job, item_ids, batch_id):

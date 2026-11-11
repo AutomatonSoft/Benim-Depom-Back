@@ -15,7 +15,9 @@ from apps.ebay_bulk_end.workflows import _send_batch, run_end_chunk
 
 class EndSafetyTests(SimpleTestCase):
     def setUp(self):
-        patcher = patch("apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True)
+        patcher = patch(
+            "apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
 

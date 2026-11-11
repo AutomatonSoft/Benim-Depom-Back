@@ -19,8 +19,14 @@ urlpatterns = [
     path("scans/", ScanView.as_view(), name="scans"),
     path("history/", HistoryListView.as_view(), name="history-list"),
     path("history/<uuid:job_id>/", HistoryDetailView.as_view(), name="history-detail"),
-    path("history/<uuid:job_id>/items/", HistoryItemsView.as_view(), name="history-items"),
-    path("history/<uuid:job_id>/events/", HistoryEventsView.as_view(), name="history-events"),
+    path(
+        "history/<uuid:job_id>/items/", HistoryItemsView.as_view(), name="history-items"
+    ),
+    path(
+        "history/<uuid:job_id>/events/",
+        HistoryEventsView.as_view(),
+        name="history-events",
+    ),
     path("history/<uuid:job_id>/csv/", HistoryCSVView.as_view(), name="history-csv"),
     path("jobs/<uuid:job_id>/", JobView.as_view(), name="job"),
     path("jobs/<uuid:job_id>/confirm/", ConfirmView.as_view(), name="confirm"),

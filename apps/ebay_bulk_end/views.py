@@ -1,6 +1,6 @@
-from datetime import datetime
 import csv
 import io
+from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
@@ -135,7 +135,11 @@ class JobView(ManagerAPI):
                 ),
                 "risky_count": sum(
                     bool(
-                        (row.get("risky") or row.get("auction_risky") or row.get("identifier_conflict"))
+                        (
+                            row.get("risky")
+                            or row.get("auction_risky")
+                            or row.get("identifier_conflict")
+                        )
                         and not row.get("managed_by_benim")
                     )
                     for row in job.get("matches", [])
@@ -365,10 +369,14 @@ def _history_row(job):
 
 class HistoryListView(ManagerAPI):
     def get(self, request):
-        jobs = EbayBulkEndJob.objects.filter(created_by_id=request.user.pk).select_related(
-            "created_by"
-        )
-        for parameter, field in (("account", "account"), ("environment", "environment"), ("status", "status")):
+        jobs = EbayBulkEndJob.objects.filter(
+            created_by_id=request.user.pk
+        ).select_related("created_by")
+        for parameter, field in (
+            ("account", "account"),
+            ("environment", "environment"),
+            ("status", "status"),
+        ):
             value = request.query_params.get(parameter)
             if value:
                 jobs = jobs.filter(**{field: value})
@@ -401,9 +409,11 @@ class HistoryListView(ManagerAPI):
                 filters |= Q(pk=UUID(query))
             except (TypeError, ValueError):
                 pass
-            jobs = jobs.annotate(input_eans_text=Cast("input_eans", TextField())).filter(
-                filters
-            ).distinct()
+            jobs = (
+                jobs.annotate(input_eans_text=Cast("input_eans", TextField()))
+                .filter(filters)
+                .distinct()
+            )
         page, error = _page(jobs.order_by("-created_at"), request)
         if error:
             return error
@@ -431,7 +441,9 @@ class HistoryDetailView(ManagerAPI):
                 "discovery_details": job.discovery_details,
                 "input_eans": job.input_eans,
                 "unmatched_eans": job.workflow_state.get("unmatched_eans", []),
-                "unmatched_status_by_ean": job.workflow_state.get("unmatched_status_by_ean", {}),
+                "unmatched_status_by_ean": job.workflow_state.get(
+                    "unmatched_status_by_ean", {}
+                ),
                 "progress": job.progress,
                 "last_error": job.last_error,
                 "cancel_requested": job.cancel_requested,
@@ -482,7 +494,9 @@ class HistoryEventsView(ManagerAPI):
     def get(self, request, job_id):
         job = _owned_history_job(request, job_id)
         page, error = _page(
-            job.events.select_related("actor_user", "item").order_by("-created_at", "-id"),
+            job.events.select_related("actor_user", "item").order_by(
+                "-created_at", "-id"
+            ),
             request,
         )
         if error:
@@ -497,7 +511,9 @@ class HistoryEventsView(ManagerAPI):
                     {
                         "event_type": event.event_type,
                         "created_at": event.created_at,
-                        "actor": _manager_name(event.actor_user) if event.actor_user else "",
+                        "actor": _manager_name(event.actor_user)
+                        if event.actor_user
+                        else "",
                         "item_id": event.item.item_id if event.item else "",
                         "metadata": event.metadata,
                     }
@@ -513,27 +529,81 @@ class HistoryCSVView(ManagerAPI):
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         writer.writerow(
-            ("EAN", "SKU", "ItemID", "Title", "Match type", "Result", "eBay error code", "Error", "Ended at", "Processed at")
+            (
+                "EAN",
+                "SKU",
+                "ItemID",
+                "Title",
+                "Match type",
+                "Result",
+                "eBay error code",
+                "Error",
+                "Ended at",
+                "Processed at",
+            )
         )
         matched_eans = set()
         rows = job.items.order_by("item_id").values_list(
-            "matched_eans", "sku", "item_id", "details", "match_type", "status",
-            "ebay_error_code", "ebay_error_message", "remote_end_time", "finished_at",
+            "matched_eans",
+            "sku",
+            "item_id",
+            "details",
+            "match_type",
+            "status",
+            "ebay_error_code",
+            "ebay_error_message",
+            "remote_end_time",
+            "finished_at",
         )
-        for eans, sku, item_id, details, match_type, item_status, code, message, ended_at, processed_at in rows.iterator(chunk_size=500):
+        for (
+            eans,
+            sku,
+            item_id,
+            details,
+            match_type,
+            item_status,
+            code,
+            message,
+            ended_at,
+            processed_at,
+        ) in rows.iterator(chunk_size=500):
             matched_eans.update(eans or [])
             match = (details or {}).get("match") or {}
             writer.writerow(
                 safe_csv_cell(value)
                 for value in (
-                    ", ".join(eans or []), sku, item_id, match.get("title", ""), match_type,
-                    item_status, code, message, ended_at.isoformat() if ended_at else "",
+                    ", ".join(eans or []),
+                    sku,
+                    item_id,
+                    match.get("title", ""),
+                    match_type,
+                    item_status,
+                    code,
+                    message,
+                    ended_at.isoformat() if ended_at else "",
                     processed_at.isoformat() if processed_at else "",
                 )
             )
-        for ean in (job.input_eans or []):
+        for ean in job.input_eans or []:
             if ean not in matched_eans:
-                writer.writerow((safe_csv_cell(ean), "", "", "", "", "not_found_in_sku_index", "", "", "", ""))
-        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = f'attachment; filename="ebay-bulk-end-{job.pk}.csv"'
+                writer.writerow(
+                    (
+                        safe_csv_cell(ean),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "not_found_in_sku_index",
+                        "",
+                        "",
+                        "",
+                        "",
+                    )
+                )
+        response = HttpResponse(
+            output.getvalue(), content_type="text/csv; charset=utf-8"
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="ebay-bulk-end-{job.pk}.csv"'
+        )
         return response

@@ -24,7 +24,9 @@ class SnapshotClaimConcurrencyTests(TransactionTestCase):
             connections.close_all()
             try:
                 barrier.wait(timeout=10)
-                _snapshot, token, generation, _owner = _claim_snapshot(snapshot.pk, uuid4())
+                _snapshot, token, generation, _owner = _claim_snapshot(
+                    snapshot.pk, uuid4()
+                )
                 return token, generation
             finally:
                 connections.close_all()

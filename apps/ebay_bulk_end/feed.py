@@ -1,6 +1,6 @@
 import csv
-import hashlib
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -15,7 +15,12 @@ import requests
 from apps.common.marketplace_http import build_marketplace_session
 from apps.marketplace.ebay.client import api_base_url
 
-from .errors import BulkEndError, EBayRateLimitError, EBayTransportError, ReportStorageError
+from .errors import (
+    BulkEndError,
+    EBayRateLimitError,
+    EBayTransportError,
+    ReportStorageError,
+)
 
 FEED_TYPE = "LMS_ACTIVE_INVENTORY_REPORT"
 MARKETPLACE_ID = "EBAY_DE"
@@ -35,7 +40,9 @@ def _headers(token):
 def _check_response(response):
     if response.status_code == 429:
         try:
-            retry_after = min(60, max(1, int(response.headers.get("Retry-After", "30"))))
+            retry_after = min(
+                60, max(1, int(response.headers.get("Retry-After", "30")))
+            )
         except (TypeError, ValueError):
             retry_after = 30
         raise EBayRateLimitError(retry_after)
@@ -46,7 +53,9 @@ def _check_response(response):
     if response.status_code >= 500:
         raise EBayTransportError("eBay временно не обработал запрос к отчёту.")
     if not response.ok:
-        raise BulkEndError(f"eBay отклонил запрос к отчёту (HTTP {response.status_code}).")
+        raise BulkEndError(
+            f"eBay отклонил запрос к отчёту (HTTP {response.status_code})."
+        )
 
 
 def _json_response(response):
@@ -70,7 +79,9 @@ def create_inventory_task(token):
                 timeout=(5, 30),
             )
     except requests.RequestException as error:
-        raise EBayTransportError("Не удалось связаться с eBay для создания отчёта.") from error
+        raise EBayTransportError(
+            "Не удалось связаться с eBay для создания отчёта."
+        ) from error
     _check_response(response)
     location = response.headers.get("Location", "")
     match = re.search(r"/inventory_task/([A-Za-z0-9._-]{1,255})/?$", location)
@@ -101,11 +112,18 @@ def get_inventory_tasks(token, date_range):
             response = session.get(
                 f"{api_base_url()}{REPORT_PATH}/inventory_task",
                 headers=_headers(token),
-                params={"feed_type": FEED_TYPE, "date_range": date_range, "limit": 500, "offset": 0},
+                params={
+                    "feed_type": FEED_TYPE,
+                    "date_range": date_range,
+                    "limit": 500,
+                    "offset": 0,
+                },
                 timeout=(5, 30),
             )
     except requests.RequestException as error:
-        raise EBayTransportError("Не удалось восстановить задание отчёта eBay.") from error
+        raise EBayTransportError(
+            "Не удалось восстановить задание отчёта eBay."
+        ) from error
     payload = _json_response(response)
     tasks = payload.get("tasks")
     total = payload.get("total")
@@ -129,7 +147,10 @@ def download_inventory_report(token, task_id):
             with build_marketplace_session() as session:
                 with session.get(
                     f"{api_base_url()}{REPORT_PATH}/task/{task_id}/download_result_file",
-                    headers={**_headers(token), "Accept": "application/octet-stream, text/csv"},
+                    headers={
+                        **_headers(token),
+                        "Accept": "application/octet-stream, text/csv",
+                    },
                     timeout=(5, 60),
                     stream=True,
                 ) as response:
@@ -173,7 +194,10 @@ def download_inventory_report_to_path(token, task_id, target_path, *, heartbeat=
                 with build_marketplace_session() as session:
                     with session.get(
                         f"{api_base_url()}{REPORT_PATH}/task/{task_id}/download_result_file",
-                        headers={**_headers(token), "Accept": "application/octet-stream, text/csv"},
+                        headers={
+                            **_headers(token),
+                            "Accept": "application/octet-stream, text/csv",
+                        },
                         timeout=(5, 60),
                         stream=True,
                     ) as response:
@@ -251,7 +275,9 @@ def inspect_staged_inventory_report(path, *, heartbeat=None):
                     heartbeat()
                     last_heartbeat = time.monotonic()
     except OSError as error:
-        raise ReportStorageError("Не удалось проверить сохранённый отчёт eBay.") from error
+        raise ReportStorageError(
+            "Не удалось проверить сохранённый отчёт eBay."
+        ) from error
     if not size:
         raise ReportStorageError("Сохранённый отчёт eBay пуст.")
     return {"path": os.fspath(path), "size": size, "sha256": digest.hexdigest()}
@@ -263,7 +289,9 @@ def _csv_stream(fileobj):
     if signature == b"PK\x03\x04":
         fileobj.seek(0)
         archive = zipfile.ZipFile(fileobj)
-        csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+        csv_names = [
+            name for name in archive.namelist() if name.lower().endswith(".csv")
+        ]
         if len(csv_names) != 1:
             archive.close()
             raise BulkEndError("В ZIP-отчёте eBay отсутствует единственный CSV-файл.")
@@ -287,10 +315,14 @@ def iter_inventory_rows(fileobj):
         columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
         required = {"sku", "itemid", "channel"}
         if not required.issubset(columns):
-            raise BulkEndError("В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel.")
+            raise BulkEndError(
+                "В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel."
+            )
         for row in reader:
             if None in row:
-                raise BulkEndError("Отчёт eBay содержит строку с некорректным числом столбцов.")
+                raise BulkEndError(
+                    "Отчёт eBay содержит строку с некорректным числом столбцов."
+                )
             sku = (row.get(columns["sku"]) or "").strip()
             item_id = (row.get(columns["itemid"]) or "").strip()
             marketplace_id = (row.get(columns["channel"]) or "").strip()
@@ -322,11 +354,15 @@ def iter_inventory_chunk(fileobj, start_cookie, max_rows):
             raise BulkEndError("В отчёте eBay отсутствует заголовок CSV.")
         columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
         if not {"sku", "itemid", "channel"}.issubset(columns):
-            raise BulkEndError("В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel.")
+            raise BulkEndError(
+                "В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel."
+            )
         fieldnames = reader.fieldnames
         if start_cookie:
             text_stream.seek(int(start_cookie))
-            reader = csv.DictReader(_ReadlineIterator(text_stream), fieldnames=fieldnames)
+            reader = csv.DictReader(
+                _ReadlineIterator(text_stream), fieldnames=fieldnames
+            )
         else:
             start_cookie = str(text_stream.tell())
 

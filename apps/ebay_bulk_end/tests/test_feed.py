@@ -58,7 +58,7 @@ class InventoryReportParserTests(SimpleTestCase):
     def test_chunk_parser_resumes_on_csv_record_boundaries(self):
         report = io.BytesIO(
             b"SKU,ItemID,Channel,Title\n001234565,10001,EBAY_DE,first\n"
-            b"001234566,10002,EBAY_DE,\"second\nline\"\n001234567,10003,EBAY_DE,last\n"
+            b'001234566,10002,EBAY_DE,"second\nline"\n001234567,10003,EBAY_DE,last\n'
         )
         first, cookie, eof = iter_inventory_chunk(report, "", 2)
         report.seek(0)
@@ -81,12 +81,20 @@ class InventoryReportParserTests(SimpleTestCase):
             with self.subTest(value=value), self.assertRaises(BulkEndError):
                 list(iter_inventory_rows(io.BytesIO(value)))
 
+
 class InventoryReportRequestTests(SimpleTestCase):
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
-    def test_creates_an_unfiltered_active_inventory_report(self, build_session, base_url):
+    def test_creates_an_unfiltered_active_inventory_report(
+        self, build_session, base_url
+    ):
         response = Mock(status_code=202, ok=True)
-        response.headers = {"Location": "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task/123-task"}
+        response.headers = {
+            "Location": "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task/123-task"
+        }
         post = build_session.return_value.__enter__.return_value.post
         post.return_value = response
 
@@ -94,24 +102,39 @@ class InventoryReportRequestTests(SimpleTestCase):
 
         self.assertEqual(task_id, "123-task")
         args = post.call_args
-        self.assertEqual(args.args[0], "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task")
+        self.assertEqual(
+            args.args[0], "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task"
+        )
         self.assertEqual(
             args.kwargs["json"],
             {"schemaVersion": "1.0", "feedType": "LMS_ACTIVE_INVENTORY_REPORT"},
         )
-        self.assertEqual(args.kwargs["headers"]["X-EBAY-C-MARKETPLACE-ID"], MARKETPLACE_ID)
+        self.assertEqual(
+            args.kwargs["headers"]["X-EBAY-C-MARKETPLACE-ID"], MARKETPLACE_ID
+        )
         self.assertEqual(args.kwargs["headers"]["Authorization"], "Bearer seller-token")
         self.assertNotIn("filterCriteria", args.kwargs["json"])
         base_url.assert_called_once()
 
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
     def test_polls_pending_and_completed_tasks(self, build_session, _base_url):
         session = build_session.return_value.__enter__.return_value
         response = Mock(status_code=200, ok=True)
         response.json.side_effect = [
-            {"taskId": "task-1", "feedType": "LMS_ACTIVE_INVENTORY_REPORT", "status": "IN_PROCESS"},
-            {"taskId": "task-1", "feedType": "LMS_ACTIVE_INVENTORY_REPORT", "status": "COMPLETED"},
+            {
+                "taskId": "task-1",
+                "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+                "status": "IN_PROCESS",
+            },
+            {
+                "taskId": "task-1",
+                "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+                "status": "COMPLETED",
+            },
         ]
         session.get.return_value = response
 
@@ -119,19 +142,29 @@ class InventoryReportRequestTests(SimpleTestCase):
         self.assertEqual(get_inventory_task("token", "task-1")["status"], "COMPLETED")
         self.assertEqual(session.get.call_count, 2)
 
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
-    def test_lists_tasks_for_uncertain_report_request_recovery(self, build_session, _base_url):
+    def test_lists_tasks_for_uncertain_report_request_recovery(
+        self, build_session, _base_url
+    ):
         session = build_session.return_value.__enter__.return_value
         response = Mock(status_code=200, ok=True)
         response.json.return_value = {"tasks": [{"taskId": "task-1"}], "total": 1}
         session.get.return_value = response
 
-        tasks, total = get_inventory_tasks("token", "2026-11-11T00:00:00.000Z..2026-11-11T00:01:00.000Z")
+        tasks, total = get_inventory_tasks(
+            "token", "2026-11-11T00:00:00.000Z..2026-11-11T00:01:00.000Z"
+        )
 
         self.assertEqual(tasks, [{"taskId": "task-1"}])
         self.assertEqual(total, 1)
-        self.assertEqual(session.get.call_args.args[0], "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task")
+        self.assertEqual(
+            session.get.call_args.args[0],
+            "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task",
+        )
         self.assertEqual(
             session.get.call_args.kwargs["params"],
             {
@@ -142,12 +175,21 @@ class InventoryReportRequestTests(SimpleTestCase):
             },
         )
 
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
-    def test_rejects_wrong_task_identity_missing_permission_and_rate_limit(self, build_session, _base_url):
+    def test_rejects_wrong_task_identity_missing_permission_and_rate_limit(
+        self, build_session, _base_url
+    ):
         session = build_session.return_value.__enter__.return_value
         response = Mock(status_code=200, ok=True)
-        response.json.return_value = {"taskId": "another-task", "feedType": "LMS_ACTIVE_INVENTORY_REPORT", "status": "COMPLETED"}
+        response.json.return_value = {
+            "taskId": "another-task",
+            "feedType": "LMS_ACTIVE_INVENTORY_REPORT",
+            "status": "COMPLETED",
+        }
         session.get.return_value = response
         with self.assertRaises(EBayTransportError):
             get_inventory_task("token", "task-1")
@@ -163,13 +205,18 @@ class InventoryReportRequestTests(SimpleTestCase):
             get_inventory_task("token", "task-1")
         self.assertEqual(error.exception.retry_after, 7)
 
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
     def test_streams_downloaded_csv_to_the_parser(self, build_session, _base_url):
         session = build_session.return_value.__enter__.return_value
         response = MagicMock(status_code=200, ok=True)
         response.headers = {"Content-Length": "25"}
-        response.iter_content.return_value = [b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE\n"]
+        response.iter_content.return_value = [
+            b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE\n"
+        ]
         session.get.return_value.__enter__.return_value = response
 
         with download_inventory_report("token", "task-1") as report:
@@ -179,7 +226,10 @@ class InventoryReportRequestTests(SimpleTestCase):
         self.assertEqual(session.get.call_args.kwargs["stream"], True)
 
     @patch("apps.ebay_bulk_end.feed.tempfile.SpooledTemporaryFile")
-    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch(
+        "apps.ebay_bulk_end.feed.api_base_url",
+        return_value="https://api.sandbox.ebay.com",
+    )
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
     def test_fails_closed_when_temporary_disk_cannot_stage_the_report(
         self, build_session, _base_url, spool_file

@@ -1,5 +1,5 @@
-from apps.orchestrator.models import MarketplacePublication
 from apps.marketplace.ebay.models import EbayOfferPreparation
+from apps.orchestrator.models import MarketplacePublication
 
 
 def managed_depotum_item_ids(item_ids, environment):
@@ -28,5 +28,7 @@ def managed_depotum_item_ids(item_ids, environment):
         if listing_id in requested:
             managed.add(listing_id)
         if isinstance(history, list):
-            managed.update(str(item_id) for item_id in history if str(item_id) in requested)
+            managed.update(
+                str(item_id) for item_id in history if str(item_id) in requested
+            )
     return managed

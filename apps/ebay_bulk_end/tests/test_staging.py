@@ -18,7 +18,10 @@ from apps.ebay_bulk_end.staging import (
 
 class ReportStagingTests(SimpleTestCase):
     def test_report_paths_are_private_and_confined_to_the_module_directory(self):
-        with TemporaryDirectory() as directory, override_settings(PRODUCT_IMAGE_STAGING_ROOT=directory):
+        with (
+            TemporaryDirectory() as directory,
+            override_settings(PRODUCT_IMAGE_STAGING_ROOT=directory),
+        ):
             snapshot_id, owner_token = uuid4(), uuid4()
             target = report_path(snapshot_id, 1, owner_token)
             target.write_text("private report", encoding="utf-8")
@@ -36,7 +39,10 @@ class ReportStagingTests(SimpleTestCase):
                 resolve_report_target("../outside.csv")
 
     def test_snapshot_cleanup_deletes_files_in_bounded_batches(self):
-        with TemporaryDirectory() as directory, override_settings(PRODUCT_IMAGE_STAGING_ROOT=directory):
+        with (
+            TemporaryDirectory() as directory,
+            override_settings(PRODUCT_IMAGE_STAGING_ROOT=directory),
+        ):
             snapshot_id = uuid4()
             first = report_path(snapshot_id, 1, uuid4())
             second = report_path(snapshot_id, 2, uuid4())
@@ -50,4 +56,6 @@ class ReportStagingTests(SimpleTestCase):
             self.assertTrue(third.exists())
             self.assertFalse(delete_snapshot_staging_files(snapshot_id, limit=2))
             self.assertFalse(third.exists())
-            self.assertFalse(Path(directory, "ebay-bulk-end", str(snapshot_id)).exists())
+            self.assertFalse(
+                Path(directory, "ebay-bulk-end", str(snapshot_id)).exists()
+            )

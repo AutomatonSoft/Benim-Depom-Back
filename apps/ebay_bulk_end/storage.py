@@ -3,9 +3,9 @@ from functools import lru_cache
 from uuid import UUID
 
 from django.conf import settings
+from django.db import DatabaseError
 from redis import Redis
 from redis.exceptions import RedisError
-from django.db import DatabaseError
 
 from .audit import load_persisted_job, persist_job
 from .errors import BulkEndError
@@ -62,7 +62,9 @@ def load_job(job_id):
     if persisted:
         try:
             redis_client().set(
-                job_key(job_id), json.dumps(persisted, ensure_ascii=False), ex=JOB_TTL_SECONDS
+                job_key(job_id),
+                json.dumps(persisted, ensure_ascii=False),
+                ex=JOB_TTL_SECONDS,
             )
         except (BulkEndError, RedisError, TypeError, ValueError):
             pass
@@ -72,7 +74,10 @@ def load_job(job_id):
         if raw:
             cached = json.loads(raw)
             # Old destructive jobs have no durable attempt record; fail closed after upgrade.
-            if cached.get("kind") == "end" and cached.get("status") in {"ending", "partial"}:
+            if cached.get("kind") == "end" and cached.get("status") in {
+                "ending",
+                "partial",
+            }:
                 return None
             return cached
     except (BulkEndError, RedisError, TypeError, ValueError):

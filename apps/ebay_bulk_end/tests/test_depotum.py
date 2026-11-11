@@ -77,7 +77,9 @@ class ManagedPublicationTests(SimpleTestCase):
         with patch(
             "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter"
         ) as filter_preparations:
-            filter_preparations.return_value.values_list.return_value.iterator.return_value = iter(())
+            filter_preparations.return_value.values_list.return_value.iterator.return_value = iter(
+                ()
+            )
 
             result = managed_depotum_item_ids([self.item_id], "production")
 
@@ -98,8 +100,12 @@ class ManagedPublicationTests(SimpleTestCase):
             "listing_id", "listing_id_history"
         )
 
-    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
-    def test_depotum_current_and_historical_listing_ids_are_protected(self, filter_publications):
+    @patch(
+        "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"
+    )
+    def test_depotum_current_and_historical_listing_ids_are_protected(
+        self, filter_publications
+    ):
         filter_publications.return_value.values_list.return_value = []
         with patch(
             "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter"
@@ -112,13 +118,19 @@ class ManagedPublicationTests(SimpleTestCase):
                 [self.item_id, self.historical_item_id, "999999999999"], "production"
             )
 
-        self.assertEqual(result, {self.item_id, self.historical_item_id, "999999999999"})
+        self.assertEqual(
+            result, {self.item_id, self.historical_item_id, "999999999999"}
+        )
         filter_preparations.assert_called_once_with(
             account="depotum", environment__in=("production", "")
         )
 
-    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
-    def test_preparation_lookup_errors_propagate_to_fail_closed_callers(self, filter_publications):
+    @patch(
+        "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"
+    )
+    def test_preparation_lookup_errors_propagate_to_fail_closed_callers(
+        self, filter_publications
+    ):
         filter_publications.return_value.values_list.return_value = []
         with patch(
             "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter",

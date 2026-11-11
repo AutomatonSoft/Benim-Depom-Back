@@ -52,13 +52,20 @@ class EbayBulkEndJob(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=("account", "environment", "status", "created_at"), name="ebulk_job_scope_status_idx"),
-            models.Index(fields=("created_by", "created_at"), name="ebulk_job_owner_created_idx"),
+            models.Index(
+                fields=("account", "environment", "status", "created_at"),
+                name="ebulk_job_scope_status_idx",
+            ),
+            models.Index(
+                fields=("created_by", "created_at"), name="ebulk_job_owner_created_idx"
+            ),
         ]
 
 
 class EbayBulkEndJobItem(models.Model):
-    job = models.ForeignKey(EbayBulkEndJob, on_delete=models.CASCADE, related_name="items")
+    job = models.ForeignKey(
+        EbayBulkEndJob, on_delete=models.CASCADE, related_name="items"
+    )
     item_id = models.CharField(max_length=32)
     sku = models.CharField(max_length=255, blank=True)
     matched_eans = models.JSONField(default=list, blank=True)
@@ -82,7 +89,9 @@ class EbayBulkEndJobItem(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=("job", "item_id"), name="ebulk_job_item_unique")
+            models.UniqueConstraint(
+                fields=("job", "item_id"), name="ebulk_job_item_unique"
+            )
         ]
         indexes = [
             models.Index(fields=("job", "status"), name="ebulk_item_job_status_idx"),
@@ -91,8 +100,12 @@ class EbayBulkEndJobItem(models.Model):
 
 
 class EbayBulkEndInFlight(models.Model):
-    job = models.ForeignKey(EbayBulkEndJob, on_delete=models.CASCADE, related_name="in_flight_items")
-    job_item = models.ForeignKey(EbayBulkEndJobItem, on_delete=models.CASCADE, related_name="in_flight_attempts")
+    job = models.ForeignKey(
+        EbayBulkEndJob, on_delete=models.CASCADE, related_name="in_flight_items"
+    )
+    job_item = models.ForeignKey(
+        EbayBulkEndJobItem, on_delete=models.CASCADE, related_name="in_flight_attempts"
+    )
     seller_id = models.CharField(max_length=255)
     environment = models.CharField(max_length=16)
     item_id = models.CharField(max_length=32)
@@ -109,9 +122,15 @@ class EbayBulkEndInFlight(models.Model):
 
 
 class EbayBulkEndEvent(models.Model):
-    job = models.ForeignKey(EbayBulkEndJob, on_delete=models.CASCADE, related_name="events")
+    job = models.ForeignKey(
+        EbayBulkEndJob, on_delete=models.CASCADE, related_name="events"
+    )
     item = models.ForeignKey(
-        EbayBulkEndJobItem, on_delete=models.SET_NULL, null=True, blank=True, related_name="events"
+        EbayBulkEndJobItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="events",
     )
     actor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -126,8 +145,12 @@ class EbayBulkEndEvent(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=("job", "created_at"), name="ebulk_event_job_created_idx"),
-            models.Index(fields=("event_type", "created_at"), name="ebulk_event_type_created_idx"),
+            models.Index(
+                fields=("job", "created_at"), name="ebulk_event_job_created_idx"
+            ),
+            models.Index(
+                fields=("event_type", "created_at"), name="ebulk_event_type_created_idx"
+            ),
         ]
 
 
@@ -178,20 +201,42 @@ class EbayInventorySnapshot(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("account", "environment", "ebay_seller_id", "marketplace_id"),
-                condition=models.Q(status__in=(
-                    "requested", "requesting", "queued", "in_progress", "downloading", "importing", "verifying"
-                )),
+                condition=models.Q(
+                    status__in=(
+                        "requested",
+                        "requesting",
+                        "queued",
+                        "in_progress",
+                        "downloading",
+                        "importing",
+                        "verifying",
+                    )
+                ),
                 name="ebulk_snapshot_active_unique",
             )
         ]
         indexes = [
             models.Index(
-                fields=("account", "environment", "ebay_seller_id", "marketplace_id", "status", "completed_at"),
+                fields=(
+                    "account",
+                    "environment",
+                    "ebay_seller_id",
+                    "marketplace_id",
+                    "status",
+                    "completed_at",
+                ),
                 name="ebulk_snapshot_scope_idx",
             ),
-            models.Index(fields=("status", "owner_expires_at"), name="ebulk_snapshot_owner_idx"),
             models.Index(
-                fields=("environment", "ebay_seller_id", "marketplace_id", "last_report_download_attempt_at"),
+                fields=("status", "owner_expires_at"), name="ebulk_snapshot_owner_idx"
+            ),
+            models.Index(
+                fields=(
+                    "environment",
+                    "ebay_seller_id",
+                    "marketplace_id",
+                    "last_report_download_attempt_at",
+                ),
                 name="ebulk_snapshot_quota_idx",
             ),
         ]

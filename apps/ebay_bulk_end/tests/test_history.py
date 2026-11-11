@@ -1,5 +1,5 @@
-from uuid import uuid4
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.test import TestCase
 from django.utils import timezone
@@ -7,14 +7,18 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.ebay_bulk_end.audit import persist_job, reserve_end_batch
+from apps.ebay_bulk_end.errors import BulkEndError
 from apps.ebay_bulk_end.models import (
     EbayBulkEndEvent,
     EbayBulkEndInFlight,
     EbayBulkEndJob,
     EbayBulkEndJobItem,
 )
-from apps.ebay_bulk_end.errors import BulkEndError
-from apps.ebay_bulk_end.storage import cancellation_requested, load_job, request_cancellation
+from apps.ebay_bulk_end.storage import (
+    cancellation_requested,
+    load_job,
+    request_cancellation,
+)
 
 
 class DurableAuditTests(TestCase):
@@ -45,10 +49,19 @@ class DurableAuditTests(TestCase):
                     "title": "Test product",
                     "sku": "01234565",
                     "match_type": "exact_sku",
-                    "matches": [{"ean": "01234565", "source": "sku", "type": "listing"}],
+                    "matches": [
+                        {"ean": "01234565", "source": "sku", "type": "listing"}
+                    ],
                 }
             ],
-            "selected": [{"item_id": "123456789012", "title": "Test product", "sku": "01234565", "matches": [{"ean": "01234565"}]}],
+            "selected": [
+                {
+                    "item_id": "123456789012",
+                    "title": "Test product",
+                    "sku": "01234565",
+                    "matches": [{"ean": "01234565"}],
+                }
+            ],
             "results": [
                 {
                     "item_id": "123456789012",
@@ -63,7 +76,10 @@ class DurableAuditTests(TestCase):
         }
 
         persist_job(job)
-        with patch("apps.ebay_bulk_end.storage.redis_client", side_effect=BulkEndError("Redis unavailable")):
+        with patch(
+            "apps.ebay_bulk_end.storage.redis_client",
+            side_effect=BulkEndError("Redis unavailable"),
+        ):
             restored = load_job(job_id)
 
         self.assertEqual(restored["status"], "complete")
@@ -72,7 +88,11 @@ class DurableAuditTests(TestCase):
         item = EbayBulkEndJobItem.objects.get(job_id=job_id)
         self.assertEqual(item.matched_eans, ["01234565"])
         self.assertEqual(item.remote_end_time.isoformat(), "2026-11-11T12:00:00+00:00")
-        self.assertTrue(EbayBulkEndEvent.objects.filter(job_id=job_id, event_type="job_completed").exists())
+        self.assertTrue(
+            EbayBulkEndEvent.objects.filter(
+                job_id=job_id, event_type="job_completed"
+            ).exists()
+        )
 
     def test_pre_request_reservation_is_unique_across_jobs(self):
         now = timezone.now().isoformat()
@@ -96,7 +116,13 @@ class DurableAuditTests(TestCase):
                 "eans": ["01234565"],
                 "matches": [item],
                 "selected": [item],
-                "results": [{"item_id": item["item_id"], "status": "sending", "attempt_count": 1}],
+                "results": [
+                    {
+                        "item_id": item["item_id"],
+                        "status": "sending",
+                        "attempt_count": 1,
+                    }
+                ],
             }
 
         first, second = job(first_id), job(second_id)
@@ -115,7 +141,10 @@ class DurableAuditTests(TestCase):
             status="ending",
         )
 
-        with patch("apps.ebay_bulk_end.storage.redis_client", side_effect=BulkEndError("Redis unavailable")):
+        with patch(
+            "apps.ebay_bulk_end.storage.redis_client",
+            side_effect=BulkEndError("Redis unavailable"),
+        ):
             request_cancellation(job_id)
             self.assertTrue(cancellation_requested(job_id))
 
@@ -196,7 +225,9 @@ class HistoryAPITests(TestCase):
             unique_ean_count=1,
         )
 
-        response = self.client.get("/api/v2/ebay-bulk-end/history/?account=jv&page_size=1&result=failure")
+        response = self.client.get(
+            "/api/v2/ebay-bulk-end/history/?account=jv&page_size=1&result=failure"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
@@ -219,7 +250,9 @@ class HistoryAPITests(TestCase):
 
         items = self.client.get(f"/api/v2/ebay-bulk-end/history/{self.job.pk}/items/")
         events = self.client.get(f"/api/v2/ebay-bulk-end/history/{self.job.pk}/events/")
-        csv_response = self.client.get(f"/api/v2/ebay-bulk-end/history/{self.job.pk}/csv/")
+        csv_response = self.client.get(
+            f"/api/v2/ebay-bulk-end/history/{self.job.pk}/csv/"
+        )
         hidden = self.client.get(f"/api/v2/ebay-bulk-end/history/{other_job.pk}/")
 
         self.assertEqual(items.data["results"][0]["match_type"], "exact_sku")
