@@ -1,9 +1,15 @@
 from datetime import datetime
+import csv
+import io
 from uuid import UUID
 
 from django.conf import settings
+from django.core.paginator import EmptyPage, Paginator
+from django.db.models import Q, TextField
+from django.db.models.functions import Cast
 from django.http import Http404, HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -13,8 +19,9 @@ from apps.common.permissions import IsManager
 from apps.common.throttles import ManagerMutationThrottleMixin
 
 from .auth import connection_for, connection_status, current_environment
-from .domain import MAX_EANS
-from .errors import BulkEndError, ManagedListingError
+from .domain import MAX_EANS, safe_csv_cell
+from .errors import BulkEndError, IdentifierConflictError, ManagedListingError
+from .models import EbayBulkEndJob
 from .serializers import ConfirmSerializer, ScanSerializer
 from .storage import (
     cancellation_requested,
@@ -123,11 +130,12 @@ class JobView(ManagerAPI):
                     not row.get("risky")
                     and not row.get("auction_risky")
                     and not row.get("managed_by_benim")
+                    and not row.get("identifier_conflict")
                     for row in job.get("matches", [])
                 ),
                 "risky_count": sum(
                     bool(
-                        (row.get("risky") or row.get("auction_risky"))
+                        (row.get("risky") or row.get("auction_risky") or row.get("identifier_conflict"))
                         and not row.get("managed_by_benim")
                     )
                     for row in job.get("matches", [])
@@ -148,7 +156,12 @@ class JobView(ManagerAPI):
                 else 0,
             },
             "preview_expires_at": job.get("preview_expires_at"),
+            "discovery_complete": job.get("discovery_complete", False),
+            "discovery_strategy": job.get("discovery_strategy", ""),
+            "discovery_details": job.get("discovery_details", {}),
+            "unmatched_status": job.get("unmatched_status", "not_found"),
             "unmatched_eans": job.get("unmatched_eans", []),
+            "unmatched_status_by_ean": job.get("unmatched_status_by_ean", {}),
             "matches": job.get("matches", []),
             "results": job.get("results", []),
             "report_rows": report_rows(job) if job.get("kind") == "end" else [],
@@ -247,7 +260,7 @@ class ConfirmView(ManagerMutationThrottleMixin, ManagerAPI):
                     pass
         except Http404:
             raise
-        except ManagedListingError as error:
+        except (ManagedListingError, IdentifierConflictError) as error:
             return _error(str(error), status.HTTP_409_CONFLICT)
         except BulkEndError as error:
             return _error(str(error), status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -295,3 +308,232 @@ class CancelView(ManagerMutationThrottleMixin, ManagerAPI):
             raise
         except BulkEndError as error:
             return _error(str(error), status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+def _owned_history_job(request, job_id):
+    try:
+        return EbayBulkEndJob.objects.select_related("created_by").get(
+            pk=job_id, created_by_id=request.user.pk
+        )
+    except EbayBulkEndJob.DoesNotExist as error:
+        raise Http404 from error
+
+
+def _page(queryset, request):
+    try:
+        number = max(1, int(request.query_params.get("page", "1")))
+        size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    except (TypeError, ValueError):
+        return None, _error("Параметры страницы должны быть целыми числами.")
+    paginator = Paginator(queryset, size)
+    try:
+        return paginator.page(number), None
+    except EmptyPage:
+        return paginator.page(paginator.num_pages), None
+
+
+def _manager_name(user):
+    return user.get_full_name().strip() or user.email
+
+
+def _history_summary(job):
+    return {
+        "submitted_ean_count": len(job.input_eans or []),
+        "unique_ean_count": job.unique_ean_count,
+        "matched_item_count": job.matched_item_count,
+        "selected_item_count": job.selected_item_count,
+        "ended_count": job.ended_count,
+        "failed_count": job.failed_count,
+        "uncertain_count": job.uncertain_count,
+        "not_found_count": job.not_found_count,
+    }
+
+
+def _history_row(job):
+    return {
+        "job_id": str(job.pk),
+        "account": job.account,
+        "environment": job.environment,
+        "manager": _manager_name(job.created_by),
+        "manager_id": job.created_by_id,
+        "status": job.status,
+        "created_at": job.created_at,
+        "finished_at": job.finished_at,
+        **_history_summary(job),
+    }
+
+
+class HistoryListView(ManagerAPI):
+    def get(self, request):
+        jobs = EbayBulkEndJob.objects.filter(created_by_id=request.user.pk).select_related(
+            "created_by"
+        )
+        for parameter, field in (("account", "account"), ("environment", "environment"), ("status", "status")):
+            value = request.query_params.get(parameter)
+            if value:
+                jobs = jobs.filter(**{field: value})
+        result = request.query_params.get("result")
+        if result == "success":
+            jobs = jobs.filter(ended_count__gt=0)
+        elif result == "failure":
+            jobs = jobs.filter(failed_count__gt=0)
+        elif result == "uncertain":
+            jobs = jobs.filter(uncertain_count__gt=0)
+        manager = request.query_params.get("manager")
+        if manager and manager not in {str(request.user.pk), request.user.email}:
+            jobs = jobs.none()
+        for parameter, lookup in (("date_from", "gte"), ("date_to", "lte")):
+            value = request.query_params.get(parameter)
+            if value:
+                parsed = parse_date(value)
+                if parsed is None:
+                    return _error(f"Параметр {parameter} должен быть датой YYYY-MM-DD.")
+                jobs = jobs.filter(**{f"created_at__date__{lookup}": parsed})
+        query = request.query_params.get("q", "").strip()[:255]
+        if query:
+            filters = (
+                Q(input_eans_text__icontains=query)
+                | Q(ebay_seller_id__icontains=query)
+                | Q(items__item_id__icontains=query)
+                | Q(items__sku__icontains=query)
+            )
+            try:
+                filters |= Q(pk=UUID(query))
+            except (TypeError, ValueError):
+                pass
+            jobs = jobs.annotate(input_eans_text=Cast("input_eans", TextField())).filter(
+                filters
+            ).distinct()
+        page, error = _page(jobs.order_by("-created_at"), request)
+        if error:
+            return error
+        return Response(
+            {
+                "count": page.paginator.count,
+                "page": page.number,
+                "page_size": page.paginator.per_page,
+                "pages": page.paginator.num_pages,
+                "results": [_history_row(job) for job in page.object_list],
+            }
+        )
+
+
+class HistoryDetailView(ManagerAPI):
+    def get(self, request, job_id):
+        job = _owned_history_job(request, job_id)
+        return Response(
+            {
+                **_history_row(job),
+                "seller_id": job.ebay_seller_id,
+                "kind": job.kind,
+                "discovery_strategy": job.discovery_strategy,
+                "discovery_complete": job.discovery_complete,
+                "discovery_details": job.discovery_details,
+                "input_eans": job.input_eans,
+                "unmatched_eans": job.workflow_state.get("unmatched_eans", []),
+                "unmatched_status_by_ean": job.workflow_state.get("unmatched_status_by_ean", {}),
+                "progress": job.progress,
+                "last_error": job.last_error,
+                "cancel_requested": job.cancel_requested,
+                "timestamps": {
+                    "scan_started_at": job.scan_started_at,
+                    "scan_finished_at": job.scan_finished_at,
+                    "confirmed_at": job.confirmed_at,
+                    "execution_started_at": job.execution_started_at,
+                    "finished_at": job.finished_at,
+                },
+            }
+        )
+
+
+class HistoryItemsView(ManagerAPI):
+    def get(self, request, job_id):
+        job = _owned_history_job(request, job_id)
+        page, error = _page(job.items.order_by("selection_order", "item_id"), request)
+        if error:
+            return error
+        return Response(
+            {
+                "count": page.paginator.count,
+                "page": page.number,
+                "page_size": page.paginator.per_page,
+                "pages": page.paginator.num_pages,
+                "results": [
+                    {
+                        "item_id": item.item_id,
+                        "eans": item.matched_eans,
+                        "sku": item.sku,
+                        "title": (item.details.get("match") or {}).get("title", ""),
+                        "match_type": item.match_type,
+                        "status": item.status,
+                        "selected": item.selected,
+                        "error_code": item.ebay_error_code,
+                        "error_message": item.ebay_error_message,
+                        "ended_at": item.remote_end_time,
+                        "processed_at": item.finished_at,
+                    }
+                    for item in page.object_list
+                ],
+            }
+        )
+
+
+class HistoryEventsView(ManagerAPI):
+    def get(self, request, job_id):
+        job = _owned_history_job(request, job_id)
+        page, error = _page(
+            job.events.select_related("actor_user", "item").order_by("-created_at", "-id"),
+            request,
+        )
+        if error:
+            return error
+        return Response(
+            {
+                "count": page.paginator.count,
+                "page": page.number,
+                "page_size": page.paginator.per_page,
+                "pages": page.paginator.num_pages,
+                "results": [
+                    {
+                        "event_type": event.event_type,
+                        "created_at": event.created_at,
+                        "actor": _manager_name(event.actor_user) if event.actor_user else "",
+                        "item_id": event.item.item_id if event.item else "",
+                        "metadata": event.metadata,
+                    }
+                    for event in page.object_list
+                ],
+            }
+        )
+
+
+class HistoryCSVView(ManagerAPI):
+    def get(self, request, job_id):
+        job = _owned_history_job(request, job_id)
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(
+            ("EAN", "SKU", "ItemID", "Title", "Match type", "Result", "eBay error code", "Error", "Ended at", "Processed at")
+        )
+        matched_eans = set()
+        rows = job.items.order_by("item_id").values_list(
+            "matched_eans", "sku", "item_id", "details", "match_type", "status",
+            "ebay_error_code", "ebay_error_message", "remote_end_time", "finished_at",
+        )
+        for eans, sku, item_id, details, match_type, item_status, code, message, ended_at, processed_at in rows.iterator(chunk_size=500):
+            matched_eans.update(eans or [])
+            match = (details or {}).get("match") or {}
+            writer.writerow(
+                safe_csv_cell(value)
+                for value in (
+                    ", ".join(eans or []), sku, item_id, match.get("title", ""), match_type,
+                    item_status, code, message, ended_at.isoformat() if ended_at else "",
+                    processed_at.isoformat() if processed_at else "",
+                )
+            )
+        for ean in (job.input_eans or []):
+            if ean not in matched_eans:
+                writer.writerow((safe_csv_cell(ean), "", "", "", "", "not_found_in_sku_index", "", "", "", ""))
+        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="ebay-bulk-end-{job.pk}.csv"'
+        return response

@@ -1,48 +1,61 @@
 # eBay bulk listing end
 
-Manager tool at `/ebay` with API under `/api/v2/ebay-bulk-end/`. It searches active listings in the connected JV, XL or Depotum seller account by exact EAN and ends only the ItemIDs explicitly selected from a complete, short-lived server preview. It does not edit BENIM product records or create SQL tables.
+Manager tool at `/ebay` with operation history at `/ebay/history`; API routes are under `/api/v2/ebay-bulk-end/`. JV, XL and Depotum stay separated by the selected OAuth connection and Sandbox/Production environment.
 
-## Safety and limits
+## Discovery for large accounts
 
-- The API is manager-only, and supports JV, XL and Depotum. eBay returns listings for the seller authenticated by the request, so this cannot end listings belonging to other eBay sellers.
-- Depotum listings recorded in existing BENIM publications are protected by a read-only ItemID/account/environment lookup at preview, confirmation and immediately before `EndItems`. Blank legacy environments are treated conservatively as protected. Lookup failures block the action.
-- Connection cards show stored OAuth connection and token expiry for the current configured environment. Authorization uses the existing manager OAuth flow; the tool never switches environments automatically.
-- EAN input is checked as EAN-8 or EAN-13 with its check digit and compared as a string to preserve leading zeroes. The UI reports duplicate input values.
-- Each scan accepts 500 unique EANs by default; deployments can override this with the Django setting `EBAY_BULK_END_MAX_EANS`, and the UI reads the active limit from the API.
-- Active listings are enumerated using `GetMyeBaySelling` (15 per page, sorted by ItemID). That response does not include listing EANs, so the scan retrieves each listing through `GetItem` with `IncludeItemSpecifics=true` before matching. A second pass verifies that the active ItemID set did not change during the lookup. eBay caps the active-list result at 25,000; scans at that cap are incomplete and cannot be confirmed. To leave room for the selected-item preflight and ending calls under eBay's documented default Trading API budget of 5,000 calls/day, scans above 2,000 active listings are marked incomplete. The keyset is shared with the rest of the app, so existing API usage may reduce this headroom; quota errors fail the job closed.
-- `GetSellerList` is not used as a fallback: its required time window cannot prove completeness for old active listings.
-- Listings with variations and auctions with bids or an unknown bid count are unselected by default and need separate opt-ins. The final check blocks auctions with bids ending within 12 hours, which eBay does not allow the seller to end early.
-- The manager must type the selected account and confirm that `NotAvailable` (“item is no longer available for sale”) is the correct ending reason.
-- Confirmation is bound to the manager, account, environment, exact server preview and its 15-minute expiry. Each selected item is fetched again and checked for seller, active status, EAN, listing type, variations and auction risk.
-- `EndItems` uses batches of at most 10. Destructive calls are never retried automatically. An unclear outcome is reconciled with `GetItem` when bounded; otherwise it is reported as uncertain. Cancellation prevents the next batch but cannot retract a batch already sent to eBay.
-- Read-only scans honor a bounded `Retry-After` after HTTP 429. XML entity declarations are rejected.
-- Job input, preview, cancellation marker and report use namespaced Redis keys with a seven-day TTL. OAuth tokens are not stored in Redis. A refreshed access token is kept in memory and is not saved to `EbayConnection`.
-- CSV output escapes spreadsheet formulas.
+The scanner requests eBay's `LMS_ACTIVE_INVENTORY_REPORT`, polls the task and imports its CSV into isolated `EbayInventorySnapshot` and `EbayInventoryListing` tables in batches. It keeps only the report's SKU, ItemID and marketplace mapping in PostgreSQL. Reports are scoped to the authenticated seller, environment and `EBAY_DE` marketplace. Snapshots are reused for 58 minutes, just below eBay's documented 25 report downloads per seller token per 24 hours.
+
+For each request, Django performs an indexed exact `SKU IN (submitted EANs)` lookup and verifies only the resulting ItemIDs with `GetItem`. Multiple listings with one SKU remain separate ItemIDs. CSV rows are parsed one at a time and inserted in 1,000-row database batches; the download stays in memory up to 2 MiB and then spills to temporary disk. There is no application-defined total-row or report-byte ceiling. If the report cannot be fully downloaded or staged, the scan fails closed. A pending eBay report can take up to 24 hours before the app marks it timed out; polling backs off to five-minute intervals. More than 2,000 matched ItemIDs fails closed so the existing preview and confirmation remain bounded.
+
+eBay publishes a limit of 25 Active Inventory Report downloads per seller token per 24 hours. Its general Feed limits page says data files are limited to 15 MB as regular or compressed XML; the Active Inventory Report is returned as CSV. The REST API specification describes the download as a streamed binary response but does not declare a maximum size, and the docs do not clarify whether the generic XML limit applies to CSV downloads. This module does not guess or impose its own byte/row ceiling. If eBay rejects the task/download or the complete CSV cannot be staged or parsed, discovery fails closed. A live report from a very large seller account is still needed to verify eBay's effective CSV limit before claiming production validation at that scale.
+
+The report contains SKU and ItemID, not EAN. A SKU equal to an EAN is a direct candidate match. Listings with another SKU may be missed; `not_found_in_sku_index` means only that no exact SKU was found, not that the EAN does not exist on eBay. Browse GTIN search can be considered as a separate best-effort source, but it is not part of this implementation and cannot guarantee whole-account coverage. `GetSellerList` is not used as a fallback because its required time window is limited to 120 days. Search completeness therefore describes the completed SKU index only; it does not claim exhaustive EAN search.
+
+## Ending safety
+
+- Every candidate is checked again before `EndItems` for seller, active status, current identifiers, title, listing type, variations and auction risk.
+- SKU and EAN stay distinct. Exact SKU, exact variation SKU, exact EAN and exact variation EAN match types are recorded. Populated conflicting EAN data blocks selection and confirmation.
+- Multi-variation listings and auctions with bids or an unknown bid count are excluded from default selection and require separate confirmation. eBay ends the parent ItemID and all its variations.
+- Depotum listings found in BENIM's publication records are protected. Lookup failure blocks the operation.
+- The manager confirms the account and `NotAvailable` ending reason. `EndItems` sends at most 10 ItemIDs per call.
+- A batch attempt and unique seller/environment/ItemID reservations are committed in PostgreSQL before the eBay request. A timeout or worker crash is reconciled read-only when possible; uncertain results are never resent automatically or shown as success.
+- Cancellation stops later batches; it cannot recall a request already sent.
+
+## Permanent operation history
+
+New tables owned by this app are `EbayBulkEndJob`, `EbayBulkEndJobItem`, `EbayBulkEndEvent`, `EbayBulkEndInFlight`, `EbayInventorySnapshot` and `EbayInventoryListing`. Migrations are under this app only. Apply them in a reviewed deployment before enabling the new code; no production migration or eBay deletion was performed as part of this change.
+
+PostgreSQL is the source of truth for jobs, inputs, candidates, selections, results, timestamps, report metadata and append-only events. Redis keeps the seven-day progress cache and worker/account locks. Reading a job reconstructs it from PostgreSQL first, so Redis expiry/restart does not erase history or bypass a durable in-flight reservation. There is no automatic PostgreSQL history cleanup.
+
+The history API and page are manager-only and owner-only: managers see their own jobs, not other managers' audit history. List filtering and page size are server-side; CSV output includes item results and EANs not found in the SKU index.
 
 ## API
 
 - `GET /api/v2/ebay-bulk-end/connections/`
-- `POST /api/v2/ebay-bulk-end/scans/` with `{ "account": "jv", "eans": ["..."] }`
+- `POST /api/v2/ebay-bulk-end/scans/`
 - `GET /api/v2/ebay-bulk-end/jobs/<uuid>/`
-- `POST /api/v2/ebay-bulk-end/jobs/<uuid>/confirm/` with `item_ids`, `typed_account`, `include_variations`, `include_auction_risk` and `confirm_unavailable_reason`
-- `POST /api/v2/ebay-bulk-end/jobs/<uuid>/cancel/` to stop between batches
+- `POST /api/v2/ebay-bulk-end/jobs/<uuid>/confirm/`
+- `POST /api/v2/ebay-bulk-end/jobs/<uuid>/cancel/`
 - `GET /api/v2/ebay-bulk-end/jobs/<uuid>/csv/`
+- `GET /api/v2/ebay-bulk-end/history/` (account, environment, date range, status/result, EAN, ItemID/SKU and owner filters; paginated)
+- `GET /api/v2/ebay-bulk-end/history/<uuid>/`
+- `GET /api/v2/ebay-bulk-end/history/<uuid>/items/` (paginated)
+- `GET /api/v2/ebay-bulk-end/history/<uuid>/events/` (paginated)
+- `GET /api/v2/ebay-bulk-end/history/<uuid>/csv/`
 
-Only the manager who created a job can read, confirm, cancel or download its report.
+The Active Inventory Report requires the existing OAuth scope `https://api.ebay.com/oauth/api_scope/sell.inventory`. This module does not change global OAuth scopes or credentials. If the selected connection lacks permission, the report request fails closed with a reconnect instruction.
 
-## eBay API notes
+## References
 
-References checked on 2026-11-10:
-
-- [GetMyeBaySelling](https://developer.ebay.com/devzone/xml/docs/Reference/ebay/GetMyeBaySelling.html)
-- [GetItem](https://developer.ebay.com/devzone/xml/docs/Reference/ebay/GetItem.html)
-- [EndItems](https://developer.ebay.com/devzone/xml/docs/Reference/ebay/EndItems.html)
-- [OAuth authorization](https://developer.ebay.com/develop/guides/sell/authorization)
-- [API deprecation status](https://developer.ebay.com/develop/api-deprecation-status)
-- [API call limits](https://developer.ebay.com/develop/api/buy/api_call_limits)
-
-The client pins Trading API compatibility level 1489, which matches the current Trading API reference. The deprecation list does not list the calls used here; it does list the `GetItem` field `eBayPlusEligible`, which this tool does not request or use. Recheck the status before production release.
+- [Downloadable report flow](https://developer.ebay.com/api-docs/sell/static/feed/merchant-data-downloadable-reports-flow.html)
+- [Active Inventory Report fields](https://developer.ebay.com/api-docs/user-guides/static/mip-user-guide/mip-definitions-active-inventory-report.html)
+- [Feed limits](https://developer.ebay.com/api-docs/sell/static/feed/data-file-limits.html)
+- [Sell Feed API specification](https://developer.ebay.com/develop/api/spec/feed_api.json)
+- [Sell Feed scope and file retention](https://developer.ebay.com/api-docs/sell/static/feed/sell-feed.html)
+- [GetSellerList time window](https://developer.ebay.com/devzone/xml/docs/Reference/ebay/GetSellerList.html)
+- [Browse API search](https://www.developer.ebay.com/develop/api/buy)
 
 ## Tests
 
-Run with `python manage.py test apps.ebay_bulk_end.tests`. Tests mock eBay HTTP calls and never send live `EndItems` requests.
+Run with `python manage.py test apps.ebay_bulk_end.tests`. All eBay calls are mocked; tests do not send live `EndItems` requests. The large discovery test streams 100,000 synthetic inventory rows through PostgreSQL and asserts only SKU candidates call `GetItem`.

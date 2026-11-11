@@ -1,0 +1,181 @@
+import csv
+import gzip
+import io
+import json
+import re
+import tempfile
+import zipfile
+from contextlib import contextmanager
+
+import requests
+
+from apps.common.marketplace_http import build_marketplace_session
+from apps.marketplace.ebay.client import api_base_url
+
+from .errors import BulkEndError, EBayRateLimitError, EBayTransportError
+
+FEED_TYPE = "LMS_ACTIVE_INVENTORY_REPORT"
+MARKETPLACE_ID = "EBAY_DE"
+MAX_SKU_LENGTH = 50
+REPORT_PATH = "/sell/feed/v1"
+
+
+def _headers(token):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "X-EBAY-C-MARKETPLACE-ID": MARKETPLACE_ID,
+    }
+
+
+def _check_response(response):
+    if response.status_code == 429:
+        try:
+            retry_after = min(60, max(1, int(response.headers.get("Retry-After", "30"))))
+        except (TypeError, ValueError):
+            retry_after = 30
+        raise EBayRateLimitError(retry_after)
+    if response.status_code in {401, 403}:
+        raise BulkEndError(
+            "Для отчёта eBay требуется разрешение sell.inventory. Переподключите выбранный аккаунт, если доступ не был выдан."
+        )
+    if response.status_code >= 500:
+        raise EBayTransportError("eBay временно не обработал запрос к отчёту.")
+    if not response.ok:
+        raise BulkEndError(f"eBay отклонил запрос к отчёту (HTTP {response.status_code}).")
+
+
+def _json_response(response):
+    _check_response(response)
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError) as error:
+        raise EBayTransportError("eBay вернул некорректный ответ отчёта.") from error
+    if not isinstance(payload, dict):
+        raise EBayTransportError("eBay вернул некорректный ответ отчёта.")
+    return payload
+
+
+def create_inventory_task(token):
+    try:
+        with build_marketplace_session() as session:
+            response = session.post(
+                f"{api_base_url()}{REPORT_PATH}/inventory_task",
+                headers={**_headers(token), "Content-Type": "application/json"},
+                json={"schemaVersion": "1.0", "feedType": FEED_TYPE},
+                timeout=(5, 30),
+            )
+    except requests.RequestException as error:
+        raise EBayTransportError("Не удалось связаться с eBay для создания отчёта.") from error
+    _check_response(response)
+    location = response.headers.get("Location", "")
+    match = re.search(r"/inventory_task/([A-Za-z0-9._-]{1,255})/?$", location)
+    if not match:
+        raise EBayTransportError("eBay не вернул идентификатор задания отчёта.")
+    return match.group(1)
+
+
+def get_inventory_task(token, task_id):
+    try:
+        with build_marketplace_session() as session:
+            response = session.get(
+                f"{api_base_url()}{REPORT_PATH}/inventory_task/{task_id}",
+                headers=_headers(token),
+                timeout=(5, 30),
+            )
+    except requests.RequestException as error:
+        raise EBayTransportError("Не удалось проверить статус отчёта eBay.") from error
+    payload = _json_response(response)
+    if payload.get("taskId") != task_id or payload.get("feedType") != FEED_TYPE:
+        raise EBayTransportError("eBay вернул статус другого задания отчёта.")
+    return payload
+
+
+@contextmanager
+def download_inventory_report(token, task_id):
+    # Keep only 2 MiB in RAM; larger reports spill to disk instead of imposing an account-size cap.
+    fileobj = tempfile.SpooledTemporaryFile(max_size=2 * 1024 * 1024, mode="w+b")
+    try:
+        try:
+            with build_marketplace_session() as session:
+                with session.get(
+                    f"{api_base_url()}{REPORT_PATH}/task/{task_id}/download_result_file",
+                    headers={**_headers(token), "Accept": "application/octet-stream, text/csv"},
+                    timeout=(5, 60),
+                    stream=True,
+                ) as response:
+                    _check_response(response)
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        fileobj.write(chunk)
+        except requests.RequestException as error:
+            raise EBayTransportError("Не удалось скачать отчёт eBay.") from error
+        except OSError as error:
+            raise EBayTransportError(
+                "Не удалось сохранить полный отчёт eBay во временное хранилище; проверьте свободное место."
+            ) from error
+        if fileobj.tell() == 0:
+            raise EBayTransportError("eBay вернул пустой файл отчёта.")
+        fileobj.seek(0)
+        yield fileobj
+    finally:
+        fileobj.close()
+
+
+def _csv_stream(fileobj):
+    fileobj.seek(0)
+    signature = fileobj.read(4)
+    if signature == b"PK\x03\x04":
+        fileobj.seek(0)
+        archive = zipfile.ZipFile(fileobj)
+        csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+        if len(csv_names) != 1:
+            archive.close()
+            raise BulkEndError("В ZIP-отчёте eBay отсутствует единственный CSV-файл.")
+        stream = archive.open(csv_names[0])
+        return archive, stream
+    if signature[:2] == b"\x1f\x8b":
+        fileobj.seek(0)
+        stream = gzip.GzipFile(fileobj=fileobj, mode="rb")
+        return stream, stream
+    fileobj.seek(0)
+    return None, fileobj
+
+
+def iter_inventory_rows(fileobj):
+    archive, raw_stream = _csv_stream(fileobj)
+    text_stream = io.TextIOWrapper(raw_stream, encoding="utf-8-sig", newline="")
+    try:
+        reader = csv.DictReader(text_stream)
+        if not reader.fieldnames:
+            raise BulkEndError("В отчёте eBay отсутствует заголовок CSV.")
+        columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
+        required = {"sku", "itemid", "channel"}
+        if not required.issubset(columns):
+            raise BulkEndError("В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel.")
+        for row in reader:
+            if None in row:
+                raise BulkEndError("Отчёт eBay содержит строку с некорректным числом столбцов.")
+            sku = (row.get(columns["sku"]) or "").strip()
+            item_id = (row.get(columns["itemid"]) or "").strip()
+            marketplace_id = (row.get(columns["channel"]) or "").strip()
+            if not item_id.isascii() or not item_id.isdigit() or len(item_id) > 20:
+                raise BulkEndError("В отчёте eBay обнаружен некорректный ItemID.")
+            if not marketplace_id:
+                raise BulkEndError("В отчёте eBay не указан маркетплейс объявления.")
+            if len(sku) > MAX_SKU_LENGTH:
+                raise BulkEndError("В отчёте eBay обнаружен слишком длинный SKU.")
+            yield {"sku": sku, "item_id": item_id, "marketplace_id": marketplace_id}
+    except UnicodeDecodeError as error:
+        raise BulkEndError("Не удалось прочитать кодировку CSV-отчёта eBay.") from error
+    except csv.Error as error:
+        raise BulkEndError("Отчёт eBay содержит повреждённую строку CSV.") from error
+    finally:
+        try:
+            text_stream.detach()
+        except (ValueError, AttributeError):
+            pass
+        if archive:
+            archive.close()

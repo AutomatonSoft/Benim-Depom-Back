@@ -1,463 +1,391 @@
+import io
+from datetime import timedelta
+from tempfile import SpooledTemporaryFile
 from types import SimpleNamespace
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
-from apps.ebay_bulk_end.domain import exact_listing_matches, item_summary
-from apps.ebay_bulk_end.errors import EBayRateLimitError
-from apps.ebay_bulk_end.workflows import run_scan_chunk
+from apps.accounts.models import User
+from apps.ebay_bulk_end.domain import MAX_MATCHES, exact_listing_matches, item_summary
+from apps.ebay_bulk_end.errors import BulkEndError
+from apps.ebay_bulk_end.inventory import (
+    IMPORT_BATCH_SIZE,
+    REPORT_POLL_SECONDS,
+    import_inventory_report,
+    run_inventory_scan_chunk,
+    snapshot_for_scan,
+)
+from apps.ebay_bulk_end.models import (
+    EbayBulkEndJob,
+    EbayInventoryListing,
+    EbayInventorySnapshot,
+)
 
 
-def _item(item_id, ean_xml, seller="seller-jv"):
+def _item(item_id, sku, seller="seller-jv", extra=""):
     return ET.fromstring(
         f"<Item><ItemID>{item_id}</ItemID><Title>Test listing</Title>"
         f"<ListingStatus>Active</ListingStatus><Seller><UserID>{seller}</UserID></Seller>"
-        f"{ean_xml}</Item>"
+        f"<SKU>{sku}</SKU>{extra}</Item>"
     )
 
 
-class DocumentedEanLocationsTests(SimpleTestCase):
+class ExactIdentifierTests(SimpleTestCase):
     def test_matches_exact_ean_item_specifics_but_not_a_partial_value(self):
-        item = _item(
-            "123456789012",
-            "<ItemSpecifics><NameValueList><Name>EAN</Name><Value>01234565</Value></NameValueList>"
-            "<NameValueList><Name>MPN</Name><Value>4006381333931</Value></NameValueList></ItemSpecifics>",
+        item = ET.fromstring(
+            "<Item><ItemSpecifics><NameValueList><Name>EAN</Name><Value>01234565</Value></NameValueList>"
+            "<NameValueList><Name>MPN</Name><Value>4006381333931</Value></NameValueList></ItemSpecifics></Item>"
         )
-
-        self.assertEqual(
-            exact_listing_matches(item, {"01234565", "4006381333931"}),
-            {"01234565": "listing"},
-        )
+        self.assertEqual(exact_listing_matches(item, {"01234565", "4006381333931"}), {"01234565": "listing"})
         self.assertEqual(exact_listing_matches(item, {"0123456"}), {})
 
-    def test_matches_ean_in_variation_product_details_and_variation_specifics(self):
+    def test_sku_only_variation_is_reported_with_its_real_match_type_and_label(self):
         item = _item(
             "123456789012",
-            "<Variations><Variation><SKU>SIZE-M</SKU>"
-            "<VariationProductListingDetails><EAN>01234565</EAN></VariationProductListingDetails>"
-            "<VariationSpecifics><NameValueList><Name>Color</Name><Value>Black</Value></NameValueList>"
-            "<NameValueList><Name>Size</Name><Value>M</Value></NameValueList>"
-            "<NameValueList><Name>EAN</Name><Value>4006381333931</Value></NameValueList></VariationSpecifics>"
+            "",
+            extra="<Variations><Variation><SKU>4006381333931</SKU>"
+            "<VariationSpecifics><NameValueList><Name>Size</Name><Value>M</Value></NameValueList></VariationSpecifics>"
             "</Variation></Variations>",
         )
 
-        summary = item_summary(item, {"01234565", "4006381333931"})
+        summary = item_summary(item, {"4006381333931"})
 
-        self.assertEqual(
-            summary["matches"],
-            [
-                {
-                    "ean": "01234565",
-                    "type": "variation",
-                    "variation": "Color: Black, Size: M",
-                },
-                {
-                    "ean": "4006381333931",
-                    "type": "variation",
-                    "variation": "Color: Black, Size: M",
-                },
-            ],
-        )
+        self.assertEqual(summary["matches"][0]["source"], "sku")
+        self.assertEqual(summary["matches"][0]["match_type"], "exact_variation_sku")
+        self.assertEqual(summary["matches"][0]["variation"], "Size: M")
         self.assertTrue(summary["risky"])
 
-    def test_matches_item_details_then_verifies_the_active_listing_snapshot(self):
+    def test_conflicting_populated_ean_marks_a_sku_match_unsafe(self):
+        item = _item(
+            "123456789012",
+            "4006381333931",
+            extra="<ProductListingDetails><EAN>5901234123457</EAN></ProductListingDetails>",
+        )
+
+        summary = item_summary(item, {"4006381333931"})
+
+        self.assertTrue(summary["identifier_conflict"])
+
+
+class LargeInventoryLookupTests(TestCase):
+    def _snapshot(self):
+        return EbayInventorySnapshot.objects.create(
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="complete",
+            complete=True,
+            completed_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+    def test_import_marks_only_a_fully_parsed_matching_marketplace_report_complete(self):
+        snapshot = self._snapshot()
+        report = io.BytesIO(
+            b"SKU,ItemID,Channel\n001234565,10001,EBAY_DE\n001234565,10002,EBAY_DE\n"
+        )
+
+        count = import_inventory_report(snapshot, report)
+
+        snapshot.refresh_from_db()
+        self.assertEqual(count, 2)
+        self.assertTrue(snapshot.complete)
+        self.assertEqual(snapshot.listings.count(), 2)
+        self.assertEqual(set(snapshot.listings.values_list("sku", flat=True)), {"001234565"})
+
+    def test_wrong_marketplace_report_is_incomplete_and_discards_partial_rows(self):
+        snapshot = self._snapshot()
+        report = io.BytesIO(b"SKU,ItemID,Channel\n001234565,10001,EBAY_GB\n")
+
+        with self.assertRaises(BulkEndError):
+            import_inventory_report(snapshot, report)
+
+        snapshot.refresh_from_db()
+        self.assertFalse(snapshot.complete)
+        self.assertEqual(snapshot.status, "incomplete")
+        self.assertEqual(snapshot.listings.count(), 0)
+
+    def test_imports_100k_500k_and_over_a_million_rows_in_bounded_batches(self):
+        batch_sizes = []
+        with patch.object(
+            EbayInventoryListing.objects,
+            "bulk_create",
+            side_effect=lambda rows, **kwargs: batch_sizes.append(len(rows)),
+        ):
+            for count in (100_000, 500_000, 1_000_001):
+                with self.subTest(count=count), SpooledTemporaryFile(max_size=1024 * 1024) as report:
+                    batch_sizes.clear()
+                    report.write(b"SKU,ItemID,Channel\n")
+                    for start in range(0, count, IMPORT_BATCH_SIZE):
+                        end = min(start + IMPORT_BATCH_SIZE, count)
+                        report.write(
+                            "".join(
+                                f"{number:013d},{number + 1},EBAY_DE\n"
+                                for number in range(start, end)
+                            ).encode("ascii")
+                        )
+                    report.seek(0)
+                    snapshot = self._snapshot()
+
+                    self.assertEqual(import_inventory_report(snapshot, report), count)
+
+                    snapshot.refresh_from_db()
+                    self.assertTrue(snapshot.complete)
+                    self.assertEqual(snapshot.record_count, count)
+                    self.assertEqual(
+                        len(batch_sizes),
+                        (count + IMPORT_BATCH_SIZE - 1) // IMPORT_BATCH_SIZE,
+                    )
+                    self.assertLessEqual(max(batch_sizes), IMPORT_BATCH_SIZE)
+
+    def test_100k_inventory_looks_up_only_matching_skus_and_reports_unmatched_eans(self):
+        snapshot = EbayInventorySnapshot.objects.create(
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="complete",
+            complete=True,
+            record_count=100_000,
+            completed_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        requested = [f"EAN-{number:03d}" for number in range(100)]
+        batch = []
+        for index in range(100_000):
+            if index < 80:
+                sku = requested[index]
+            elif index == 80:
+                sku = requested[0]
+            else:
+                sku = f"SKU-{index}"
+            batch.append(
+                EbayInventoryListing(
+                    snapshot=snapshot,
+                    item_id=str(100_000_000_000 + index),
+                    sku=sku,
+                    marketplace_id="EBAY_DE",
+                )
+            )
+            if len(batch) == 1000:
+                EbayInventoryListing.objects.bulk_create(batch, batch_size=1000)
+                batch.clear()
+        if batch:
+            EbayInventoryListing.objects.bulk_create(batch, batch_size=1000)
+
+        candidates = {
+            str(100_000_000_000 + index): requested[index]
+            for index in range(80)
+        }
+        candidates[str(100_000_000_080)] = requested[0]
         job = {
-            "id": "scan-1",
+            "id": "scan-large",
             "manager_id": 7,
             "account": "jv",
             "environment": "sandbox",
             "kind": "scan",
             "status": "queued",
-            "eans": ["01234565", "4006381333931"],
+            "seller_id": "seller-jv",
+            "eans": requested,
             "matches": [],
-            "progress": {"current": 0, "total": None},
+            "discovery_details": {},
+            "inventory_snapshot_id": str(snapshot.pk),
         }
-        listed_item = ET.fromstring("<Item><ItemID>123456789012</ItemID></Item>")
-        details = _item(
-            "123456789012",
-            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>"
-            "<ItemSpecifics><NameValueList><Name>EAN</Name><Value>4006381333931</Value></NameValueList></ItemSpecifics>",
-        )
 
         with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
             patch(
-                "apps.ebay_bulk_end.workflows.access_context",
+                "apps.ebay_bulk_end.inventory.access_context",
                 return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
             ),
             patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=[
-                    ([listed_item], 1, 1, {}),
-                    ([listed_item], 1, 1, {}),
-                ],
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_item", return_value=details
+                "apps.ebay_bulk_end.inventory.get_item",
+                side_effect=lambda token, item_id: _item(item_id, candidates[item_id]),
             ) as get_item,
+            patch("apps.ebay_bulk_end.inventory.save_job"),
         ):
-            self.assertEqual(run_scan_chunk(job["id"]), 2)
-            self.assertIsNone(run_scan_chunk(job["id"]))
+            while run_inventory_scan_chunk(job) is not None:
+                pass
 
+        self.assertEqual(get_item.call_count, 81)
         self.assertEqual(job["status"], "preview")
-        get_item.assert_called_once()
-        self.assertEqual(len(job["matches"]), 1)
-        self.assertEqual(
-            {row["ean"] for row in job["matches"][0]["matches"]},
-            {"01234565", "4006381333931"},
-        )
-        self.assertEqual(job["unmatched_eans"], [])
+        self.assertEqual(len(job["matches"]), 81)
+        self.assertEqual(set(job["unmatched_eans"]), set(requested[80:]))
+        self.assertEqual(job["unmatched_status"], "not_found_in_sku_index")
+        self.assertFalse(job["discovery_details"]["ean_search_complete"])
 
-    def test_depotum_preview_marks_publications_managed_by_benim(self):
+    def test_stale_report_candidate_is_not_misreported_as_absent_from_the_index(self):
+        snapshot = self._snapshot()
+        EbayInventoryListing.objects.create(
+            snapshot=snapshot,
+            item_id="100000000001",
+            sku="4006381333931",
+            marketplace_id="EBAY_DE",
+        )
+        ean = "4006381333931"
         job = {
-            "id": "scan-depotum",
+            "id": "scan-stale",
             "manager_id": 7,
-            "account": "depotum",
+            "account": "jv",
             "environment": "sandbox",
             "kind": "scan",
             "status": "queued",
-            "eans": ["01234565"],
+            "seller_id": "seller-jv",
+            "eans": [ean],
             "matches": [],
-            "progress": {"current": 0, "total": None},
+            "discovery_details": {},
+            "inventory_snapshot_id": str(snapshot.pk),
         }
-        listed_item = ET.fromstring("<Item><ItemID>123456789012</ItemID></Item>")
-        details = _item(
-            "123456789012",
-            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>",
-            seller="seller-depotum",
-        )
 
         with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
             patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-depotum"), "token"),
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
             ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=[
-                    ([listed_item], 1, 1, {}),
-                    ([listed_item], 1, 1, {}),
+            patch("apps.ebay_bulk_end.inventory.get_item", return_value=None),
+            patch("apps.ebay_bulk_end.inventory.save_job"),
+        ):
+            self.assertIsNone(run_inventory_scan_chunk(job))
+
+        self.assertEqual(job["status"], "preview")
+        self.assertEqual(job["unmatched_status_by_ean"][ean], "verification_failed")
+
+    def test_candidate_safety_limit_is_counted_in_sql_before_rows_are_loaded(self):
+        snapshot = self._snapshot()
+        ean = "4006381333931"
+        for start in range(0, MAX_MATCHES + 1, 1000):
+            end = min(start + 1000, MAX_MATCHES + 1)
+            EbayInventoryListing.objects.bulk_create(
+                [
+                    EbayInventoryListing(
+                        snapshot=snapshot,
+                        item_id=str(100_000_000_000 + number),
+                        sku=ean,
+                        marketplace_id="EBAY_DE",
+                    )
+                    for number in range(start, end)
                 ],
-            ),
-            patch("apps.ebay_bulk_end.workflows.get_item", return_value=details),
-            patch(
-                "apps.ebay_bulk_end.workflows.managed_depotum_item_ids",
-                return_value={"123456789012"},
-            ) as managed_lookup,
-        ):
-            self.assertEqual(run_scan_chunk(job["id"]), 2)
-            self.assertIsNone(run_scan_chunk(job["id"]))
-
-        self.assertEqual(job["status"], "preview")
-        self.assertTrue(job["matches"][0]["managed_by_benim"])
-        managed_lookup.assert_called_once_with(["123456789012"], "sandbox")
-
-    def test_empty_account_produces_a_complete_preview_with_unmatched_eans(self):
+                batch_size=1000,
+            )
         job = {
-            "id": "scan-empty",
-            "manager_id": 7,
-            "account": "xl",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-xl"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=[([], 1, 0, {}), ([], 1, 0, {})],
-            ),
-        ):
-            self.assertEqual(run_scan_chunk(job["id"]), 2)
-            self.assertIsNone(run_scan_chunk(job["id"]))
-
-        self.assertEqual(job["status"], "preview")
-        self.assertEqual(job["unmatched_eans"], ["01234565"])
-
-    def test_scan_marks_same_count_listing_changes_incomplete(self):
-        job = {
-            "id": "scan-changed-items",
+            "id": "scan-many-candidates",
             "manager_id": 7,
             "account": "jv",
             "environment": "sandbox",
             "kind": "scan",
             "status": "queued",
-            "eans": ["01234565"],
+            "seller_id": "seller-jv",
+            "eans": [ean],
             "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-        original = ET.fromstring("<Item><ItemID>123456789012</ItemID></Item>")
-        replacement = ET.fromstring("<Item><ItemID>123456789013</ItemID></Item>")
-        details = _item(
-            "123456789012",
-            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>",
-        )
-
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=[([original], 1, 1, {}), ([replacement], 1, 1, {})],
-            ),
-            patch("apps.ebay_bulk_end.workflows.get_item", return_value=details),
-        ):
-            self.assertEqual(run_scan_chunk(job["id"]), 2)
-            self.assertIsNone(run_scan_chunk(job["id"]))
-
-        self.assertEqual(job["status"], "incomplete")
-        self.assertIn("изменился", job["message"])
-        self.assertNotIn("preview_expires_at", job)
-
-    def test_scan_stops_at_the_twenty_five_thousand_listing_cap(self):
-        job = {
-            "id": "scan-cap",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
+            "discovery_details": {},
+            "inventory_snapshot_id": str(snapshot.pk),
         }
 
         with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
             patch(
-                "apps.ebay_bulk_end.workflows.access_context",
+                "apps.ebay_bulk_end.inventory.access_context",
                 return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
             ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                return_value=([], 1250, 25000, {}),
-            ) as get_page,
+            patch("apps.ebay_bulk_end.inventory.get_item") as get_item,
+            patch("apps.ebay_bulk_end.inventory._candidate_rows") as candidate_rows,
+            patch("apps.ebay_bulk_end.inventory.save_job"),
         ):
-            self.assertIsNone(run_scan_chunk(job["id"]))
+            self.assertIsNone(run_inventory_scan_chunk(job))
 
         self.assertEqual(job["status"], "incomplete")
-        self.assertNotIn("preview_expires_at", job)
-        get_page.assert_called_once()
-
-    def test_scan_stops_above_the_safe_get_item_lookup_budget(self):
-        job = {
-            "id": "scan-lookup-budget",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                return_value=([], 101, 2001, {}),
-            ),
-            patch("apps.ebay_bulk_end.workflows.get_item") as get_item,
-        ):
-            self.assertIsNone(run_scan_chunk(job["id"]))
-
-        self.assertEqual(job["status"], "incomplete")
-        self.assertIn("2000", job["message"])
-        self.assertNotIn("preview_expires_at", job)
+        self.assertEqual(job["discovery_details"]["candidate_item_count"], MAX_MATCHES + 1)
         get_item.assert_not_called()
+        candidate_rows.assert_not_called()
 
-    def test_scan_marks_pagination_drift_incomplete(self):
+    def test_slow_large_report_waits_longer_with_bounded_poll_backoff(self):
+        snapshot = self._snapshot()
+        snapshot.complete = False
+        snapshot.status = "in_progress"
+        snapshot.task_id = "slow-report"
+        snapshot.save(update_fields=("complete", "status", "task_id"))
+        EbayInventorySnapshot.objects.filter(pk=snapshot.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
         job = {
-            "id": "scan-drift",
-            "manager_id": 7,
+            "id": "scan-slow-report",
             "account": "jv",
             "environment": "sandbox",
+            "seller_id": "seller-jv",
             "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
+            "status": "scanning",
+            "eans": ["4006381333931"],
             "matches": [],
-            "progress": {"current": 0, "total": None},
+            "discovery_details": {},
+            "inventory_snapshot_id": str(snapshot.pk),
         }
-        item = _item(
-            "123456789012",
-            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>",
+
+        with (
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
+            ),
+            patch(
+                "apps.ebay_bulk_end.inventory.get_inventory_task",
+                return_value={"status": "IN_PROCESS"},
+            ),
+            patch("apps.ebay_bulk_end.inventory.save_job"),
+        ):
+            delays = [run_inventory_scan_chunk(job) for _ in range(6)]
+
+        self.assertEqual(delays, [REPORT_POLL_SECONDS, 120, 240, 300, 300, 300])
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, "in_progress")
+        self.assertEqual(job["status"], "scanning")
+
+    def test_expired_snapshot_and_listings_are_deleted_before_next_report(self):
+        expired = self._snapshot()
+        expired.expires_at = timezone.now() - timedelta(minutes=1)
+        expired.save(update_fields=("expires_at",))
+        EbayInventoryListing.objects.create(
+            snapshot=expired,
+            item_id="100000000001",
+            sku="4006381333931",
+            marketplace_id="EBAY_DE",
         )
 
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=[([item], 2, 201, {}), ([item], 2, 202, {})],
-            ) as get_page,
-            patch("apps.ebay_bulk_end.workflows.get_item", return_value=item),
-        ):
-            self.assertEqual(run_scan_chunk(job["id"]), 2)
-            self.assertIsNone(run_scan_chunk(job["id"]))
-
-        self.assertEqual(job["status"], "incomplete")
-        self.assertNotIn("preview_expires_at", job)
-        self.assertEqual(get_page.call_count, 2)
-
-    def test_scan_marks_empty_page_with_reported_listings_incomplete(self):
-        job = {
-            "id": "scan-empty-page",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                return_value=([], 1, 1, {}),
-            ),
-        ):
-            run_scan_chunk(job["id"])
-
-        self.assertEqual(job["status"], "incomplete")
-        self.assertNotIn("preview_expires_at", job)
-
-    def test_malformed_listing_ownership_makes_scan_incomplete(self):
-        job = {
-            "id": "scan-malformed",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-        item = _item(
-            "123456789012",
-            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>",
-            seller="",
+        snapshot, created = snapshot_for_scan(
+            account="jv",
+            environment="sandbox",
+            seller_id="seller-jv",
         )
 
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                return_value=([item], 1, 1, {}),
-            ),
-            patch("apps.ebay_bulk_end.workflows.get_item", return_value=item),
-        ):
-            run_scan_chunk(job["id"])
+        self.assertTrue(created)
+        self.assertFalse(EbayInventorySnapshot.objects.filter(pk=expired.pk).exists())
+        self.assertEqual(snapshot.listings.count(), 0)
 
-        self.assertEqual(job["status"], "incomplete")
-        self.assertNotIn("preview_expires_at", job)
+    def test_expired_snapshot_is_kept_while_a_scan_still_uses_it(self):
+        expired = self._snapshot()
+        expired.expires_at = timezone.now() - timedelta(minutes=1)
+        expired.save(update_fields=("expires_at",))
+        manager = User.objects.create_user(
+            username="snapshot-manager",
+            email="snapshot-manager@example.test",
+            phone="+15550000004",
+            password="test-password",
+            role=User.Role.MANAGER,
+        )
+        EbayBulkEndJob.objects.create(
+            created_by=manager,
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            kind="scan",
+            status="scanning",
+            inventory_snapshot=expired,
+        )
 
-    def test_rate_limit_retries_stop_after_the_bounded_attempts(self):
-        job = {
-            "id": "scan-rate-limit",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
+        snapshot_for_scan(
+            account="jv",
+            environment="sandbox",
+            seller_id="seller-jv",
+        )
 
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                side_effect=EBayRateLimitError(2),
-            ) as get_active_page,
-        ):
-            retry_delays = [run_scan_chunk(job["id"]) for _ in range(4)]
-
-        self.assertEqual(job["status"], "failed")
-        self.assertEqual(job["rate_limit_retries"], 4)
-        self.assertEqual(get_active_page.call_count, 4)
-        self.assertEqual(retry_delays, [2, 2, 2, None])
-
-    def test_get_item_rate_limit_retries_stop_after_the_bounded_attempts(self):
-        job = {
-            "id": "scan-item-rate-limit",
-            "manager_id": 7,
-            "account": "jv",
-            "environment": "sandbox",
-            "kind": "scan",
-            "status": "queued",
-            "eans": ["01234565"],
-            "matches": [],
-            "progress": {"current": 0, "total": None},
-        }
-        listed_item = ET.fromstring("<Item><ItemID>123456789012</ItemID></Item>")
-
-        with (
-            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
-            patch(
-                "apps.ebay_bulk_end.workflows.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_active_page",
-                return_value=([listed_item], 1, 1, {}),
-            ),
-            patch(
-                "apps.ebay_bulk_end.workflows.get_item",
-                side_effect=EBayRateLimitError(2),
-            ) as get_item,
-        ):
-            retry_delays = [run_scan_chunk(job["id"]) for _ in range(4)]
-
-        self.assertEqual(job["status"], "failed")
-        self.assertEqual(job["rate_limit_retries"], 4)
-        self.assertEqual(get_item.call_count, 4)
-        self.assertEqual(retry_delays, [2, 2, 2, None])
+        self.assertTrue(EbayInventorySnapshot.objects.filter(pk=expired.pk).exists())

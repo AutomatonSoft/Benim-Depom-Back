@@ -18,3 +18,7 @@ class OwnershipMismatchError(BulkEndError):
 
 class ManagedListingError(BulkEndError):
     pass
+
+
+class IdentifierConflictError(BulkEndError):
+    pass

@@ -10,6 +10,13 @@ from apps.ebay_bulk_end.workflows import _verify_item, run_end_chunk, run_scan_c
 
 
 class EndWorkflowTests(SimpleTestCase):
+    def setUp(self):
+        reservation = patch(
+            "apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True
+        )
+        reservation.start()
+        self.addCleanup(reservation.stop)
+
     def test_scan_stops_if_the_connected_seller_changes_between_chunks(self):
         job = {
             "id": "scan-1",
@@ -24,22 +31,20 @@ class EndWorkflowTests(SimpleTestCase):
         }
         with (
             patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
-            patch("apps.ebay_bulk_end.workflows.save_job"),
+            patch("apps.ebay_bulk_end.inventory.save_job"),
             patch(
-                "apps.ebay_bulk_end.workflows.access_context",
+                "apps.ebay_bulk_end.inventory.access_context",
                 return_value=(
                     SimpleNamespace(ebay_user_id="different-seller"),
                     "token",
                 ),
             ),
-            patch("apps.ebay_bulk_end.workflows.get_active_page") as get_active_page,
         ):
             run_scan_chunk(job["id"])
 
         self.assertEqual(job["status"], "failed")
         self.assertEqual(job["seller_id"], "seller-from-first-page")
         self.assertIn("изменился", job["message"])
-        get_active_page.assert_not_called()
 
     def test_blocks_auctions_with_bids_in_the_last_twelve_hours(self):
         item = ET.fromstring(

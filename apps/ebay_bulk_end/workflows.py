@@ -5,9 +5,9 @@ from uuid import uuid4
 
 from django.utils import timezone
 
+from .audit import reserve_end_batch
 from .auth import access_context
 from .domain import (
-    MAX_MATCHES,
     auction_state,
     child,
     descendants,
@@ -15,11 +15,11 @@ from .domain import (
     safe_csv_cell,
     text,
 )
-from .ebay import end_items, get_active_page, get_item, get_item_state
+from .ebay import end_items, get_item, get_item_state
 from .errors import (
     BulkEndError,
-    EBayRateLimitError,
     EBayTransportError,
+    IdentifierConflictError,
     ManagedListingError,
     OwnershipMismatchError,
 )
@@ -32,8 +32,6 @@ from .storage import (
     save_job,
 )
 
-SCAN_PAGES_PER_TASK = 1
-MAX_SCAN_LISTINGS = 2000
 END_ITEMS_PER_TASK = 10
 PREVIEW_SECONDS = 15 * 60
 
@@ -49,11 +47,12 @@ def new_job(*, account, environment, manager_id, eans):
         "status": "queued",
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
-        "progress": {"current": 0, "total": None},
+        "progress": {"stage": "queued", "current": 0, "total": None},
         "eans": eans,
         "matches": [],
-        "scan_phase": "discover",
-        "snapshot_item_ids": [],
+        "discovery_complete": False,
+        "discovery_strategy": "",
+        "discovery_details": {},
         "message": "",
     }
 
@@ -107,243 +106,19 @@ def fail_end_continuation(job_id):
 
 def run_scan_chunk(job_id):
     job = load_job(job_id)
-    if not job or job["kind"] != "scan" or job["status"] not in {"queued", "scanning"}:
-        return
-    job["status"] = "scanning"
-    job["updated_at"] = timezone.now().isoformat()
-    save_job(job)
-    try:
-        connection, token = access_context(job["account"], job["environment"])
-        seller_id = str(connection.ebay_user_id or "")
-        if not seller_id:
-            raise BulkEndError("У выбранного eBay аккаунта не указан seller ID.")
-        if job.get("seller_id") and seller_id.casefold() != job["seller_id"].casefold():
-            raise OwnershipMismatchError(
-                "Подключённый eBay аккаунт изменился во время сканирования."
-            )
-        job["seller_id"] = seller_id
-        requested = set(job["eans"])
-        matches_by_id = {row["item_id"]: row for row in job["matches"]}
-        phase = job.get("scan_phase", "discover")
-        page_item_ids = []
-        page_item_id_set = set()
-        snapshot_item_ids = set(job.get("snapshot_item_ids", []))
-        verify_item_ids = set(job.get("verify_item_ids", []))
-        first_page = int(job.get("next_page", 1))
-        for page in range(first_page, first_page + SCAN_PAGES_PER_TASK):
-            if job.get("total_pages") and page > job["total_pages"]:
-                break
-            items, total_pages, total_entries, urls = get_active_page(token, page)
-            if total_pages > 1667 or total_entries >= 25000:
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "Поиск достиг лимита Trading API в 25 000 объявлений. Полноту подтвердить нельзя; завершение заблокировано."
-                )
-                job["updated_at"] = timezone.now().isoformat()
-                save_job(job)
-                return
-            if total_entries > MAX_SCAN_LISTINGS:
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "Для поиска EAN нужны отдельные запросы к каждому объявлению. "
-                    "В текущем лимите eBay можно безопасно проверить не более "
-                    f"{MAX_SCAN_LISTINGS} объявлений; завершение заблокировано."
-                )
-                job["updated_at"] = timezone.now().isoformat()
-                save_job(job)
-                return
-            if phase == "discover" and page == 1:
-                job["total_pages"] = total_pages
-                job["total_entries"] = total_entries
-                job["progress"]["total"] = total_pages * 2
-            elif total_pages != job.get("total_pages") or total_entries != job.get(
-                "total_entries"
-            ):
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "Состав списка eBay изменился во время поиска. Запустите новый поиск; завершение заблокировано."
-                )
-                job["updated_at"] = timezone.now().isoformat()
-                save_job(job)
-                return
-            if total_entries and not items:
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "eBay вернул пустую страницу при наличии объявлений. Полноту поиска подтвердить нельзя."
-                )
-                job["updated_at"] = timezone.now().isoformat()
-                save_job(job)
-                return
-            for item in items:
-                item_id = text(item, "ItemID")
-                if not item_id.isdigit():
-                    job["status"] = "incomplete"
-                    job["message"] = (
-                        "eBay вернул объявление без корректного ItemID; завершение заблокировано."
-                    )
-                    break
-                known_ids = (
-                    snapshot_item_ids if phase == "discover" else verify_item_ids
-                )
-                if item_id in page_item_id_set or item_id in known_ids:
-                    job["status"] = "incomplete"
-                    job["message"] = (
-                        "eBay повторил ItemID в пагинации. Полноту списка подтвердить нельзя; завершение заблокировано."
-                    )
-                    break
-                page_item_ids.append(item_id)
-                page_item_id_set.add(item_id)
-                if phase == "discover":
-                    details = get_item(token, item_id)
-                    if (
-                        details is None
-                        or text(details, "ItemID") != item_id
-                        or text(child(details, "Seller"), "UserID").casefold()
-                        != seller_id.casefold()
-                        or text(details, "ListingStatus").casefold() != "active"
-                    ):
-                        job["status"] = "incomplete"
-                        job["message"] = (
-                            "Не удалось подтвердить активность и владельца объявления через GetItem; "
-                            "запустите новый поиск. Завершение заблокировано."
-                        )
-                        break
-                    summary = item_summary(details, requested, urls.get(item_id, ""))
-                    if summary:
-                        existing = matches_by_id.get(summary["item_id"])
-                        if existing is None:
-                            job["matches"].append(summary)
-                            matches_by_id[summary["item_id"]] = summary
-                        else:
-                            matches_by_ean = {}
-                            for match in existing["matches"] + summary["matches"]:
-                                key = (match["ean"], match["type"])
-                                matches_by_ean.setdefault(key, set())
-                                if match.get("variation"):
-                                    matches_by_ean[key].add(match["variation"])
-                            existing["matches"] = [
-                                {
-                                    "ean": ean,
-                                    "type": kind,
-                                    "variation": " / ".join(sorted(labels)),
-                                }
-                                for (ean, kind), labels in sorted(
-                                    matches_by_ean.items()
-                                )
-                            ]
-                            existing["risky"] = existing["risky"] or summary["risky"]
-                            existing["auction_risky"] = (
-                                existing.get("auction_risky", False)
-                                or summary["auction_risky"]
-                            )
-                            existing["variation_count"] = max(
-                                existing.get("variation_count", 0),
-                                summary["variation_count"],
-                            )
-            if job["status"] != "incomplete":
-                if phase == "discover":
-                    job.setdefault("snapshot_item_ids", []).extend(page_item_ids)
-                else:
-                    job.setdefault("verify_item_ids", []).extend(page_item_ids)
-            job["progress"]["current"] = (
-                page if phase == "discover" else job["total_pages"] + page
-            )
-            job["next_page"] = page + 1
-            job["updated_at"] = timezone.now().isoformat()
-            if job["status"] != "incomplete":
-                job["rate_limit_retries"] = 0
-            if len(job["matches"]) > MAX_MATCHES:
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "Найдено слишком много объявлений. Сузьте список EAN; завершение заблокировано."
-                )
-            save_job(job)
-            if job["status"] == "incomplete":
-                return
-        if job["status"] == "incomplete":
-            return
-        if job.get("next_page", 1) <= (job.get("total_pages") or 1):
-            return 2
-        if phase == "discover":
-            if len(job.get("snapshot_item_ids", [])) != job["total_entries"]:
-                job["status"] = "incomplete"
-                job["message"] = (
-                    "eBay вернул неполный или повторяющийся набор активных ItemID; завершение заблокировано."
-                )
-                job["updated_at"] = timezone.now().isoformat()
-                save_job(job)
-                return
-            job["scan_phase"] = "verify"
-            job["verify_item_ids"] = []
-            job["next_page"] = 1
-            job["progress"]["current"] = job["total_pages"]
-            job["updated_at"] = timezone.now().isoformat()
-            save_job(job)
-            return 2
-        if (
-            len(job.get("verify_item_ids", [])) != job["total_entries"]
-            or set(job.get("verify_item_ids", [])) != snapshot_item_ids
-        ):
-            job["status"] = "incomplete"
-            job["message"] = (
-                "Состав списка eBay изменился во время проверки. Запустите новый поиск; завершение заблокировано."
-            )
-            job["updated_at"] = timezone.now().isoformat()
-            save_job(job)
-            return
-        if job["account"] == "depotum":
-            try:
-                managed_ids = managed_depotum_item_ids(
-                    [row["item_id"] for row in job["matches"]], job["environment"]
-                )
-            except Exception as error:
-                raise BulkEndError(
-                    "Не удалось безопасно проверить публикации BENIM DEPOM; завершение заблокировано."
-                ) from error
-            for row in job["matches"]:
-                if row["item_id"] in managed_ids:
-                    row["managed_by_benim"] = True
-        job["status"] = "preview"
-        job["preview_expires_at"] = (
-            timezone.now() + timedelta(seconds=PREVIEW_SECONDS)
-        ).isoformat()
-        matched_eans = {
-            match["ean"] for row in job["matches"] for match in row["matches"]
-        }
-        job["unmatched_eans"] = sorted(set(job["eans"]) - matched_eans)
-        job["updated_at"] = timezone.now().isoformat()
-        save_job(job)
-    except EBayRateLimitError as error:
-        retries = int(job.get("rate_limit_retries", 0)) + 1
-        job["rate_limit_retries"] = retries
-        if retries > 3:
-            job["status"] = "failed"
-            job["message"] = (
-                "eBay продолжает ограничивать запросы. Запустите поиск позже."
-            )
-            job["updated_at"] = timezone.now().isoformat()
-            save_job(job)
-            return
-        job["updated_at"] = timezone.now().isoformat()
-        save_job(job)
-        return error.retry_after
-    except BulkEndError as error:
-        job["status"] = "failed"
-        job["message"] = str(error)
-        job["updated_at"] = timezone.now().isoformat()
-        save_job(job)
-    except Exception:
-        job["status"] = "failed"
-        job["message"] = "Сканирование остановилось из-за внутренней ошибки."
-        job["updated_at"] = timezone.now().isoformat()
-        save_job(job)
+    from .inventory import run_inventory_scan_chunk
 
+    return run_inventory_scan_chunk(job)
 
 def confirm_job(
     job, item_ids, include_variations, include_auction_risk, confirm_unavailable_reason
 ):
     matches = {row["item_id"]: row for row in job.get("matches", [])}
     selected = [matches[item_id] for item_id in item_ids]
+    if any(row.get("identifier_conflict") for row in selected):
+        raise IdentifierConflictError(
+            "SKU совпал с EAN, но заполненный EAN объявления ему противоречит. Такое объявление нельзя завершить автоматически."
+        )
     if job["account"] == "depotum":
         if any(row.get("managed_by_benim") for row in selected):
             raise ManagedListingError(
@@ -361,6 +136,8 @@ def confirm_job(
             )
     job["kind"] = "end"
     job["status"] = "ending"
+    job["confirmed_at"] = timezone.now().isoformat()
+    job["execution_started_at"] = job["confirmed_at"]
     job["include_variations"] = bool(include_variations)
     job["include_auction_risk"] = bool(include_auction_risk)
     job["ending_reason"] = "NotAvailable"
@@ -372,12 +149,15 @@ def confirm_job(
         {
             "item_id": row["item_id"],
             "title": row["title"],
+            "sku": row.get("sku", ""),
+            "match_type": row.get("match_type", ""),
             "eans": [match["ean"] for match in row["matches"]],
             "status": "queued",
             "message": "",
             "error_code": "",
             "end_time": "",
             "finished_at": "",
+            "attempt_count": 0,
         }
         for row in selected
     ]
@@ -410,11 +190,17 @@ def _verify_item(token, selected, job):
     if not seller_id or seller_id.casefold() != job["seller_id"].casefold():
         return "ownership_mismatch", "Аккаунт продавца не совпал."
     current = item_summary(item, {match["ean"] for match in selected["matches"]})
+    if current and current.get("identifier_conflict"):
+        return "blocked", "SKU совпал, но EAN в объявлении ему противоречит. Завершение заблокировано."
     expected = [
         {
             "ean": match["ean"],
             "type": match["type"],
             "variation": match.get("variation", ""),
+            "source": match.get("source", "ean"),
+            "match_type": match.get("match_type", "exact_ean"),
+            "sku": match.get("sku", ""),
+            "identifier_conflict": match.get("identifier_conflict", False),
         }
         for match in selected["matches"]
     ]
@@ -500,10 +286,24 @@ def _send_batch(token, ready, results, job):
             job["updated_at"] = timezone.now().isoformat()
             save_job(job)
             return
+    batch_id = str(uuid4())
+    attempt_time = timezone.now().isoformat()
     for item_id in item_ids:
         result_by_id[item_id]["status"] = "sending"
         result_by_id[item_id]["message"] = "Запрос отправлен в eBay."
+        result_by_id[item_id]["batch_id"] = batch_id
+        result_by_id[item_id]["attempt_count"] = int(result_by_id[item_id].get("attempt_count", 0)) + 1
+        result_by_id[item_id]["started_at"] = attempt_time
     job["updated_at"] = timezone.now().isoformat()
+    if not reserve_end_batch(job, item_ids, batch_id):
+        for item_id in item_ids:
+            result_by_id[item_id]["status"] = "blocked"
+            result_by_id[item_id]["message"] = (
+                "Другое задание уже обрабатывает это объявление; повторное завершение заблокировано."
+            )
+            result_by_id[item_id]["finished_at"] = timezone.now().isoformat()
+        save_job(job)
+        return
     save_job(job)
     try:
         responses = end_items(token, item_ids)
