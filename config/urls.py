@@ -66,7 +66,7 @@ v2_routes = [
     path("api/v2/ebay-bulk-end/", include("apps.ebay_bulk_end.urls")),
     path(
         "api/v2/", include((api_patterns("apps.accounts.urls"), "api"), namespace="v2")
-    )
+    ),
 ]
 schema_v1 = SpectacularAPIView.as_view(
     patterns=v1_routes, custom_settings={"VERSION": "1.0.0"}

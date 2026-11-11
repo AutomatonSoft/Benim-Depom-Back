@@ -63,7 +63,9 @@ class DepotumAuthorizationTests(SimpleTestCase):
 class ManagedPublicationTests(SimpleTestCase):
     item_id = "123456789012"
 
-    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
+    @patch(
+        "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"
+    )
     def test_lookup_scopes_to_depotum_ebay_and_current_or_ambiguous_environment(
         self, filter_publications
     ):
@@ -85,8 +87,12 @@ class ManagedPublicationTests(SimpleTestCase):
             "external_id", flat=True
         )
 
-    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
-    def test_invalid_environment_fails_closed_without_querying(self, filter_publications):
+    @patch(
+        "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"
+    )
+    def test_invalid_environment_fails_closed_without_querying(
+        self, filter_publications
+    ):
         with self.assertRaises(ValueError):
             managed_depotum_item_ids([self.item_id], "other")
         filter_publications.assert_not_called()

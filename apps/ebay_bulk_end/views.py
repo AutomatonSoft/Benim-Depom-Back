@@ -133,8 +133,7 @@ class JobView(ManagerAPI):
                     for row in job.get("matches", [])
                 ),
                 "managed_listing_count": sum(
-                    bool(row.get("managed_by_benim"))
-                    for row in job.get("matches", [])
+                    bool(row.get("managed_by_benim")) for row in job.get("matches", [])
                 ),
                 "ended_item_count": len(ended_results),
                 "ended_ean_count": len(ended_eans),
