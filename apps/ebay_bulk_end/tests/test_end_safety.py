@@ -14,6 +14,11 @@ from apps.ebay_bulk_end.workflows import _send_batch, run_end_chunk
 
 
 class EndSafetyTests(SimpleTestCase):
+    def test_end_task_has_time_for_preflight_and_readonly_reconciliation(self):
+        self.assertEqual(end_ebay_job.soft_time_limit, 540)
+        self.assertEqual(end_ebay_job.time_limit, 570)
+        self.assertLess(end_ebay_job.time_limit, JOB_LOCK_SECONDS)
+
     def setUp(self):
         patcher = patch(
             "apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True
@@ -59,6 +64,20 @@ class EndSafetyTests(SimpleTestCase):
         self.assertEqual(events[0], "released")
         self.assertEqual(events[1][0], "queued")
         self.assertEqual(events[1][1]["countdown"], 2)
+
+    def test_redis_owner_waits_for_a_worker_holding_the_postgres_fallback_lock(self):
+        redis = MagicMock()
+        redis.lock.return_value.acquire.return_value = True
+        task = MagicMock()
+        with (
+            patch("apps.ebay_bulk_end.tasks.redis_client", return_value=redis),
+            patch("apps.ebay_bulk_end.tasks._postgres_job_lock", return_value=None),
+        ):
+            self.assertIsNone(_job_lock("job-1", task))
+        redis.lock.return_value.release.assert_called_once()
+        task.apply_async.assert_called_once_with(
+            args=["job-1"], queue="marketplace", countdown=60
+        )
 
     def test_end_continuation_is_queued_after_releasing_the_job_lock(self):
         events = []

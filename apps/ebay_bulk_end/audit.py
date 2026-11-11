@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from .errors import BulkEndError
 from .models import (
     EbayBulkEndEvent,
     EbayBulkEndInFlight,
@@ -139,6 +140,10 @@ def persist_job(job):
         job_row = EbayBulkEndJob.objects.select_for_update().filter(pk=job_uuid).first()
         created = job_row is None
         old_status = job_row.status if job_row else None
+        if job_row and job_row.kind == "end" and job.get("kind", "scan") == "scan":
+            raise BulkEndError(
+                "Подтверждённое задание нельзя перезаписать состоянием поиска."
+            )
         values = {
             "created_by_id": job["manager_id"],
             "account": job["account"],
@@ -150,7 +155,10 @@ def persist_job(job):
             "discovery_complete": bool(job.get("discovery_complete", False)),
             "discovery_details": job.get("discovery_details", {}),
             "workflow_state": _checkpoint(job),
-            "cancel_requested": bool(job.get("cancel_requested", False)),
+            "cancel_requested": bool(
+                job.get("cancel_requested", False)
+                or (job_row and job_row.cancel_requested)
+            ),
             "input_eans": job.get("eans", []),
             "progress": job.get("progress", {}),
             "unique_ean_count": len(set(job.get("eans", []))),
@@ -200,6 +208,13 @@ def persist_job(job):
                 new_row = EbayBulkEndJobItem(job=job_row, item_id=item_id, **values)
                 create_rows.append(new_row)
                 continue
+            if values["attempt_count"] < row.attempt_count or (
+                row.status in FINAL_ITEM_STATES
+                and values["status"] in {"queued", "checking", "sending"}
+            ):
+                raise BulkEndError(
+                    "Состояние задания изменилось; устаревшая запись заблокирована."
+                )
             if row.status != values["status"]:
                 changed_status.append((row, row.status, values["status"]))
             if row.selected != values["selected"]:
@@ -363,6 +378,20 @@ def record_event(job_id, event_type, metadata=None, *, item_id=None, actor_id=No
 def reserve_end_batch(job, item_ids, batch_id):
     try:
         with transaction.atomic():
+            existing_job = (
+                EbayBulkEndJob.objects.select_for_update()
+                .filter(pk=UUID(str(job["id"])))
+                .first()
+            )
+            if (
+                existing_job
+                and existing_job.items.filter(
+                    item_id__in=item_ids, attempt_count__gt=0
+                ).exists()
+            ):
+                raise BulkEndError(
+                    "Повторная отправка уже обработанной пачки запрещена."
+                )
             persist_job(job)
             job_row = EbayBulkEndJob.objects.select_for_update().get(
                 pk=UUID(str(job["id"]))

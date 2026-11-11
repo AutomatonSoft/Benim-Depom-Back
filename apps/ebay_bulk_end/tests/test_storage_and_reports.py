@@ -83,7 +83,8 @@ class ReportTests(SimpleTestCase):
         rows = report_rows(self.job)
 
         self.assertEqual(
-            [row["status"] for row in rows], ["ended", "not_selected", "not_found"]
+            [row["status"] for row in rows],
+            ["ended", "not_selected", "not_found_in_sku_index"],
         )
         self.assertEqual(rows[1]["eans"], ["4006381333931"])
         self.assertEqual(rows[2]["eans"], ["9780201379624"])

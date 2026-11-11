@@ -87,18 +87,24 @@ def cleanup_snapshot_batch(snapshot_id=None):
                         "snapshot_cleanup_completed",
                         {"snapshot_id": snapshot_uuid},
                     )
-                if (
-                    snapshot.last_report_download_attempt_at
-                    and snapshot.last_report_download_attempt_at > cutoff
-                ):
-                    next_delay = max(
-                        1,
-                        math.ceil(
-                            (
-                                snapshot.last_report_download_attempt_at
-                                + QUOTA_WINDOW
-                                - now
-                            ).total_seconds()
+                quota_anchor = max(
+                    filter(
+                        None,
+                        (
+                            snapshot.last_report_download_attempt_at,
+                            snapshot.report_request_started_at,
+                        ),
+                    ),
+                    default=None,
+                )
+                if quota_anchor and quota_anchor > cutoff:
+                    next_delay = min(
+                        3000,
+                        max(
+                            1,
+                            math.ceil(
+                                (quota_anchor + QUOTA_WINDOW - now).total_seconds()
+                            ),
                         ),
                     )
                 else:

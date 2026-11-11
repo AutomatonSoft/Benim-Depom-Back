@@ -7,13 +7,14 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from billiard.exceptions import SoftTimeLimitExceeded
+from django.conf import settings
 from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from .audit import record_event
 from .auth import access_context
-from .domain import MAX_MATCHES, child, item_summary, text
+from .domain import MAX_MATCHES, child, item_summary, listing_status, text
 from .ebay import get_item
 from .errors import (
     BulkEndError,
@@ -48,9 +49,12 @@ from .storage import save_job
 SNAPSHOT_TTL = timedelta(minutes=58)
 REPORT_TIMEOUT = timedelta(hours=24)
 REPORT_POLL_SECONDS = 60
+INITIAL_REPORT_POLL_SECONDS = 5
+SCAN_PROGRESS_POLL_SECONDS = 10
 REPORT_MAX_POLL_SECONDS = 5 * 60
 IMPORT_BATCH_SIZE = 1000
 IMPORT_ROWS_PER_TASK = 10_000
+VERIFY_ITEMS_PER_TASK = 10
 REPORT_DOWNLOAD_RETRIES = 3
 REPORT_DOWNLOADS_PER_24_HOURS = 24
 SNAPSHOT_OWNER_LEASE = timedelta(minutes=10)
@@ -218,6 +222,7 @@ def _require_snapshot_heartbeat(snapshot_id, token, generation):
 
 
 def schedule_snapshot_step(snapshot_id, job_id, *, countdown=0):
+    countdown = min(3000, max(0, countdown))
     now = timezone.now()
     with transaction.atomic():
         snapshot = (
@@ -275,6 +280,10 @@ def _parse_ebay_datetime(value):
 
 def _recover_inventory_task(token, started_at, now):
     start = started_at - timedelta(minutes=2)
+    sandbox = settings.EBAY_ENVIRONMENT == "sandbox"
+    # Sandbox returned fixed UTC-7 wall time labelled Z, including after DST ended.
+    sandbox_skew = timedelta(hours=7)
+    query_start = start - sandbox_skew if sandbox else start
 
     def ebay_time(value):
         return (
@@ -282,11 +291,18 @@ def _recover_inventory_task(token, started_at, now):
             + "Z"
         )
 
-    tasks, total = get_inventory_tasks(token, f"{ebay_time(start)}..{ebay_time(now)}")
+    tasks, total = get_inventory_tasks(
+        token, f"{ebay_time(query_start)}..{ebay_time(now)}"
+    )
     matches = []
     for task in tasks:
         created_at = _parse_ebay_datetime(task.get("creationDate"))
-        if not created_at or not started_at - timedelta(minutes=2) <= created_at <= now:
+        if not created_at:
+            continue
+        possible_dates = [created_at]
+        if sandbox:
+            possible_dates.append(created_at + sandbox_skew)
+        if not any(start <= instant <= now for instant in possible_dates):
             continue
         if task.get("feedType") != "LMS_ACTIVE_INVENTORY_REPORT":
             continue
@@ -450,6 +466,7 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
         if snapshot.status == "requested" and not snapshot.task_id:
             started_at = timezone.now()
             with transaction.atomic():
+                connection.__class__.objects.select_for_update().get(pk=connection.pk)
                 current = EbayInventorySnapshot.objects.select_for_update().get(
                     pk=snapshot.pk
                 )
@@ -461,9 +478,37 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                     or current.owner_expires_at <= timezone.now()
                 ):
                     return 1
+                recent_requests = EbayInventorySnapshot.objects.filter(
+                    environment=current.environment,
+                    ebay_seller_id=current.ebay_seller_id,
+                    report_request_started_at__gt=started_at - timedelta(hours=24),
+                ).order_by("report_request_started_at")
+                if recent_requests.count() >= REPORT_DOWNLOADS_PER_24_HOURS:
+                    current.error_message = "The daily eBay report request budget is exhausted. Waiting for quota to recover."
+                    current.save(update_fields=("error_message",))
+                    return min(
+                        3000,
+                        max(
+                            1,
+                            math.ceil(
+                                (
+                                    recent_requests.first().report_request_started_at
+                                    + timedelta(hours=24)
+                                    - started_at
+                                ).total_seconds()
+                            ),
+                        ),
+                    )
                 current.status = "requesting"
                 current.report_request_started_at = started_at
-                current.save(update_fields=("status", "report_request_started_at"))
+                current.error_message = ""
+                current.save(
+                    update_fields=(
+                        "status",
+                        "report_request_started_at",
+                        "error_message",
+                    )
+                )
             try:
                 task_id = create_inventory_task(access_token)
             except EBayTransportError as error:
@@ -493,7 +538,7 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 current.status = "queued"
                 current.save(update_fields=("task_id", "status"))
             record_event(job_id, "snapshot_requested", {"task_id": task_id})
-            return REPORT_POLL_SECONDS
+            return INITIAL_REPORT_POLL_SECONDS
 
         if snapshot.status == "requesting":
             started_at = snapshot.report_request_started_at
@@ -578,6 +623,18 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 current.task_id = task_id
                 current.status = "queued"
                 current.error_message = ""
+                if (
+                    EbayInventorySnapshot.objects.exclude(pk=current.pk)
+                    .filter(
+                        environment=current.environment,
+                        ebay_seller_id=current.ebay_seller_id,
+                        task_id=task_id,
+                    )
+                    .exists()
+                ):
+                    raise BulkEndError(
+                        "Recovered eBay report already belongs to another snapshot."
+                    )
                 current.save(update_fields=("task_id", "status", "error_message"))
             record_event(job_id, "snapshot_request_recovered", {"task_id": task_id})
             return 1
@@ -656,8 +713,8 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                     )
                     existing_stage = staged
                 else:
-                    for suffix in (".download.part", ".normalize.part"):
-                        delete_report_path(snapshot.report_path + suffix)
+                    # A lost owner may still be writing; each new download needs its own paths.
+                    target = None
             if existing_stage is None:
                 if snapshot.report_download_attempts >= REPORT_DOWNLOAD_RETRIES:
                     _fail_snapshot(
@@ -1046,6 +1103,8 @@ def run_inventory_scan_chunk(job):
                 "importing": "importing_report",
                 "verifying": "verifying_report",
             }.get(snapshot.status, "preparing_report")
+            if snapshot.status == "requested" and snapshot.error_message:
+                stage = "waiting_report_quota"
             if snapshot.error_message and snapshot.status in {
                 "queued",
                 "in_progress",
@@ -1066,6 +1125,7 @@ def run_inventory_scan_chunk(job):
                 "importing_report": "Importing the downloaded eBay report.",
                 "verifying_report": "Verifying the imported eBay report.",
                 "retrying_report": "A temporary error interrupted the eBay report request. Retrying the current step.",
+                "waiting_report_quota": "Waiting for the daily eBay report request quota to recover.",
             }.get(stage, "Preparing inventory discovery.")
             job["discovery_details"].update(
                 {
@@ -1090,7 +1150,7 @@ def run_inventory_scan_chunk(job):
                 }
             )
             save_job(job)
-            return min(REPORT_MAX_POLL_SECONDS, REPORT_POLL_SECONDS)
+            return SCAN_PROGRESS_POLL_SECONDS
 
         job["report_task_id"] = snapshot.task_id
         job["discovery_details"].update(
@@ -1131,11 +1191,11 @@ def run_inventory_scan_chunk(job):
         candidates = _candidate_rows(listing_rows)
 
         offset = int(job.get("candidate_offset", 0))
-        batch = candidates[offset : offset + 20]
+        batch = candidates[offset : offset + VERIFY_ITEMS_PER_TASK]
         matches_by_id = {row["item_id"]: row for row in job.get("matches", [])}
         for item_id, indexed_skus in batch:
             details = get_item(token, item_id)
-            if details is None or text(details, "ListingStatus").casefold() != "active":
+            if details is None or listing_status(details).casefold() != "active":
                 job["discovery_details"]["stale_candidates"] = (
                     int(job["discovery_details"].get("stale_candidates", 0)) + 1
                 )
@@ -1152,9 +1212,13 @@ def run_inventory_scan_chunk(job):
                 )
                 return None
             summary = item_summary(details, set(job["eans"]))
-            if summary is None or not any(
-                match.get("source") in {"sku", "sku_and_ean"}
-                for match in summary["matches"]
+            if (
+                summary is None
+                or summary["item_id"] != item_id
+                or not any(
+                    match.get("source") in {"sku", "sku_and_ean"}
+                    for match in summary["matches"]
+                )
             ):
                 job["discovery_details"]["verification_failures"] = (
                     int(job["discovery_details"].get("verification_failures", 0)) + 1
@@ -1242,10 +1306,12 @@ def run_inventory_scan_chunk(job):
         save_job(job)
         return error.retry_after
     except BulkEndError as error:
-        if job.get("inventory_snapshot_id"):
-            EbayInventorySnapshot.objects.filter(
-                pk=job["inventory_snapshot_id"]
-            ).update(status="failed", complete=False, error_message=str(error)[:2000])
+        logger.warning(
+            "eBay scan failed: job_id=%s error_type=%s diagnostics=%s",
+            job["id"],
+            type(error).__name__,
+            getattr(error, "diagnostics", {}),
+        )
         _finish_scan(job, "failed", str(error))
         return None
     except Exception:

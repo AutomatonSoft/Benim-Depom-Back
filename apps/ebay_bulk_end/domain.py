@@ -62,6 +62,12 @@ def text(node, name, default=""):
     return (element.text or "").strip() if element is not None else default
 
 
+def listing_status(item):
+    return text(child(item, "SellingStatus"), "ListingStatus") or text(
+        item, "ListingStatus", "Unknown"
+    )
+
+
 def exact_listing_matches(item, requested_eans):
     matches = {}
     listing_details = child(item, "ProductListingDetails")
@@ -192,7 +198,9 @@ def item_summary(item, requested_eans, view_url=""):
                 if text(variation, "SKU") != ean:
                     continue
                 variation_eans = set(_variation_eans(variation)) - {""}
-                conflict = bool(variation_eans and ean not in variation_eans)
+                conflict = conflict or bool(
+                    variation_eans and ean not in variation_eans
+                )
         identifier_conflict = identifier_conflict or conflict
         match_type = (
             f"exact_variation_{'sku' if source != 'ean' else 'ean'}"
@@ -218,7 +226,7 @@ def item_summary(item, requested_eans, view_url=""):
         "match_type": matched_rows[0]["match_type"],
         "identifier_conflict": identifier_conflict,
         "seller_id": seller_id,
-        "listing_status": text(item, "ListingStatus"),
+        "listing_status": listing_status(item),
         "listing_type": listing_type,
         "bid_count": bid_count,
         "auction_risky": auction_risky,
