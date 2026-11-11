@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.ebay_bulk_end.domain import MAX_MATCHES, exact_listing_matches, item_summary
-from apps.ebay_bulk_end.errors import BulkEndError
+from apps.ebay_bulk_end.errors import BulkEndError, EBayTransportError
 from apps.ebay_bulk_end.feed import iter_inventory_chunk
 from apps.ebay_bulk_end.inventory import (
     IMPORT_BATCH_SIZE,
@@ -262,6 +262,124 @@ class LargeInventoryLookupTests(TestCase):
         self.assertFalse(_fail_snapshot(snapshot.pk, token, generation, "stale worker"))
         snapshot.refresh_from_db()
         self.assertEqual(snapshot.status, "importing")
+
+    def test_uncertain_creation_is_logged_and_saved_without_repeating_post(self):
+        snapshot = EbayInventorySnapshot.objects.create(
+            account="jv",
+            environment="sandbox",
+            ebay_seller_id="seller-jv",
+            marketplace_id="EBAY_DE",
+            status="requested",
+        )
+        job_id = uuid4()
+        error = EBayTransportError(
+            "eBay did not confirm the report.",
+            diagnostics={
+                "operation": "create_inventory_task",
+                "http_status": 500,
+                "reason": "http_error",
+                "ebay_error_ids": [160001],
+            },
+        )
+        with (
+            patch("apps.ebay_bulk_end.inventory.record_event") as audit,
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(
+                    SimpleNamespace(ebay_user_id="seller-jv"),
+                    "secret-token",
+                ),
+            ),
+            patch(
+                "apps.ebay_bulk_end.inventory.create_inventory_task", side_effect=error
+            ) as create,
+            self.assertLogs("apps.ebay_bulk_end.inventory", level="WARNING") as logs,
+        ):
+            self.assertEqual(
+                advance_inventory_snapshot_step(snapshot.pk, job_id),
+                REPORT_POLL_SECONDS,
+            )
+        create.assert_called_once()
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, "requesting")
+        self.assertEqual(snapshot.error_message, str(error))
+        self.assertFalse(snapshot.task_id)
+        event = next(
+            call.args
+            for call in audit.call_args_list
+            if call.args[1] == "snapshot_request_uncertain"
+        )
+        self.assertEqual(event[2]["diagnostics"]["http_status"], 500)
+        self.assertIn(str(job_id), logs.output[0])
+        self.assertIn(str(snapshot.pk), logs.output[0])
+        self.assertNotIn("secret-token", str(logs.output) + str(event))
+
+    def test_scan_reports_each_snapshot_stage_without_claiming_unconfirmed_processing(
+        self,
+    ):
+        snapshot = self._snapshot()
+        snapshot.complete = False
+        snapshot.report_request_started_at = timezone.now()
+        stages = {
+            "requested": "requesting_report",
+            "requesting": "recovering_report_request",
+            "queued": "waiting_for_report",
+            "in_progress": "waiting_for_report",
+            "downloading": "downloading_report",
+            "importing": "importing_report",
+            "verifying": "verifying_report",
+        }
+        with (
+            patch(
+                "apps.ebay_bulk_end.inventory.access_context",
+                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
+            ),
+            patch("apps.ebay_bulk_end.inventory.schedule_snapshot_step"),
+            patch("apps.ebay_bulk_end.inventory.save_job"),
+        ):
+            for status, stage in stages.items():
+                with self.subTest(status=status):
+                    snapshot.status = status
+                    snapshot.task_id = (
+                        "confirmed-task"
+                        if status not in {"requested", "requesting"}
+                        else ""
+                    )
+                    snapshot.save()
+                    job = {
+                        "id": str(uuid4()),
+                        "account": "jv",
+                        "environment": "sandbox",
+                        "kind": "scan",
+                        "status": "queued",
+                        "eans": [],
+                        "inventory_snapshot_id": str(snapshot.pk),
+                        "discovery_details": {},
+                    }
+                    self.assertEqual(run_inventory_scan_chunk(job), REPORT_POLL_SECONDS)
+                    self.assertEqual(job["progress"]["stage"], stage)
+                    self.assertIsNone(job["progress"]["total"])
+                    self.assertEqual(
+                        job["discovery_details"]["snapshot_status"], status
+                    )
+                    if status == "requesting":
+                        self.assertIn("not confirmed", job["message"])
+                        self.assertIsNotNone(
+                            job["discovery_details"]["report_recovery_deadline"]
+                        )
+
+            snapshot.status = "in_progress"
+            snapshot.error_message = "Temporary polling error."
+            snapshot.save()
+            run_inventory_scan_chunk(job)
+            self.assertEqual(job["progress"]["stage"], "retrying_report")
+
+            snapshot.status = "incomplete"
+            snapshot.task_id = ""
+            snapshot.save()
+            self.assertIsNone(run_inventory_scan_chunk(job))
+            self.assertEqual(job["status"], "incomplete")
+            self.assertTrue(job["discovery_details"]["report_request_unconfirmed"])
 
     def test_uncertain_report_request_recovers_the_unique_unfiltered_task(self):
         started_at = timezone.now() - timedelta(seconds=30)
@@ -532,7 +650,8 @@ class LargeInventoryLookupTests(TestCase):
         snapshot.complete = False
         snapshot.status = "in_progress"
         snapshot.task_id = "slow-report"
-        snapshot.save(update_fields=("complete", "status", "task_id"))
+        snapshot.error_message = "Temporary polling error."
+        snapshot.save(update_fields=("complete", "status", "task_id", "error_message"))
         EbayInventorySnapshot.objects.filter(pk=snapshot.pk).update(
             created_at=timezone.now() - timedelta(hours=1)
         )
@@ -556,6 +675,7 @@ class LargeInventoryLookupTests(TestCase):
         snapshot.refresh_from_db()
         self.assertEqual(snapshot.status, "in_progress")
         self.assertEqual(snapshot.report_poll_attempts, 6)
+        self.assertEqual(snapshot.error_message, "")
 
     def test_expired_snapshot_and_listings_remain_for_bounded_cleanup(self):
         expired = self._snapshot()

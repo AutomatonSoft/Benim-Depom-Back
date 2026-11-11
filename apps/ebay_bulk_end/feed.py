@@ -37,7 +37,36 @@ def _headers(token):
     }
 
 
-def _check_response(response):
+def _response_diagnostics(response, operation, reason):
+    # Only allowlisted codes/identifiers; response bodies and request headers can contain secrets.
+    details = {
+        "operation": operation,
+        "reason": reason,
+        "http_status": response.status_code,
+    }
+    for header in ("X-EBAY-C-REQUEST-ID", "Rlogid"):
+        value = response.headers.get(header)
+        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:%=+-]{1,255}", value):
+            details[header.lower()] = value
+    if reason != "http_error":
+        return details
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError):
+        return details
+    if isinstance(payload, dict) and isinstance(payload.get("errors"), list):
+        details["ebay_error_ids"] = [
+            error["errorId"]
+            for error in payload["errors"][:5]
+            if isinstance(error, dict) and type(error.get("errorId")) is int
+        ]
+    return details
+
+
+def _check_response(response, operation="feed"):
+    if response.ok:
+        return
+    diagnostics = _response_diagnostics(response, operation, "http_error")
     if response.status_code == 429:
         try:
             retry_after = min(
@@ -45,27 +74,37 @@ def _check_response(response):
             )
         except (TypeError, ValueError):
             retry_after = 30
-        raise EBayRateLimitError(retry_after)
+        raise EBayRateLimitError(retry_after, diagnostics=diagnostics)
     if response.status_code in {401, 403}:
         raise BulkEndError(
-            "Для отчёта eBay требуется разрешение sell.inventory. Переподключите выбранный аккаунт, если доступ не был выдан."
+            "Для отчёта eBay требуется разрешение sell.inventory. Переподключите выбранный аккаунт, если доступ не был выдан.",
+            diagnostics=diagnostics,
         )
     if response.status_code >= 500:
-        raise EBayTransportError("eBay временно не обработал запрос к отчёту.")
+        raise EBayTransportError(
+            "eBay временно не обработал запрос к отчёту.", diagnostics=diagnostics
+        )
     if not response.ok:
         raise BulkEndError(
-            f"eBay отклонил запрос к отчёту (HTTP {response.status_code})."
+            f"eBay отклонил запрос к отчёту (HTTP {response.status_code}).",
+            diagnostics=diagnostics,
         )
 
 
-def _json_response(response):
-    _check_response(response)
+def _json_response(response, operation="feed"):
+    _check_response(response, operation)
     try:
         payload = response.json()
     except (ValueError, json.JSONDecodeError) as error:
-        raise EBayTransportError("eBay вернул некорректный ответ отчёта.") from error
+        raise EBayTransportError(
+            "eBay вернул некорректный ответ отчёта.",
+            diagnostics=_response_diagnostics(response, operation, "invalid_json"),
+        ) from error
     if not isinstance(payload, dict):
-        raise EBayTransportError("eBay вернул некорректный ответ отчёта.")
+        raise EBayTransportError(
+            "eBay вернул некорректный ответ отчёта.",
+            diagnostics=_response_diagnostics(response, operation, "invalid_json"),
+        )
     return payload
 
 
@@ -80,13 +119,23 @@ def create_inventory_task(token):
             )
     except requests.RequestException as error:
         raise EBayTransportError(
-            "Не удалось связаться с eBay для создания отчёта."
+            "Не удалось связаться с eBay для создания отчёта.",
+            diagnostics={
+                "operation": "create_inventory_task",
+                "reason": "network_error",
+                "exception_type": type(error).__name__,
+            },
         ) from error
-    _check_response(response)
+    _check_response(response, "create_inventory_task")
     location = response.headers.get("Location", "")
     match = re.search(r"/inventory_task/([A-Za-z0-9._-]{1,255})/?$", location)
     if not match:
-        raise EBayTransportError("eBay не вернул идентификатор задания отчёта.")
+        raise EBayTransportError(
+            "eBay не вернул идентификатор задания отчёта.",
+            diagnostics=_response_diagnostics(
+                response, "create_inventory_task", "missing_task_id"
+            ),
+        )
     return match.group(1)
 
 
@@ -99,10 +148,22 @@ def get_inventory_task(token, task_id):
                 timeout=(5, 30),
             )
     except requests.RequestException as error:
-        raise EBayTransportError("Не удалось проверить статус отчёта eBay.") from error
-    payload = _json_response(response)
+        raise EBayTransportError(
+            "Не удалось проверить статус отчёта eBay.",
+            diagnostics={
+                "operation": "get_inventory_task",
+                "reason": "network_error",
+                "exception_type": type(error).__name__,
+            },
+        ) from error
+    payload = _json_response(response, "get_inventory_task")
     if payload.get("taskId") != task_id or payload.get("feedType") != FEED_TYPE:
-        raise EBayTransportError("eBay вернул статус другого задания отчёта.")
+        raise EBayTransportError(
+            "eBay вернул статус другого задания отчёта.",
+            diagnostics=_response_diagnostics(
+                response, "get_inventory_task", "wrong_task_identity"
+            ),
+        )
     return payload
 
 
@@ -122,9 +183,14 @@ def get_inventory_tasks(token, date_range):
             )
     except requests.RequestException as error:
         raise EBayTransportError(
-            "Не удалось восстановить задание отчёта eBay."
+            "Не удалось восстановить задание отчёта eBay.",
+            diagnostics={
+                "operation": "get_inventory_tasks",
+                "reason": "network_error",
+                "exception_type": type(error).__name__,
+            },
         ) from error
-    payload = _json_response(response)
+    payload = _json_response(response, "get_inventory_tasks")
     tasks = payload.get("tasks")
     total = payload.get("total")
     if (
@@ -134,7 +200,12 @@ def get_inventory_tasks(token, date_range):
         or total < len(tasks)
         or any(not isinstance(task, dict) for task in tasks)
     ):
-        raise EBayTransportError("eBay вернул некорректный список заданий отчёта.")
+        raise EBayTransportError(
+            "eBay вернул некорректный список заданий отчёта.",
+            diagnostics=_response_diagnostics(
+                response, "get_inventory_tasks", "invalid_task_list"
+            ),
+        )
     return tasks, total
 
 
@@ -154,13 +225,20 @@ def download_inventory_report(token, task_id):
                     timeout=(5, 60),
                     stream=True,
                 ) as response:
-                    _check_response(response)
+                    _check_response(response, "download_inventory_report")
                     for chunk in response.iter_content(chunk_size=64 * 1024):
                         if not chunk:
                             continue
                         fileobj.write(chunk)
         except requests.RequestException as error:
-            raise EBayTransportError("Не удалось скачать отчёт eBay.") from error
+            raise EBayTransportError(
+                "Не удалось скачать отчёт eBay.",
+                diagnostics={
+                    "operation": "download_inventory_report",
+                    "reason": "network_error",
+                    "exception_type": type(error).__name__,
+                },
+            ) from error
         except OSError as error:
             raise EBayTransportError(
                 "Не удалось сохранить полный отчёт eBay во временное хранилище; проверьте свободное место."
@@ -201,13 +279,20 @@ def download_inventory_report_to_path(token, task_id, target_path, *, heartbeat=
                         timeout=(5, 60),
                         stream=True,
                     ) as response:
-                        _check_response(response)
+                        _check_response(response, "download_inventory_report")
                         for chunk in response.iter_content(chunk_size=64 * 1024):
                             if chunk:
                                 output.write(chunk)
                                 pulse()
             except requests.RequestException as error:
-                raise EBayTransportError("Не удалось скачать отчёт eBay.") from error
+                raise EBayTransportError(
+                    "Не удалось скачать отчёт eBay.",
+                    diagnostics={
+                        "operation": "download_inventory_report",
+                        "reason": "network_error",
+                        "exception_type": type(error).__name__,
+                    },
+                ) from error
             output.flush()
             os.fsync(output.fileno())
 

@@ -1,3 +1,5 @@
+import json
+import logging
 import math
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -63,6 +65,33 @@ ACTIVE_SNAPSHOT_STATUSES = (
     "verifying",
 )
 FINAL_SNAPSHOT_STATUSES = ("complete", "failed", "incomplete", "timed_out")
+logger = logging.getLogger(__name__)
+
+
+def _record_snapshot_error(snapshot, job_id, error, event_type="snapshot_report_error"):
+    details = {
+        "job_id": str(job_id),
+        "snapshot_id": str(snapshot.pk),
+        "account": snapshot.account,
+        "environment": snapshot.environment,
+        "stage": snapshot.status,
+        "ebay_task_id": snapshot.task_id,
+        "error_type": type(error).__name__,
+        "diagnostics": getattr(error, "diagnostics", {}),
+    }
+    if event_type == "snapshot_request_uncertain":
+        details["reason"] = "transport"
+    if isinstance(error, BulkEndError):
+        details["message"] = str(error)[:2000]
+    logger.warning("eBay inventory error: %s", json.dumps(details, ensure_ascii=False))
+    try:
+        record_event(job_id, event_type, details)
+    except DatabaseError:
+        logger.warning(
+            "eBay error audit unavailable: job_id=%s snapshot_id=%s",
+            job_id,
+            snapshot.pk,
+        )
 
 
 def snapshot_for_scan(*, account, environment, seller_id):
@@ -289,6 +318,7 @@ def _fail_snapshot(snapshot_id, token, generation, message, status="failed"):
         )
         if not snapshot:
             return False
+        job_id = snapshot.owner_job_id
         snapshot.status = status
         snapshot.complete = False
         snapshot.error_message = str(message)[:2000]
@@ -308,6 +338,14 @@ def _fail_snapshot(snapshot_id, token, generation, message, status="failed"):
                 "owner_expires_at",
                 "step_scheduled_at",
             )
+        )
+        logger.warning(
+            "eBay snapshot stopped: job_id=%s snapshot_id=%s account=%s environment=%s status=%s",
+            job_id,
+            snapshot.pk,
+            snapshot.account,
+            snapshot.environment,
+            status,
         )
         return True
 
@@ -428,10 +466,17 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 current.save(update_fields=("status", "report_request_started_at"))
             try:
                 task_id = create_inventory_task(access_token)
-            except EBayTransportError:
-                record_event(
-                    job_id, "snapshot_request_uncertain", {"reason": "transport"}
+            except EBayTransportError as error:
+                snapshot.status = "requesting"
+                _record_snapshot_error(
+                    snapshot, job_id, error, "snapshot_request_uncertain"
                 )
+                EbayInventorySnapshot.objects.filter(
+                    pk=snapshot.pk,
+                    owner_token=token,
+                    ownership_generation=generation,
+                    owner_expires_at__gt=timezone.now(),
+                ).update(error_message=str(error)[:2000])
                 return REPORT_POLL_SECONDS
             with transaction.atomic():
                 current = EbayInventorySnapshot.objects.select_for_update().get(
@@ -468,6 +513,17 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 return None
             now = timezone.now()
             if now - started_at > TASK_RECOVERY_WAIT:
+                _record_snapshot_error(
+                    snapshot,
+                    job_id,
+                    BulkEndError(
+                        "The report request could not be confirmed within 10 minutes.",
+                        diagnostics={
+                            "operation": "recover_inventory_task",
+                            "reason": "request_recovery_timeout",
+                        },
+                    ),
+                )
                 _fail_snapshot(
                     snapshot.pk,
                     token,
@@ -482,6 +538,15 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 )
                 return None
             state, task_id = _recover_inventory_task(access_token, started_at, now)
+            record_event(
+                job_id,
+                "snapshot_recovery_checked",
+                {
+                    "snapshot_id": str(snapshot.pk),
+                    "outcome": state,
+                    "task_id": task_id,
+                },
+            )
             if state == "ambiguous" or state == "invalid":
                 _fail_snapshot(
                     snapshot.pk,
@@ -512,7 +577,8 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                     return None
                 current.task_id = task_id
                 current.status = "queued"
-                current.save(update_fields=("task_id", "status"))
+                current.error_message = ""
+                current.save(update_fields=("task_id", "status", "error_message"))
             record_event(job_id, "snapshot_request_recovered", {"task_id": task_id})
             return 1
 
@@ -538,7 +604,11 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                     owner_token=token,
                     ownership_generation=generation,
                     owner_expires_at__gt=timezone.now(),
-                ).update(status="in_progress", report_poll_attempts=attempts)
+                ).update(
+                    status="in_progress",
+                    report_poll_attempts=attempts,
+                    error_message="",
+                )
                 return min(
                     REPORT_MAX_POLL_SECONDS,
                     REPORT_POLL_SECONDS * (2 ** min(attempts - 1, 3)),
@@ -564,7 +634,9 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                 owner_token=token,
                 ownership_generation=generation,
                 owner_expires_at__gt=timezone.now(),
-            ).update(status="downloading", report_completed_at=completed_at)
+            ).update(
+                status="downloading", report_completed_at=completed_at, error_message=""
+            )
             record_event(
                 job_id, "snapshot_download_started", {"task_id": snapshot.task_id}
             )
@@ -805,15 +877,25 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
             delete_report_path(snapshot.report_path)
             return None
         return None
-    except (DatabaseError, SoftTimeLimitExceeded):
+    except (DatabaseError, SoftTimeLimitExceeded) as error:
+        _record_snapshot_error(snapshot, job_id, error)
         raise
     except EBayRateLimitError as error:
+        _record_snapshot_error(snapshot, job_id, error)
+        EbayInventorySnapshot.objects.filter(
+            pk=snapshot.pk,
+            owner_token=token,
+            ownership_generation=generation,
+            owner_expires_at__gt=timezone.now(),
+        ).update(error_message=str(error)[:2000])
         next_delay = error.retry_after
     except ReportStorageError as error:
+        _record_snapshot_error(snapshot, job_id, error)
         _fail_snapshot(snapshot.pk, token, generation, error, "failed")
         record_event(job_id, "snapshot_import_failed", {"reason": "staging_storage"})
         return None
     except EBayTransportError as error:
+        _record_snapshot_error(snapshot, job_id, error)
         if (
             snapshot.status == "downloading"
             and snapshot.report_download_attempts >= REPORT_DOWNLOAD_RETRIES
@@ -844,10 +926,12 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
     except SnapshotOwnershipLost:
         return None
     except BulkEndError as error:
+        _record_snapshot_error(snapshot, job_id, error)
         _fail_snapshot(snapshot.pk, token, generation, error, "incomplete")
         record_event(job_id, "snapshot_import_failed", {"reason": "report_invalid"})
         return None
     except Exception as error:
+        _record_snapshot_error(snapshot, job_id, error)
         _fail_snapshot(snapshot.pk, token, generation, error, "failed")
         record_event(job_id, "snapshot_import_failed", {"reason": type(error).__name__})
         return None
@@ -936,6 +1020,9 @@ def run_inventory_scan_chunk(job):
             job["snapshot_reused"] = True
 
         if not snapshot.complete and snapshot.status in FINAL_SNAPSHOT_STATUSES:
+            job["discovery_details"]["report_request_unconfirmed"] = bool(
+                not snapshot.task_id and snapshot.report_request_started_at
+            )
             _finish_scan(
                 job,
                 "incomplete"
@@ -952,22 +1039,47 @@ def run_inventory_scan_chunk(job):
                 raise BulkEndError("Could not queue eBay report processing.") from error
             stage = {
                 "requested": "requesting_report",
+                "requesting": "recovering_report_request",
                 "queued": "waiting_for_report",
                 "in_progress": "waiting_for_report",
                 "downloading": "downloading_report",
                 "importing": "importing_report",
                 "verifying": "verifying_report",
-            }.get(snapshot.status, "waiting_for_report")
+            }.get(snapshot.status, "preparing_report")
+            if snapshot.error_message and snapshot.status in {
+                "queued",
+                "in_progress",
+                "downloading",
+            }:
+                stage = "retrying_report"
             job["report_task_id"] = snapshot.task_id
             job["progress"] = {
                 "stage": stage,
                 "current": snapshot.checkpoint_row,
                 "total": None,
             }
-            job["message"] = "The eBay report is processing in the background."
+            job["message"] = {
+                "requesting_report": "Requesting the eBay inventory report.",
+                "recovering_report_request": "eBay report creation is not confirmed. Checking the original request; no duplicate request is sent.",
+                "waiting_for_report": "eBay accepted the report request. Waiting for the report to complete.",
+                "downloading_report": "Downloading the completed eBay report.",
+                "importing_report": "Importing the downloaded eBay report.",
+                "verifying_report": "Verifying the imported eBay report.",
+                "retrying_report": "A temporary error interrupted the eBay report request. Retrying the current step.",
+            }.get(stage, "Preparing inventory discovery.")
             job["discovery_details"].update(
                 {
                     "snapshot_id": str(snapshot.pk),
+                    "snapshot_status": snapshot.status,
+                    "report_request_started_at": snapshot.report_request_started_at.isoformat()
+                    if snapshot.report_request_started_at
+                    else None,
+                    "report_recovery_deadline": (
+                        snapshot.report_request_started_at + TASK_RECOVERY_WAIT
+                    ).isoformat()
+                    if snapshot.status == "requesting"
+                    and snapshot.report_request_started_at
+                    else None,
                     "snapshot_generated_at": snapshot.created_at.isoformat(),
                     "report_completed_at": snapshot.report_completed_at.isoformat()
                     if snapshot.report_completed_at

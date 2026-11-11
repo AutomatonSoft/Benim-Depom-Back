@@ -4,6 +4,7 @@ import zipfile
 from unittest.mock import MagicMock, Mock, patch
 
 from django.test import SimpleTestCase
+from requests.exceptions import ReadTimeout
 
 from apps.ebay_bulk_end.errors import (
     BulkEndError,
@@ -83,6 +84,66 @@ class InventoryReportParserTests(SimpleTestCase):
 
 
 class InventoryReportRequestTests(SimpleTestCase):
+    @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
+    def test_creation_errors_preserve_safe_http_diagnostics(self, build_session):
+        response = Mock(status_code=500, ok=False)
+        response.headers = {
+            "X-EBAY-C-REQUEST-ID": "request-123",
+            "Authorization": "Bearer secret-token",
+        }
+        response.json.return_value = {
+            "errors": [{"errorId": 160001, "message": "secret-token"}],
+            "access_token": "secret-token",
+        }
+        build_session.return_value.__enter__.return_value.post.return_value = response
+
+        with self.assertRaises(EBayTransportError) as caught:
+            create_inventory_task("secret-token")
+
+        self.assertEqual(
+            caught.exception.diagnostics,
+            {
+                "operation": "create_inventory_task",
+                "reason": "http_error",
+                "http_status": 500,
+                "x-ebay-c-request-id": "request-123",
+                "ebay_error_ids": [160001],
+            },
+        )
+        self.assertNotIn(
+            "secret-token", str(caught.exception) + str(caught.exception.diagnostics)
+        )
+
+    @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
+    def test_creation_timeout_does_not_expose_request_details(self, build_session):
+        build_session.return_value.__enter__.return_value.post.side_effect = (
+            ReadTimeout("Bearer secret-token")
+        )
+        with self.assertRaises(EBayTransportError) as caught:
+            create_inventory_task("secret-token")
+        self.assertEqual(
+            caught.exception.diagnostics,
+            {
+                "operation": "create_inventory_task",
+                "reason": "network_error",
+                "exception_type": "ReadTimeout",
+            },
+        )
+        self.assertNotIn(
+            "secret-token", str(caught.exception) + str(caught.exception.diagnostics)
+        )
+
+    @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
+    def test_missing_task_id_is_distinct_from_http_or_network_failure(
+        self, build_session
+    ):
+        response = Mock(status_code=202, ok=True, headers={})
+        build_session.return_value.__enter__.return_value.post.return_value = response
+        with self.assertRaises(EBayTransportError) as caught:
+            create_inventory_task("token")
+        self.assertEqual(caught.exception.diagnostics["reason"], "missing_task_id")
+        self.assertEqual(caught.exception.diagnostics["http_status"], 202)
+
     @patch(
         "apps.ebay_bulk_end.feed.api_base_url",
         return_value="https://api.sandbox.ebay.com",

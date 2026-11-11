@@ -60,6 +60,12 @@ The Active Inventory Report requires the existing OAuth scope `https://api.ebay.
 - [GetSellerList time window](https://developer.ebay.com/devzone/xml/docs/Reference/ebay/GetSellerList.html)
 - [Browse API search](https://www.developer.ebay.com/develop/api/buy)
 
+## Report diagnostics
+
+Search progress distinguishes report creation (`requesting_report`), recovery of an unconfirmed request (`recovering_report_request`), accepted reports (`waiting_for_report`), downloading, importing and verification. An unknown total is displayed as indeterminate progress. The page shows the job ID for support/log correlation. Recovery checks the original request for up to ten minutes and does not send another creation POST.
+
+Inventory errors are written to the marketplace worker log as `eBay inventory error` and persisted in the job's audit events (`snapshot_request_uncertain` / `snapshot_report_error`). Each entry includes job ID, snapshot ID, account, environment, stage and known eBay task ID. Feed diagnostics contain the operation, failure reason (HTTP/network/invalid response/missing task ID), HTTP status, allowlisted request identifiers and numeric eBay error IDs when available. Authorization headers, tokens, raw response bodies and network exception text are excluded. `snapshot_recovery_checked` records each recovery outcome. For staging, use `docker logs --since 30m benim-depom-stage-worker_marketplace-1 2>&1 | grep '<job-id>'`; permanent events are available through the existing history events API.
+
 ## Tests
 
 Run with `python manage.py test apps.ebay_bulk_end.tests`. All eBay calls are mocked; tests do not send live `EndItems` requests. The parser tests stream 100,000, 500,000 and 1,000,001 synthetic rows through bounded chunks; the lookup test stores 100,000 rows in PostgreSQL and asserts only matching SKU candidates call `GetItem`.
