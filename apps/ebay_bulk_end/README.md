@@ -18,6 +18,8 @@ The report contains SKU and ItemID, not EAN. A SKU equal to an EAN is a direct c
 
 ## Ending safety
 
+OAuth `EbayConnection.ebay_user_id` is the immutable Identity API `userId`; Trading `Seller.UserID` is the username. They must not be compared directly. Before candidate verification and again for each ending chunk, the module requests Identity API with the current token, verifies its `userId` against the stored connection/job ID and compares its confirmed `username` with the listing seller. Identity mismatch, a missing username or a failed lookup blocks the operation. The immutable ID remains the key for snapshots, quotas and in-flight reservations.
+
 - Every candidate is checked again before `EndItems` for seller, active status, current identifiers, title, listing type, variations and auction risk.
 - SKU and EAN stay distinct. Exact SKU, exact variation SKU, exact EAN and exact variation EAN match types are recorded. Populated conflicting EAN data blocks selection and confirmation.
 - Multi-variation listings and auctions with bids or an unknown bid count are excluded from default selection and require separate confirmation. eBay ends the parent ItemID and all its variations.

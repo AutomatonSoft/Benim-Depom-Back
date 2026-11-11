@@ -11,6 +11,12 @@ from apps.ebay_bulk_end.workflows import _verify_item, run_end_chunk, run_scan_c
 
 class EndWorkflowTests(SimpleTestCase):
     def setUp(self):
+        identity = patch(
+            "apps.ebay_bulk_end.workflows.verified_seller_username",
+            side_effect=lambda _token, user_id: user_id,
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
         reservation = patch(
             "apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True
         )
@@ -65,6 +71,7 @@ class EndWorkflowTests(SimpleTestCase):
         }
         job = {
             "seller_id": "seller-from-preview",
+            "seller_username": "seller-from-preview",
             "include_variations": False,
             "include_auction_risk": True,
         }
@@ -86,6 +93,7 @@ class EndWorkflowTests(SimpleTestCase):
         }
         job = {
             "seller_id": "seller-from-preview",
+            "seller_username": "seller-from-preview",
             "include_variations": False,
             "include_auction_risk": False,
         }
@@ -132,6 +140,7 @@ class EndWorkflowTests(SimpleTestCase):
         }
         job = {
             "seller_id": "seller-from-preview",
+            "seller_username": "seller-from-preview",
             "include_variations": True,
             "include_auction_risk": False,
         }

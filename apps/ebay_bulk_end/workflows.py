@@ -6,7 +6,7 @@ from uuid import uuid4
 from django.utils import timezone
 
 from .audit import reserve_end_batch
-from .auth import access_context
+from .auth import access_context, verified_seller_username
 from .domain import (
     auction_state,
     child,
@@ -193,7 +193,12 @@ def _verify_item(token, selected, job):
     if listing_status(item) != "Active":
         return "already_ended", "Объявление уже не активно."
     seller_id = text(child(item, "Seller"), "UserID")
-    if not seller_id or seller_id.casefold() != job["seller_id"].casefold():
+    seller_username = job.get("seller_username", "")
+    if (
+        not seller_username
+        or not seller_id
+        or seller_id.casefold() != seller_username.casefold()
+    ):
         return "ownership_mismatch", "Аккаунт продавца не совпал."
     current = item_summary(item, {match["ean"] for match in selected["matches"]})
     if current and current.get("identifier_conflict"):
@@ -430,6 +435,7 @@ def run_end_chunk(job_id):
             release_account_lock(job["environment"], job["account"], job["id"])
             return
         offset = int(job.get("next_offset", 0))
+        job["seller_username"] = verified_seller_username(token, seller_id)
         batch = job["selected"][offset : offset + END_ITEMS_PER_TASK]
         results_by_id = {row["item_id"]: row for row in job["results"]}
         ready = []

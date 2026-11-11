@@ -20,6 +20,12 @@ class EndSafetyTests(SimpleTestCase):
         self.assertLess(end_ebay_job.time_limit, JOB_LOCK_SECONDS)
 
     def setUp(self):
+        identity = patch(
+            "apps.ebay_bulk_end.workflows.verified_seller_username",
+            side_effect=lambda _token, user_id: user_id,
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
         patcher = patch(
             "apps.ebay_bulk_end.workflows.reserve_end_batch", return_value=True
         )

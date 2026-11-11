@@ -1,14 +1,16 @@
 from datetime import timedelta
 
+import requests
 from django.conf import settings
 from django.utils import timezone
 
+from apps.common.marketplace_http import build_marketplace_session
 from apps.marketplace.ebay.client import api_base_url, token_request
 from apps.marketplace.ebay.models import EbayConnection
 from apps.marketplace.ebay.security import decrypt_token
 from apps.marketplace.ebay.services import OAUTH_SCOPES
 
-from .errors import BulkEndError
+from .errors import BulkEndError, EBayTransportError
 
 ALLOWED_ACCOUNTS = ("jv", "xl", "depotum")
 ALLOWED_ENVIRONMENTS = {"sandbox", "production"}
@@ -86,3 +88,46 @@ def access_context(account, environment):
         raise BulkEndError("eBay не вернул действующий токен.")
     api_base_url()
     return connection, access_token
+
+
+def verified_seller_username(token, expected_user_id):
+    """Bind Trading UserID (username) to the immutable ID stored at OAuth authorization."""
+    identity_base = api_base_url().replace("://api.", "://apiz.", 1)
+    try:
+        with build_marketplace_session() as session:
+            response = session.get(
+                identity_base + "/commerce/identity/v1/user/",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=(5, 15),
+            )
+        if not response.ok:
+            raise BulkEndError(
+                "Не удалось подтвердить владельца eBay через Identity API.",
+                diagnostics={
+                    "operation": "verify_seller_identity",
+                    "http_status": response.status_code,
+                },
+            )
+        identity = response.json()
+    except (requests.RequestException, ValueError) as error:
+        raise EBayTransportError(
+            "Не удалось проверить владельца eBay. Повторите поиск позже.",
+            diagnostics={
+                "operation": "verify_seller_identity",
+                "exception_type": type(error).__name__,
+            },
+        ) from error
+    if (
+        not isinstance(identity, dict)
+        or not expected_user_id
+        or identity.get("userId") != expected_user_id
+    ):
+        raise BulkEndError(
+            "Identity API вернул другой аккаунт eBay; операция заблокирована."
+        )
+    username = identity.get("username")
+    if not isinstance(username, str) or not username.strip() or len(username) > 255:
+        raise BulkEndError(
+            "eBay не вернул подтверждённый логин продавца; операция заблокирована."
+        )
+    return username.strip()

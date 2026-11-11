@@ -13,7 +13,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .audit import record_event
-from .auth import access_context
+from .auth import access_context, verified_seller_username
 from .domain import MAX_MATCHES, child, item_summary, listing_status, text
 from .ebay import get_item
 from .errors import (
@@ -1189,6 +1189,10 @@ def run_inventory_scan_chunk(job):
             )
             return None
         candidates = _candidate_rows(listing_rows)
+        seller_username = (
+            verified_seller_username(token, seller_id) if candidates else ""
+        )
+        job["seller_username"] = seller_username
 
         offset = int(job.get("candidate_offset", 0))
         batch = candidates[offset : offset + VERIFY_ITEMS_PER_TASK]
@@ -1204,7 +1208,10 @@ def run_inventory_scan_chunk(job):
                 )
                 continue
             actual_seller = text(child(details, "Seller"), "UserID")
-            if not actual_seller or actual_seller.casefold() != seller_id.casefold():
+            if (
+                not actual_seller
+                or actual_seller.casefold() != seller_username.casefold()
+            ):
                 _finish_scan(
                     job,
                     "incomplete",

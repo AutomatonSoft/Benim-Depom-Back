@@ -110,6 +110,14 @@ class ExactIdentifierTests(SimpleTestCase):
 
 
 class LargeInventoryLookupTests(TestCase):
+    def setUp(self):
+        identity = patch(
+            "apps.ebay_bulk_end.inventory.verified_seller_username",
+            side_effect=lambda _token, user_id: user_id,
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
+
     def test_sandbox_recovery_handles_observed_pacific_wall_time_but_not_production(
         self,
     ):
