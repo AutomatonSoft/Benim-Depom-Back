@@ -83,9 +83,15 @@ class EanTests(SimpleTestCase):
 
 class AccountSafetyTests(SimpleTestCase):
     @override_settings(EBAY_ENVIRONMENT="production")
-    def test_depotum_is_not_accepted(self):
-        with self.assertRaises(BulkEndError):
-            connection_for("depotum")
+    @patch("apps.ebay_bulk_end.auth.EbayConnection.objects.filter")
+    def test_depotum_uses_its_own_connection(self, filter_connections):
+        connection = Mock()
+        filter_connections.return_value.first.return_value = connection
+
+        self.assertIs(connection_for("depotum"), connection)
+        filter_connections.assert_called_once_with(
+            account="depotum", environment="production"
+        )
 
     @override_settings(EBAY_ENVIRONMENT="sandbox")
     @patch(

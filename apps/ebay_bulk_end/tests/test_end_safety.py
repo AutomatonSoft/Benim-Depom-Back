@@ -220,7 +220,7 @@ class EndSafetyTests(SimpleTestCase):
             }
             for row in ready
         ]
-        job = {"updated_at": ""}
+        job = {"account": "jv", "updated_at": ""}
 
         with (
             patch("apps.ebay_bulk_end.workflows.save_job"),
@@ -246,7 +246,7 @@ class EndSafetyTests(SimpleTestCase):
             {"item_id": row["item_id"], "status": "queued", "message": ""}
             for row in ready
         ]
-        job = {"updated_at": ""}
+        job = {"account": "jv", "updated_at": ""}
 
         with (
             patch("apps.ebay_bulk_end.workflows.save_job"),
@@ -334,7 +334,7 @@ class EndSafetyTests(SimpleTestCase):
                 return_value=("uncertain", "Unknown"),
             ),
         ):
-            _send_batch("token", ready, results, {"updated_at": ""})
+            _send_batch("token", ready, results, {"account": "jv", "updated_at": ""})
 
         self.assertEqual(results[0]["status"], "uncertain")
 
@@ -363,7 +363,7 @@ class EndSafetyTests(SimpleTestCase):
             patch("apps.ebay_bulk_end.workflows.save_job"),
             patch("apps.ebay_bulk_end.workflows.end_items", return_value=response),
         ):
-            _send_batch("token", ready, results, {"updated_at": ""})
+            _send_batch("token", ready, results, {"account": "jv", "updated_at": ""})
 
         self.assertEqual(results[0]["status"], "ended")
         self.assertEqual(results[0]["message"], "Ended with a warning")

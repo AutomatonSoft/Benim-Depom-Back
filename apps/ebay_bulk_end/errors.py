@@ -14,3 +14,7 @@ class EBayRateLimitError(EBayTransportError):
 
 class OwnershipMismatchError(BulkEndError):
     pass
+
+
+class ManagedListingError(BulkEndError):
+    pass

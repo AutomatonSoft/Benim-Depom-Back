@@ -1,11 +1,12 @@
 from rest_framework import serializers
 
+from .auth import ALLOWED_ACCOUNTS
 from .domain import MAX_EANS, normalize_eans
 from .errors import BulkEndError
 
 
 class ScanSerializer(serializers.Serializer):
-    account = serializers.ChoiceField(choices=("jv", "xl"))
+    account = serializers.ChoiceField(choices=ALLOWED_ACCOUNTS)
     eans = serializers.ListField(
         child=serializers.CharField(trim_whitespace=True, min_length=8, max_length=13),
         min_length=1,
@@ -25,7 +26,9 @@ class ConfirmSerializer(serializers.Serializer):
         min_length=1,
         max_length=2000,
     )
-    typed_account = serializers.ChoiceField(choices=("JV", "XL"))
+    typed_account = serializers.ChoiceField(
+        choices=tuple(account.upper() for account in ALLOWED_ACCOUNTS)
+    )
     include_variations = serializers.BooleanField(default=False)
     include_auction_risk = serializers.BooleanField(default=False)
     confirm_unavailable_reason = serializers.BooleanField()

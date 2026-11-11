@@ -14,7 +14,7 @@ from apps.common.throttles import ManagerMutationThrottleMixin
 
 from .auth import connection_for, connection_status, current_environment
 from .domain import MAX_EANS
-from .errors import BulkEndError
+from .errors import BulkEndError, ManagedListingError
 from .serializers import ConfirmSerializer, ScanSerializer
 from .storage import (
     cancellation_requested,
@@ -120,11 +120,20 @@ class JobView(ManagerAPI):
                 "listing_count": len(job.get("matches", [])),
                 "matched_ean_count": len(matched_eans),
                 "eligible_count": sum(
-                    not row.get("risky") and not row.get("auction_risky")
+                    not row.get("risky")
+                    and not row.get("auction_risky")
+                    and not row.get("managed_by_benim")
                     for row in job.get("matches", [])
                 ),
                 "risky_count": sum(
-                    bool(row.get("risky") or row.get("auction_risky"))
+                    bool(
+                        (row.get("risky") or row.get("auction_risky"))
+                        and not row.get("managed_by_benim")
+                    )
+                    for row in job.get("matches", [])
+                ),
+                "managed_listing_count": sum(
+                    bool(row.get("managed_by_benim"))
                     for row in job.get("matches", [])
                 ),
                 "ended_item_count": len(ended_results),
@@ -239,6 +248,8 @@ class ConfirmView(ManagerMutationThrottleMixin, ManagerAPI):
                     pass
         except Http404:
             raise
+        except ManagedListingError as error:
+            return _error(str(error), status.HTTP_409_CONFLICT)
         except BulkEndError as error:
             return _error(str(error), status.HTTP_503_SERVICE_UNAVAILABLE)
         except (ValueError, KeyError):

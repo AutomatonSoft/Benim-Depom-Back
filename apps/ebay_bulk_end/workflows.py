@@ -20,8 +20,10 @@ from .errors import (
     BulkEndError,
     EBayRateLimitError,
     EBayTransportError,
+    ManagedListingError,
     OwnershipMismatchError,
 )
+from .managed_publications import managed_depotum_item_ids
 from .storage import (
     acquire_account_lock,
     cancellation_requested,
@@ -289,6 +291,18 @@ def run_scan_chunk(job_id):
             job["updated_at"] = timezone.now().isoformat()
             save_job(job)
             return
+        if job["account"] == "depotum":
+            try:
+                managed_ids = managed_depotum_item_ids(
+                    [row["item_id"] for row in job["matches"]], job["environment"]
+                )
+            except Exception as error:
+                raise BulkEndError(
+                    "Не удалось безопасно проверить публикации BENIM DEPOM; завершение заблокировано."
+                ) from error
+            for row in job["matches"]:
+                if row["item_id"] in managed_ids:
+                    row["managed_by_benim"] = True
         job["status"] = "preview"
         job["preview_expires_at"] = (
             timezone.now() + timedelta(seconds=PREVIEW_SECONDS)
@@ -330,6 +344,21 @@ def confirm_job(
 ):
     matches = {row["item_id"]: row for row in job.get("matches", [])}
     selected = [matches[item_id] for item_id in item_ids]
+    if job["account"] == "depotum":
+        if any(row.get("managed_by_benim") for row in selected):
+            raise ManagedListingError(
+                "Объявление управляется BENIM DEPOM; его завершение запрещено."
+            )
+        try:
+            managed_ids = managed_depotum_item_ids(item_ids, job["environment"])
+        except Exception as error:
+            raise BulkEndError(
+                "Не удалось безопасно проверить публикации BENIM DEPOM; завершение заблокировано."
+            ) from error
+        if set(item_ids) & managed_ids:
+            raise ManagedListingError(
+                "Объявление управляется BENIM DEPOM; его завершение запрещено."
+            )
     job["kind"] = "end"
     job["status"] = "ending"
     job["include_variations"] = bool(include_variations)
@@ -450,6 +479,27 @@ def _send_batch(token, ready, results, job):
     if not item_ids:
         return
     result_by_id = {row["item_id"]: row for row in results}
+    if job["account"] == "depotum":
+        try:
+            managed_ids = managed_depotum_item_ids(item_ids, job["environment"])
+            blocked_ids = set(item_ids) & managed_ids
+            blocked_message = (
+                "Объявление управляется BENIM DEPOM; его завершение запрещено."
+            )
+        except Exception:
+            blocked_ids = set(item_ids)
+            blocked_message = (
+                "Не удалось проверить публикации BENIM DEPOM; запрос не отправлен."
+            )
+        for item_id in blocked_ids:
+            result_by_id[item_id]["status"] = "blocked"
+            result_by_id[item_id]["message"] = blocked_message
+            result_by_id[item_id]["finished_at"] = timezone.now().isoformat()
+        item_ids = [item_id for item_id in item_ids if item_id not in blocked_ids]
+        if not item_ids:
+            job["updated_at"] = timezone.now().isoformat()
+            save_job(job)
+            return
     for item_id in item_ids:
         result_by_id[item_id]["status"] = "sending"
         result_by_id[item_id]["message"] = "Запрос отправлен в eBay."

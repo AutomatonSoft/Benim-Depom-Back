@@ -136,6 +136,20 @@ class ConfirmViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 202)
         confirm.assert_called_once()
 
+    def test_accepts_depotum_as_the_typed_account(self):
+        depotum_job = {**self.job, "account": "depotum"}
+        response, confirm, _ = self.post(
+            {
+                "item_ids": ["123456789012"],
+                "typed_account": "DEPOTUM",
+                "confirm_unavailable_reason": True,
+            },
+            depotum_job,
+        )
+
+        self.assertEqual(response.status_code, 202)
+        confirm.assert_called_once()
+
     def test_requires_confirmation_of_the_not_available_ending_reason(self):
         response, confirm, _ = self.post(
             {

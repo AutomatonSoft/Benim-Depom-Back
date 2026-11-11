@@ -110,6 +110,52 @@ class DocumentedEanLocationsTests(SimpleTestCase):
         )
         self.assertEqual(job["unmatched_eans"], [])
 
+    def test_depotum_preview_marks_publications_managed_by_benim(self):
+        job = {
+            "id": "scan-depotum",
+            "manager_id": 7,
+            "account": "depotum",
+            "environment": "sandbox",
+            "kind": "scan",
+            "status": "queued",
+            "eans": ["01234565"],
+            "matches": [],
+            "progress": {"current": 0, "total": None},
+        }
+        listed_item = ET.fromstring("<Item><ItemID>123456789012</ItemID></Item>")
+        details = _item(
+            "123456789012",
+            "<ProductListingDetails><EAN>01234565</EAN></ProductListingDetails>",
+            seller="seller-depotum",
+        )
+
+        with (
+            patch("apps.ebay_bulk_end.workflows.load_job", return_value=job),
+            patch("apps.ebay_bulk_end.workflows.save_job"),
+            patch(
+                "apps.ebay_bulk_end.workflows.access_context",
+                return_value=(SimpleNamespace(ebay_user_id="seller-depotum"), "token"),
+            ),
+            patch(
+                "apps.ebay_bulk_end.workflows.get_active_page",
+                side_effect=[
+                    ([listed_item], 1, 1, {}),
+                    ([listed_item], 1, 1, {}),
+                ],
+            ),
+            patch("apps.ebay_bulk_end.workflows.get_item", return_value=details),
+            patch(
+                "apps.ebay_bulk_end.workflows.managed_depotum_item_ids",
+                return_value={"123456789012"},
+            ) as managed_lookup,
+        ):
+            self.assertEqual(run_scan_chunk(job["id"]), 2)
+            self.assertIsNone(run_scan_chunk(job["id"]))
+
+        self.assertEqual(job["status"], "preview")
+        self.assertTrue(job["matches"][0]["managed_by_benim"])
+        managed_lookup.assert_called_once_with(["123456789012"], "sandbox")
+
     def test_empty_account_produces_a_complete_preview_with_unmatched_eans(self):
         job = {
             "id": "scan-empty",

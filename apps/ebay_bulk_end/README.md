@@ -1,10 +1,12 @@
 # eBay bulk listing end
 
-Manager tool at `/ebay` with API under `/api/v2/ebay-bulk-end/`. It searches active listings in the connected JV or XL seller account by exact EAN and ends only the ItemIDs explicitly selected from a complete, short-lived server preview. It does not edit BENIM product records or create SQL tables.
+Manager tool at `/ebay` with API under `/api/v2/ebay-bulk-end/`. It searches active listings in the connected JV, XL or Depotum seller account by exact EAN and ends only the ItemIDs explicitly selected from a complete, short-lived server preview. It does not edit BENIM product records or create SQL tables.
 
 ## Safety and limits
 
-- The API is manager-only, and supports JV and XL. eBay returns listings for the seller authenticated by the request, so this cannot end listings belonging to other eBay sellers.
+- The API is manager-only, and supports JV, XL and Depotum. eBay returns listings for the seller authenticated by the request, so this cannot end listings belonging to other eBay sellers.
+- Depotum listings recorded in existing BENIM publications are protected by a read-only ItemID/account/environment lookup at preview, confirmation and immediately before `EndItems`. Blank legacy environments are treated conservatively as protected. Lookup failures block the action.
+- Connection cards show stored OAuth connection and token expiry for the current configured environment. Authorization uses the existing manager OAuth flow; the tool never switches environments automatically.
 - EAN input is checked as EAN-8 or EAN-13 with its check digit and compared as a string to preserve leading zeroes. The UI reports duplicate input values.
 - Each scan accepts 500 unique EANs by default; deployments can override this with the Django setting `EBAY_BULK_END_MAX_EANS`, and the UI reads the active limit from the API.
 - Active listings are enumerated using `GetMyeBaySelling` (15 per page, sorted by ItemID). That response does not include listing EANs, so the scan retrieves each listing through `GetItem` with `IncludeItemSpecifics=true` before matching. A second pass verifies that the active ItemID set did not change during the lookup. eBay caps the active-list result at 25,000; scans at that cap are incomplete and cannot be confirmed. To leave room for the selected-item preflight and ending calls under eBay's documented default Trading API budget of 5,000 calls/day, scans above 2,000 active listings are marked incomplete. The keyset is shared with the rest of the app, so existing API usage may reduce this headroom; quota errors fail the job closed.

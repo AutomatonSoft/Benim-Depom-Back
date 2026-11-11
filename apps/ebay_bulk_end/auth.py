@@ -10,7 +10,7 @@ from apps.marketplace.ebay.services import OAUTH_SCOPES
 
 from .errors import BulkEndError
 
-ALLOWED_ACCOUNTS = {"jv", "xl"}
+ALLOWED_ACCOUNTS = ("jv", "xl", "depotum")
 ALLOWED_ENVIRONMENTS = {"sandbox", "production"}
 
 
@@ -23,7 +23,7 @@ def current_environment():
 
 def connection_for(account, environment=None):
     if account not in ALLOWED_ACCOUNTS:
-        raise BulkEndError("Доступны только аккаунты JV и XL.")
+        raise BulkEndError("Доступны аккаунты JV, XL и Depotum.")
     environment = environment or current_environment()
     if environment != current_environment():
         raise BulkEndError("Среда eBay изменилась. Запустите задание заново.")
@@ -42,7 +42,7 @@ def connection_status():
     )
     by_account = {row["account"]: row for row in rows}
     accounts = []
-    for account in ("jv", "xl"):
+    for account in ALLOWED_ACCOUNTS:
         row = by_account.get(account)
         accounts.append(
             {
