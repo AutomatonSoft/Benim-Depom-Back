@@ -1196,6 +1196,7 @@ class MarketplaceContentGenerationDetailView(
                         **serializer.validated_data,
                     },
                     product_snapshot=generation.input_snapshot,
+                    validate_description_paragraphs=False,
                 )
             except GeneratedContentValidationError as error:
                 return Response(

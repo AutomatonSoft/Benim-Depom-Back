@@ -215,6 +215,59 @@ def test_ai_task_marks_generation_failed_without_real_openai_call(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+@pytest.mark.parametrize("separator", ["\n", " "])
+@pytest.mark.parametrize("is_set", [False, True])
+def test_manager_can_save_color_and_apply_draft_without_empty_lines(
+    api_client, manager, product_factory, separator, is_set
+):
+    product = product_factory(owner=manager, status=Product.Status.APPROVED)
+    target = {"marketplace": "hood", "account": "jv"}
+    content = {
+        **SUCCESSFUL_AI_CONTENT,
+        "color": "blau",
+        "description": SUCCESSFUL_AI_CONTENT["description"].replace("\n\n", separator),
+    }
+    generation = MarketplaceContentGeneration.objects.create(
+        product=product,
+        requested_by=manager,
+        status=MarketplaceContentGeneration.Status.SUCCEEDED,
+        targets=[target],
+        input_snapshot={
+            "variants": [],
+            "set_parts": [{"description": "Sessel"}] if is_set else [],
+        },
+        result={"universal": {"content": content}},
+    )
+    api_client.force_authenticate(manager)
+
+    response = api_client.patch(
+        f"/api/v1/orchestrator/ai-content/generations/{generation.id}/",
+        {**content, "color": "Blau"},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    generation.refresh_from_db()
+    saved = generation.result["universal"]["content"]
+    assert saved["color"] == "Blau"
+    assert saved["description"] == content["description"]
+
+    response = api_client.post(
+        f"/api/v1/orchestrator/products/{product.id}/ai-content/"
+        f"generations/{generation.id}/apply/",
+        {"targets": [target], "overwrite": True},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    configuration = MarketplaceListingConfiguration.objects.get(
+        product=product, marketplace="hood", account="jv"
+    )
+    assert configuration.configuration["color"] == "Blau"
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_manager_applies_draft_without_overwriting_manual_text(
     api_client,
     manager,
