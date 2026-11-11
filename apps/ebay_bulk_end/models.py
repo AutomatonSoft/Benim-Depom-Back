@@ -141,10 +141,35 @@ class EbayInventorySnapshot(models.Model):
     ebay_seller_id = models.CharField(max_length=255)
     marketplace_id = models.CharField(max_length=16)
     task_id = models.CharField(max_length=255, blank=True)
+    report_request_started_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=24, default="requested")
     complete = models.BooleanField(default=False)
-    record_count = models.PositiveIntegerField(default=0)
+    record_count = models.PositiveBigIntegerField(default=0)
     error_message = models.TextField(blank=True)
+    report_completed_at = models.DateTimeField(null=True, blank=True)
+    downloaded_at = models.DateTimeField(null=True, blank=True)
+    import_started_at = models.DateTimeField(null=True, blank=True)
+    import_completed_at = models.DateTimeField(null=True, blank=True)
+    report_path = models.CharField(max_length=1024, blank=True)
+    report_size = models.PositiveBigIntegerField(default=0)
+    report_sha256 = models.CharField(max_length=64, blank=True)
+    report_mtime_ns = models.PositiveBigIntegerField(default=0)
+    import_generation = models.PositiveBigIntegerField(default=0)
+    report_download_attempts = models.PositiveSmallIntegerField(default=0)
+    report_download_attempted_at = models.JSONField(default=list, blank=True)
+    last_report_download_attempt_at = models.DateTimeField(null=True, blank=True)
+    report_poll_attempts = models.PositiveSmallIntegerField(default=0)
+    retry_count = models.PositiveSmallIntegerField(default=0)
+    checkpoint_row = models.PositiveBigIntegerField(default=0)
+    checkpoint_cookie = models.TextField(blank=True)
+    owner_token = models.UUIDField(null=True, blank=True)
+    owner_job_id = models.UUIDField(null=True, blank=True)
+    ownership_generation = models.PositiveBigIntegerField(default=0)
+    owner_expires_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    step_scheduled_at = models.DateTimeField(null=True, blank=True)
+    cleanup_started_at = models.DateTimeField(null=True, blank=True)
+    cleanup_completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -153,7 +178,9 @@ class EbayInventorySnapshot(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("account", "environment", "ebay_seller_id", "marketplace_id"),
-                condition=models.Q(status__in=("requested", "queued", "in_progress")),
+                condition=models.Q(status__in=(
+                    "requested", "requesting", "queued", "in_progress", "downloading", "importing", "verifying"
+                )),
                 name="ebulk_snapshot_active_unique",
             )
         ]
@@ -161,7 +188,12 @@ class EbayInventorySnapshot(models.Model):
             models.Index(
                 fields=("account", "environment", "ebay_seller_id", "marketplace_id", "status", "completed_at"),
                 name="ebulk_snapshot_scope_idx",
-            )
+            ),
+            models.Index(fields=("status", "owner_expires_at"), name="ebulk_snapshot_owner_idx"),
+            models.Index(
+                fields=("environment", "ebay_seller_id", "marketplace_id", "last_report_download_attempt_at"),
+                name="ebulk_snapshot_quota_idx",
+            ),
         ]
 
 

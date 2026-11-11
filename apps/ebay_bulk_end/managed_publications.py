@@ -1,4 +1,5 @@
 from apps.orchestrator.models import MarketplacePublication
+from apps.marketplace.ebay.models import EbayOfferPreparation
 
 
 def managed_depotum_item_ids(item_ids, environment):
@@ -18,4 +19,14 @@ def managed_depotum_item_ids(item_ids, environment):
         environment__in=(environment, ""),
         external_id__in=requested,
     ).values_list("external_id", flat=True)
-    return set(records) & requested
+    managed = set(records) & requested
+    preparations = EbayOfferPreparation.objects.filter(
+        account="depotum",
+        environment__in=(environment, ""),
+    ).values_list("listing_id", "listing_id_history")
+    for listing_id, history in preparations.iterator(chunk_size=500):
+        if listing_id in requested:
+            managed.add(listing_id)
+        if isinstance(history, list):
+            managed.update(str(item_id) for item_id in history if str(item_id) in requested)
+    return managed

@@ -15,6 +15,8 @@ from apps.ebay_bulk_end.feed import (
     create_inventory_task,
     download_inventory_report,
     get_inventory_task,
+    get_inventory_tasks,
+    iter_inventory_chunk,
     iter_inventory_rows,
 )
 
@@ -52,6 +54,21 @@ class InventoryReportParserTests(SimpleTestCase):
 
         self.assertEqual(rows[0]["sku"], "001234565")
         self.assertEqual(rows[0]["item_id"], "10001")
+
+    def test_chunk_parser_resumes_on_csv_record_boundaries(self):
+        report = io.BytesIO(
+            b"SKU,ItemID,Channel,Title\n001234565,10001,EBAY_DE,first\n"
+            b"001234566,10002,EBAY_DE,\"second\nline\"\n001234567,10003,EBAY_DE,last\n"
+        )
+        first, cookie, eof = iter_inventory_chunk(report, "", 2)
+        report.seek(0)
+        second, next_cookie, done = iter_inventory_chunk(report, cookie, 2)
+
+        self.assertEqual([row["item_id"] for row in first], ["10001", "10002"])
+        self.assertFalse(eof)
+        self.assertEqual([row["item_id"] for row in second], ["10003"])
+        self.assertTrue(done)
+        self.assertNotEqual(cookie, next_cookie)
 
     def test_rejects_missing_columns_invalid_ids_and_missing_marketplace(self):
         for value in (
@@ -101,6 +118,29 @@ class InventoryReportRequestTests(SimpleTestCase):
         self.assertEqual(get_inventory_task("token", "task-1")["status"], "IN_PROCESS")
         self.assertEqual(get_inventory_task("token", "task-1")["status"], "COMPLETED")
         self.assertEqual(session.get.call_count, 2)
+
+    @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
+    @patch("apps.ebay_bulk_end.feed.build_marketplace_session")
+    def test_lists_tasks_for_uncertain_report_request_recovery(self, build_session, _base_url):
+        session = build_session.return_value.__enter__.return_value
+        response = Mock(status_code=200, ok=True)
+        response.json.return_value = {"tasks": [{"taskId": "task-1"}], "total": 1}
+        session.get.return_value = response
+
+        tasks, total = get_inventory_tasks("token", "2026-11-11T00:00:00.000Z..2026-11-11T00:01:00.000Z")
+
+        self.assertEqual(tasks, [{"taskId": "task-1"}])
+        self.assertEqual(total, 1)
+        self.assertEqual(session.get.call_args.args[0], "https://api.sandbox.ebay.com/sell/feed/v1/inventory_task")
+        self.assertEqual(
+            session.get.call_args.kwargs["params"],
+            {
+                "feed_type": "LMS_ACTIVE_INVENTORY_REPORT",
+                "date_range": "2026-11-11T00:00:00.000Z..2026-11-11T00:01:00.000Z",
+                "limit": 500,
+                "offset": 0,
+            },
+        )
 
     @patch("apps.ebay_bulk_end.feed.api_base_url", return_value="https://api.sandbox.ebay.com")
     @patch("apps.ebay_bulk_end.feed.build_marketplace_session")

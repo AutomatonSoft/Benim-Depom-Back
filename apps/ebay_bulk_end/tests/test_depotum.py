@@ -62,6 +62,7 @@ class DepotumAuthorizationTests(SimpleTestCase):
 
 class ManagedPublicationTests(SimpleTestCase):
     item_id = "123456789012"
+    historical_item_id = "234567890123"
 
     @patch(
         "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"
@@ -73,8 +74,12 @@ class ManagedPublicationTests(SimpleTestCase):
             self.item_id,
             "unrequested-id",
         ]
+        with patch(
+            "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter"
+        ) as filter_preparations:
+            filter_preparations.return_value.values_list.return_value.iterator.return_value = iter(())
 
-        result = managed_depotum_item_ids([self.item_id], "production")
+            result = managed_depotum_item_ids([self.item_id], "production")
 
         self.assertEqual(result, {self.item_id})
         filter_publications.assert_called_once_with(
@@ -86,6 +91,41 @@ class ManagedPublicationTests(SimpleTestCase):
         filter_publications.return_value.values_list.assert_called_once_with(
             "external_id", flat=True
         )
+        filter_preparations.assert_called_once_with(
+            account="depotum", environment__in=("production", "")
+        )
+        filter_preparations.return_value.values_list.assert_called_once_with(
+            "listing_id", "listing_id_history"
+        )
+
+    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
+    def test_depotum_current_and_historical_listing_ids_are_protected(self, filter_publications):
+        filter_publications.return_value.values_list.return_value = []
+        with patch(
+            "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter"
+        ) as filter_preparations:
+            filter_preparations.return_value.values_list.return_value.iterator.return_value = iter(
+                [(self.item_id, [self.historical_item_id, "999999999999"])]
+            )
+
+            result = managed_depotum_item_ids(
+                [self.item_id, self.historical_item_id, "999999999999"], "production"
+            )
+
+        self.assertEqual(result, {self.item_id, self.historical_item_id, "999999999999"})
+        filter_preparations.assert_called_once_with(
+            account="depotum", environment__in=("production", "")
+        )
+
+    @patch("apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter")
+    def test_preparation_lookup_errors_propagate_to_fail_closed_callers(self, filter_publications):
+        filter_publications.return_value.values_list.return_value = []
+        with patch(
+            "apps.ebay_bulk_end.managed_publications.EbayOfferPreparation.objects.filter",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+                managed_depotum_item_ids([self.item_id], "production")
 
     @patch(
         "apps.ebay_bulk_end.managed_publications.MarketplacePublication.objects.filter"

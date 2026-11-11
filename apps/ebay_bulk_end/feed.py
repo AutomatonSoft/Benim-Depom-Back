@@ -1,9 +1,12 @@
 import csv
+import hashlib
 import gzip
 import io
 import json
+import os
 import re
 import tempfile
+import time
 import zipfile
 from contextlib import contextmanager
 
@@ -12,7 +15,7 @@ import requests
 from apps.common.marketplace_http import build_marketplace_session
 from apps.marketplace.ebay.client import api_base_url
 
-from .errors import BulkEndError, EBayRateLimitError, EBayTransportError
+from .errors import BulkEndError, EBayRateLimitError, EBayTransportError, ReportStorageError
 
 FEED_TYPE = "LMS_ACTIVE_INVENTORY_REPORT"
 MARKETPLACE_ID = "EBAY_DE"
@@ -92,6 +95,31 @@ def get_inventory_task(token, task_id):
     return payload
 
 
+def get_inventory_tasks(token, date_range):
+    try:
+        with build_marketplace_session() as session:
+            response = session.get(
+                f"{api_base_url()}{REPORT_PATH}/inventory_task",
+                headers=_headers(token),
+                params={"feed_type": FEED_TYPE, "date_range": date_range, "limit": 500, "offset": 0},
+                timeout=(5, 30),
+            )
+    except requests.RequestException as error:
+        raise EBayTransportError("Не удалось восстановить задание отчёта eBay.") from error
+    payload = _json_response(response)
+    tasks = payload.get("tasks")
+    total = payload.get("total")
+    if (
+        not isinstance(tasks, list)
+        or isinstance(total, bool)
+        or not isinstance(total, int)
+        or total < len(tasks)
+        or any(not isinstance(task, dict) for task in tasks)
+    ):
+        raise EBayTransportError("eBay вернул некорректный список заданий отчёта.")
+    return tasks, total
+
+
 @contextmanager
 def download_inventory_report(token, task_id):
     # Keep only 2 MiB in RAM; larger reports spill to disk instead of imposing an account-size cap.
@@ -122,6 +150,111 @@ def download_inventory_report(token, task_id):
         yield fileobj
     finally:
         fileobj.close()
+
+
+def download_inventory_report_to_path(token, task_id, target_path, *, heartbeat=None):
+    """Stage a complete, normalized CSV on the shared persistent application volume."""
+    target_path = os.fspath(target_path)
+    directory = os.path.dirname(target_path)
+    raw_path = target_path + ".download.part"
+    normalized_path = target_path + ".normalize.part"
+    last_heartbeat = time.monotonic()
+
+    def pulse():
+        nonlocal last_heartbeat
+        if heartbeat and time.monotonic() - last_heartbeat >= 20:
+            heartbeat()
+            last_heartbeat = time.monotonic()
+
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        with open(raw_path, "xb") as output:
+            try:
+                with build_marketplace_session() as session:
+                    with session.get(
+                        f"{api_base_url()}{REPORT_PATH}/task/{task_id}/download_result_file",
+                        headers={**_headers(token), "Accept": "application/octet-stream, text/csv"},
+                        timeout=(5, 60),
+                        stream=True,
+                    ) as response:
+                        _check_response(response)
+                        for chunk in response.iter_content(chunk_size=64 * 1024):
+                            if chunk:
+                                output.write(chunk)
+                                pulse()
+            except requests.RequestException as error:
+                raise EBayTransportError("Не удалось скачать отчёт eBay.") from error
+            output.flush()
+            os.fsync(output.fileno())
+
+        if os.path.getsize(raw_path) == 0:
+            raise EBayTransportError("eBay вернул пустой файл отчёта.")
+
+        digest = hashlib.sha256()
+        normalized_size = 0
+        with open(raw_path, "rb") as raw:
+            try:
+                archive, raw_stream = _csv_stream(raw)
+            except (zipfile.BadZipFile, EOFError, OSError) as error:
+                raise BulkEndError("Повреждённый ZIP-отчёт eBay.") from error
+            try:
+                with open(normalized_path, "xb") as normalized:
+                    while True:
+                        chunk = raw_stream.read(64 * 1024)
+                        if not chunk:
+                            break
+                        normalized.write(chunk)
+                        digest.update(chunk)
+                        normalized_size += len(chunk)
+                        pulse()
+                    normalized.flush()
+                    os.fsync(normalized.fileno())
+            except (gzip.BadGzipFile, EOFError, OSError, zipfile.BadZipFile) as error:
+                raise BulkEndError("Повреждённый сжатый CSV-отчёт eBay.") from error
+            finally:
+                if archive:
+                    archive.close()
+                elif raw_stream is not raw:
+                    raw_stream.close()
+
+        if normalized_size == 0:
+            raise BulkEndError("eBay вернул пустой CSV-отчёт.")
+        os.chmod(normalized_path, 0o600)
+        os.replace(normalized_path, target_path)
+        return {
+            "path": target_path,
+            "size": normalized_size,
+            "sha256": digest.hexdigest(),
+        }
+    except OSError as error:
+        raise ReportStorageError(
+            "Не удалось сохранить полный отчёт eBay в общее временное хранилище; проверьте свободное место."
+        ) from error
+    finally:
+        for path in (raw_path, normalized_path):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+
+def inspect_staged_inventory_report(path, *, heartbeat=None):
+    digest = hashlib.sha256()
+    size = 0
+    last_heartbeat = time.monotonic()
+    try:
+        with open(path, "rb") as source:
+            while chunk := source.read(64 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+                if heartbeat and time.monotonic() - last_heartbeat >= 20:
+                    heartbeat()
+                    last_heartbeat = time.monotonic()
+    except OSError as error:
+        raise ReportStorageError("Не удалось проверить сохранённый отчёт eBay.") from error
+    if not size:
+        raise ReportStorageError("Сохранённый отчёт eBay пуст.")
+    return {"path": os.fspath(path), "size": size, "sha256": digest.hexdigest()}
 
 
 def _csv_stream(fileobj):
@@ -179,3 +312,76 @@ def iter_inventory_rows(fileobj):
             pass
         if archive:
             archive.close()
+
+
+def iter_inventory_chunk(fileobj, start_cookie, max_rows):
+    text_stream = io.TextIOWrapper(fileobj, encoding="utf-8-sig", newline="")
+    try:
+        reader = csv.DictReader(_ReadlineIterator(text_stream))
+        if not reader.fieldnames:
+            raise BulkEndError("В отчёте eBay отсутствует заголовок CSV.")
+        columns = {name.strip().casefold(): name for name in reader.fieldnames if name}
+        if not {"sku", "itemid", "channel"}.issubset(columns):
+            raise BulkEndError("В отчёте eBay отсутствуют обязательные столбцы SKU, ItemID или Channel.")
+        fieldnames = reader.fieldnames
+        if start_cookie:
+            text_stream.seek(int(start_cookie))
+            reader = csv.DictReader(_ReadlineIterator(text_stream), fieldnames=fieldnames)
+        else:
+            start_cookie = str(text_stream.tell())
+
+        rows = []
+        next_cookie = str(start_cookie)
+        eof = False
+        for _ in range(max_rows):
+            try:
+                row = next(reader)
+            except StopIteration:
+                eof = True
+                break
+            rows.append(_inventory_row(row, columns))
+            next_cookie = str(text_stream.tell())
+        else:
+            try:
+                next(reader)
+            except StopIteration:
+                eof = True
+        return rows, next_cookie, eof
+    except UnicodeDecodeError as error:
+        raise BulkEndError("Не удалось прочитать кодировку CSV-отчёта eBay.") from error
+    except csv.Error as error:
+        raise BulkEndError("Отчёт eBay содержит повреждённую строку CSV.") from error
+    finally:
+        try:
+            text_stream.detach()
+        except (ValueError, AttributeError):
+            pass
+
+
+class _ReadlineIterator:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.stream.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+
+def _inventory_row(row, columns):
+    if None in row:
+        raise BulkEndError("Отчёт eBay содержит строку с некорректным числом столбцов.")
+    sku = (row.get(columns["sku"]) or "").strip()
+    item_id = (row.get(columns["itemid"]) or "").strip()
+    marketplace_id = (row.get(columns["channel"]) or "").strip()
+    if not item_id.isascii() or not item_id.isdigit() or len(item_id) > 20:
+        raise BulkEndError("В отчёте eBay обнаружен некорректный ItemID.")
+    if not marketplace_id:
+        raise BulkEndError("В отчёте eBay не указан marketplace объявления.")
+    if len(sku) > MAX_SKU_LENGTH:
+        raise BulkEndError("В отчёте eBay обнаружен слишком длинный SKU.")
+    return {"sku": sku, "item_id": item_id, "marketplace_id": marketplace_id}

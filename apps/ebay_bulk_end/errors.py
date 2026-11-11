@@ -6,6 +6,14 @@ class EBayTransportError(BulkEndError):
     pass
 
 
+class ReportStorageError(BulkEndError):
+    pass
+
+
+class SnapshotOwnershipLost(BulkEndError):
+    pass
+
+
 class EBayRateLimitError(EBayTransportError):
     def __init__(self, retry_after):
         self.retry_after = retry_after
