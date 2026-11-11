@@ -125,7 +125,7 @@ class ReportToPreviewTests(TestCase):
             snapshot = EbayInventorySnapshot.objects.create(
                 account="jv",
                 environment="sandbox",
-                ebay_seller_id="seller-jv",
+                ebay_seller_id="qn-llr8lrkm",
                 marketplace_id="EBAY_DE",
                 status="importing",
                 task_id="task-1",
@@ -136,7 +136,7 @@ class ReportToPreviewTests(TestCase):
             )
             with patch(
                 "apps.ebay_bulk_end.inventory.access_context",
-                return_value=(SimpleNamespace(ebay_user_id="seller-jv"), "token"),
+                return_value=(SimpleNamespace(ebay_user_id="qn-llr8lrkm"), "token"),
             ):
                 self.assertEqual(
                     advance_inventory_snapshot_step(snapshot.pk, uuid4()), 1
@@ -170,9 +170,16 @@ class ReportToPreviewTests(TestCase):
                         "apps.ebay_bulk_end.inventory.get_item", side_effect=get_item
                     ) as get,
                     patch("apps.ebay_bulk_end.inventory.save_job"),
+                    patch(
+                        "apps.ebay_bulk_end.inventory.verified_seller_username",
+                        return_value="seller-jv",
+                    ) as identity,
                 ):
                     self.assertIsNone(run_inventory_scan_chunk(job))
                 self.assertEqual(get.call_count, 2)
                 self.assertEqual(job["status"], "preview")
+                self.assertEqual(job["seller_id"], "qn-llr8lrkm")
+                self.assertEqual(job["seller_username"], "seller-jv")
+                identity.assert_called_once_with("token", "qn-llr8lrkm")
                 self.assertEqual(len(job["matches"]), 2)
                 self.assertTrue(job["discovery_complete"])
