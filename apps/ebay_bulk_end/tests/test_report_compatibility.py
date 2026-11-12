@@ -170,7 +170,8 @@ class ReportToPreviewTests(TestCase):
                         "apps.ebay_bulk_end.inventory.get_item", side_effect=get_item
                     ) as get,
                     patch(
-                        "apps.ebay_bulk_end.identifiers.get_item", side_effect=get_item
+                        "apps.ebay_bulk_end.identifiers.search_identifier_page",
+                        return_value=(set(), None),
                     ),
                     patch("apps.ebay_bulk_end.identifiers.save_job"),
                     patch("apps.ebay_bulk_end.inventory.save_job"),
