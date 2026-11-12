@@ -8,7 +8,9 @@ from django.utils import timezone
 from apps.ebay_bulk_end.auth import access_context, connection_for
 from apps.ebay_bulk_end.domain import (
     exact_listing_matches,
+    item_identifiers,
     item_summary,
+    manufacturer_ean,
     normalize_eans,
     safe_csv_cell,
     valid_ean,
@@ -28,6 +30,44 @@ def make_ean(body):
 
 
 class EanTests(SimpleTestCase):
+    def test_manufacturer_number_accepts_letters_but_not_partial_or_joined_numbers(
+        self,
+    ):
+        self.assertEqual(manufacturer_ean("XLM4070863275101"), "4070863275101")
+        for value in (
+            "14070863275101",
+            "XLM4070863275102",
+            "4070863-275101",
+            "4070863X275101",
+        ):
+            self.assertEqual(manufacturer_ean(value), "")
+
+    def test_manufacturer_match_with_unrelated_sku_and_conflicting_ean(self):
+        item = ET.fromstring(
+            "<Item><ItemID>306818711951</ItemID><SKU>173930174</SKU>"
+            "<ItemSpecifics><NameValueList><Name>Herstellernummer</Name>"
+            "<Value>XLM4070863275101</Value></NameValueList></ItemSpecifics></Item>"
+        )
+        self.assertEqual(item_identifiers(item), ["4070863275101"])
+        summary = item_summary(item, {"4070863275101"})
+        self.assertEqual(summary["match_type"], "exact_mpn")
+        self.assertEqual(summary["matches"][0]["source"], "mpn")
+        ET.SubElement(
+            ET.SubElement(item, "ProductListingDetails"), "EAN"
+        ).text = "4006381333931"
+        self.assertTrue(item_summary(item, {"4070863275101"})["identifier_conflict"])
+
+    def test_variation_manufacturer_match_is_risky_and_preserves_the_label(self):
+        item = ET.fromstring(
+            "<Item><ItemID>306818711951</ItemID><Variations><Variation>"
+            "<VariationSpecifics><NameValueList><Name>MPN</Name><Value>XLM4070863275101</Value>"
+            "</NameValueList></VariationSpecifics></Variation></Variations></Item>"
+        )
+        summary = item_summary(item, {"4070863275101"})
+        self.assertEqual(summary["match_type"], "exact_variation_mpn")
+        self.assertTrue(summary["risky"])
+        self.assertEqual(item_identifiers(item), ["4070863275101"])
+
     def test_validates_ean8_and_ean13_as_strings(self):
         ean8 = make_ean("0123456")
         ean13 = make_ean("001234567890")

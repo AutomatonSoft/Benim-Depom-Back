@@ -14,14 +14,14 @@ Expired snapshot listings are removed asynchronously in 1,000-row batches. Repor
 
 eBay documents 25 Active Inventory Report feeds per seller token per 24 hours and a generic 15 MB regular/compressed XML file limit. A real Sandbox LMS request returned ZIP/XML; MIP CSV documentation describes a separate feed flow and must not be used to infer LMS output. This module imposes no total-row ceiling and fails closed if eBay rejects a report or it cannot be fully staged/parsed. Real eBay file limits and infrastructure capacity still apply; synthetic million-row tests do not establish production report limits.
 
-The report contains SKU and ItemID, not EAN. A SKU equal to an EAN is a direct candidate match. Listings with another SKU may be missed; `not_found_in_sku_index` means only that no exact SKU was found, not that the EAN does not exist on eBay. Browse GTIN search can be considered as a separate best-effort source, but it is not part of this implementation and cannot guarantee whole-account coverage. `GetSellerList` is not used as a fallback because its required time window is limited to 120 days. Search completeness therefore describes the completed SKU index only; it does not claim exhaustive EAN search.
+The report contains SKU and ItemID. Background tasks fetch each listing with `GetItem` to index SKU, EAN and MPN/Herstellernummer, including variations and listings without SKU. The compact PostgreSQL identifier cache is scoped to the verified seller and environment and reused for 24 hours. Manufacturer numbers may have ASCII letter prefixes/suffixes around a complete valid EAN, for example `XLM4070863275101`. Partial digit matches and conflicting EANs are blocked. Candidates are checked live again before preview and ending. The first scan needs one Trading API call per uncached ItemID and can be slow or reach the application's API quota. In that case the job fails explicitly, retains committed index entries for a later search, and never reports a partial scan as complete. `not_found_in_identifier_index` refers to the current cached index and report, not a permanent absence from eBay.
 
 ## Ending safety
 
 OAuth `EbayConnection.ebay_user_id` is the immutable Identity API `userId`; Trading `Seller.UserID` is the username. They must not be compared directly. Before candidate verification and again for each ending chunk, the module requests Identity API with the current token, verifies its `userId` against the stored connection/job ID and compares its confirmed `username` with the listing seller. Identity mismatch, a missing username or a failed lookup blocks the operation. The immutable ID remains the key for snapshots, quotas and in-flight reservations.
 
 - Every candidate is checked again before `EndItems` for seller, active status, current identifiers, title, listing type, variations and auction risk.
-- SKU and EAN stay distinct. Exact SKU, exact variation SKU, exact EAN and exact variation EAN match types are recorded. Populated conflicting EAN data blocks selection and confirmation.
+- SKU, EAN and manufacturer number match types stay distinct, including variation matches. Populated conflicting EAN data blocks selection and confirmation.
 - Multi-variation listings and auctions with bids or an unknown bid count are excluded from default selection and require separate confirmation. eBay ends the parent ItemID and all its variations.
 - Depotum listings found in BENIM's publication records are protected. Lookup failure blocks the operation.
 - The manager confirms the account and `NotAvailable` ending reason. `EndItems` sends at most 10 ItemIDs per call.
@@ -34,7 +34,7 @@ New tables owned by this app are `EbayBulkEndJob`, `EbayBulkEndJobItem`, `EbayBu
 
 PostgreSQL is the source of truth for jobs, inputs, candidates, selections, results, timestamps, report metadata and append-only events. Redis keeps the seven-day progress cache and worker/account locks. Reading a job reconstructs it from PostgreSQL first, so Redis expiry/restart does not erase history or bypass a durable in-flight reservation. There is no automatic PostgreSQL history cleanup.
 
-The history API and page are manager-only and owner-only: managers see their own jobs, not other managers' audit history. List filtering and page size are server-side; CSV output includes item results and EANs not found in the SKU index.
+The history API and page are manager-only and owner-only: managers see their own jobs, not other managers' audit history. List filtering and page size are server-side; CSV output includes item results and EANs not found in the current identifier index. Older jobs retain their original SKU-only coverage.
 
 ## API
 
@@ -70,4 +70,4 @@ Inventory errors are written to the marketplace worker log as `eBay inventory er
 
 ## Tests
 
-Run with `python manage.py test apps.ebay_bulk_end.tests`. All eBay calls are mocked; tests do not send live `EndItems` requests. The parser tests stream 100,000, 500,000 and 1,000,001 synthetic rows through bounded chunks; the lookup test stores 100,000 rows in PostgreSQL and asserts only matching SKU candidates call `GetItem`.
+Run with `python manage.py test apps.ebay_bulk_end.tests`. All eBay calls are mocked; tests do not send live `EndItems` requests. The parser tests stream 100,000, 500,000 and 1,000,001 synthetic rows through bounded chunks. The warm-index lookup test stores 100,000 rows in PostgreSQL. Identifier tests cover first-time indexing, reuse, interrupted chunks, seller isolation, EAN/MPN matches, and live verification before ending.
