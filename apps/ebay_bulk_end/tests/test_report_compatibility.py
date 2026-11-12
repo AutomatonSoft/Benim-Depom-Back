@@ -169,13 +169,18 @@ class ReportToPreviewTests(TestCase):
                     patch(
                         "apps.ebay_bulk_end.inventory.get_item", side_effect=get_item
                     ) as get,
+                    patch(
+                        "apps.ebay_bulk_end.identifiers.get_item", side_effect=get_item
+                    ),
+                    patch("apps.ebay_bulk_end.identifiers.save_job"),
                     patch("apps.ebay_bulk_end.inventory.save_job"),
                     patch(
                         "apps.ebay_bulk_end.inventory.verified_seller_username",
                         return_value="seller-jv",
                     ) as identity,
                 ):
-                    self.assertIsNone(run_inventory_scan_chunk(job))
+                    while run_inventory_scan_chunk(job) is not None:
+                        pass
                 self.assertEqual(get.call_count, 2)
                 self.assertEqual(job["status"], "preview")
                 self.assertEqual(job["seller_id"], "qn-llr8lrkm")
