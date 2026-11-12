@@ -32,7 +32,12 @@ from .feed import (
     inspect_staged_inventory_report,
     iter_inventory_chunk,
 )
-from .identifiers import identifier_index, index_snapshot_identifiers
+from .identifiers import (
+    IDENTIFIER_TTL,
+    cache_item_identifiers,
+    discover_identifier_candidates,
+    identifier_index,
+)
 from .managed_publications import managed_depotum_item_ids
 from .models import EbayInventoryListing, EbayInventorySnapshot
 from .staging import (
@@ -1029,6 +1034,11 @@ def run_inventory_scan_chunk(job):
         return None
     now = timezone.now()
     job["status"] = "scanning"
+    if job.get("identifier_search_version") != 1:
+        job["identifier_search_version"] = 1
+        job.pop("identifier_candidate_ids", None)
+        job["candidate_offset"] = 0
+        job["matches"] = []
     job.setdefault("scan_started_at", now.isoformat())
     try:
         connection, token = access_context(job["account"], job["environment"])
@@ -1201,7 +1211,10 @@ def run_inventory_scan_chunk(job):
             token, seller_id
         )
         job["seller_username"] = seller_username
-        if not index_snapshot_identifiers(snapshot, job, token, seller_username):
+        job.setdefault(
+            "identifier_cutoff", (timezone.now() - IDENTIFIER_TTL).isoformat()
+        )
+        if not discover_identifier_candidates(job, seller_username):
             return 1
         if "identifier_candidate_ids" in job:
             listing_rows = snapshot.listings.filter(
@@ -1211,7 +1224,9 @@ def run_inventory_scan_chunk(job):
             identifier_query = Q()
             for ean in job["eans"]:
                 identifier_query |= Q(identifiers__contains=[ean])
-            indexed_items = identifier_index(job).filter(identifier_query)
+            indexed_items = identifier_index(job).filter(
+                identifier_query, checked_at__gte=timezone.now() - IDENTIFIER_TTL
+            )
             listing_rows = snapshot.listings.filter(
                 Q(sku__in=job["eans"])
                 | Q(item_id__in=Subquery(indexed_items.values("item_id")))
@@ -1225,7 +1240,19 @@ def run_inventory_scan_chunk(job):
                 f"Найдено больше {MAX_MATCHES} объявлений; сократите список EAN, чтобы проверить все совпадения.",
             )
             return None
-        candidates = _candidate_rows(listing_rows)
+        candidates_by_id = dict(_candidate_rows(listing_rows))
+        for item_id in job.get(
+            "identifier_candidate_ids", job.get("identifier_search_ids", [])
+        ):
+            candidates_by_id.setdefault(item_id, [])
+        candidates = sorted(candidates_by_id.items())
+        if len(candidates) > MAX_MATCHES:
+            _finish_scan(
+                job,
+                "incomplete",
+                f"Найдено больше {MAX_MATCHES} объявлений; сократите список EAN.",
+            )
+            return None
         if "identifier_candidate_ids" not in job:
             job["identifier_candidate_ids"] = [item_id for item_id, _ in candidates]
             # Restart older SKU-only checkpoints against the expanded candidate set.
@@ -1257,6 +1284,7 @@ def run_inventory_scan_chunk(job):
             if (
                 not actual_seller
                 or actual_seller.casefold() != seller_username.casefold()
+                or text(details, "ItemID") != item_id
             ):
                 _finish_scan(
                     job,
@@ -1265,6 +1293,12 @@ def run_inventory_scan_chunk(job):
                 )
                 return None
             summary = item_summary(details, set(job["eans"]))
+            cache_item_identifiers(job, details)
+            if summary is None and not (
+                (set(indexed_skus) | set(identifiers_by_item.get(item_id, [])))
+                & set(job["eans"])
+            ):
+                continue
             if summary is None or summary["item_id"] != item_id:
                 job["discovery_details"]["verification_failures"] = (
                     int(job["discovery_details"].get("verification_failures", 0)) + 1
@@ -1316,18 +1350,21 @@ def run_inventory_scan_chunk(job):
         }
         job["unmatched_status"] = "not_found_in_identifier_index"
         job["discovery_complete"] = True
-        job["discovery_strategy"] = "sell_feed_verified_identifier_index"
-        job["discovery_details"]["coverage"] = "active_listings_by_sku_ean_mpn"
+        job["discovery_strategy"] = "sell_feed_sku_and_browse_identifiers"
+        job["discovery_details"]["coverage"] = "sku_index_and_public_identifier_search"
         job["discovery_details"]["not_found_status"] = "not_found_in_identifier_index"
-        job["discovery_details"]["ean_search_complete"] = True
-        job["discovery_details"]["mpn_search_complete"] = True
+        job["discovery_details"]["ean_search_complete"] = False
+        job["discovery_details"]["mpn_search_complete"] = False
+        job["discovery_details"]["public_search_complete"] = True
         job["discovery_details"]["ean_only_discovery_supported"] = True
         job["discovery_details"]["sku_search_complete"] = True
         job["discovery_details"]["snapshot_expires_at"] = (
             snapshot.expires_at.isoformat()
         )
         job["status"] = "preview"
-        job["message"] = "Активные объявления проверены по SKU, EAN и Herstellernummer."
+        job["message"] = (
+            "Быстрый поиск завершён. Найденные объявления проверены по SKU, EAN и Herstellernummer. Поиск eBay может показывать не все объявления."
+        )
         job["preview_expires_at"] = (
             timezone.now() + timedelta(seconds=15 * 60)
         ).isoformat()
