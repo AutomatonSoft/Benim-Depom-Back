@@ -62,9 +62,21 @@ def purchase_eur(product: Product, rate: FxRate | ExchangeRate) -> Decimal:
 
 def de_delivery_eur(cbm: Decimal, catalog: dict | None = None) -> Decimal:
     catalog = catalog or get_pricing_catalog()
-    for tier in catalog["de_size_tiers"]:
+    tiers = catalog["de_size_tiers"]
+    for tier in tiers:
         if Decimal(str(tier["min_cbm"])) <= cbm <= Decimal(str(tier["max_cbm"])):
             return Decimal(str(tier["price_eur"]))
+    boundaries = [
+        (Decimal(str(tier[bound])), tier)
+        for tier in tiers
+        for bound in ("min_cbm", "max_cbm")
+    ]
+    if boundaries and min(bound for bound, _ in boundaries) <= cbm <= max(
+        bound for bound, _ in boundaries
+    ):
+        # In a gap choose the nearest boundary; ties use the larger volume tier.
+        _, nearest = min(boundaries, key=lambda entry: (abs(entry[0] - cbm), -entry[0]))
+        return Decimal(str(nearest["price_eur"]))
     raise ValueError(f"No DE size tier for cbm={cbm}")
 
 

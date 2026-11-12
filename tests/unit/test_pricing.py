@@ -4,12 +4,46 @@ import pytest
 
 from apps.products.models import ExchangeRate, ProductSetPart
 from apps.products.pricing import (
+    de_delivery_eur,
     listing_price_eur,
     packed_cbm,
     percent_factor,
     round_to_49_or_99,
 )
 from apps.products.pricing_catalog import get_pricing_catalog
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("volume", "expected"),
+    [
+        ("0", "20"),
+        ("0.03", "20"),
+        ("0.0301", "20"),
+        ("0.0305", "89"),
+        ("0.0309", "89"),
+        ("0.031", "89"),
+        ("0.5", "89"),
+        ("0.501", "89"),
+        ("0.505", "170"),
+        ("0.50688", "170"),
+        ("0.51", "170"),
+        ("2.5", "170"),
+        ("2.501", "170"),
+        ("2.509", "250"),
+        ("2.51", "250"),
+        ("9999", "250"),
+    ],
+)
+def test_delivery_tariff_uses_nearest_boundary_only_in_gaps(volume, expected):
+    assert de_delivery_eur(Decimal(volume)) == Decimal(expected)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("volume", ["-0.001", "10000"])
+def test_delivery_tariff_rejects_volume_outside_catalog(volume):
+    with pytest.raises(ValueError, match="No DE size tier"):
+        de_delivery_eur(Decimal(volume))
 
 
 @pytest.mark.unit
