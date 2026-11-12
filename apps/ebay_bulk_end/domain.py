@@ -1,3 +1,4 @@
+import re
 from xml.etree import ElementTree as ET
 
 from django.conf import settings
@@ -112,6 +113,50 @@ def _specific_eans(container):
                     yield value.text.strip()
 
 
+def manufacturer_ean(value):
+    """Accept a complete EAN with an optional letter prefix/suffix, never a substring."""
+    match = re.fullmatch(r"[A-Za-z]*([0-9]{13}|[0-9]{8})[A-Za-z]*", value.strip())
+    return match[1] if match and valid_ean(match[1]) else ""
+
+
+def _manufacturer_eans(container):
+    for node in descendants(container, "MPN"):
+        yield manufacturer_ean(node.text or "")
+    for pair in descendants(container, "NameValueList"):
+        if text(pair, "Name").casefold() in {"mpn", "herstellernummer"}:
+            for value in pair:
+                if local_name(value.tag) == "Value":
+                    yield manufacturer_ean(value.text or "")
+
+
+def manufacturer_matches(item, requested_eans):
+    matches = {
+        ean: "listing"
+        for ean in (
+            set(_manufacturer_eans(child(item, "ProductListingDetails")))
+            | set(_manufacturer_eans(child(item, "ItemSpecifics")))
+        ).intersection(requested_eans)
+    }
+    for variation in descendants(child(item, "Variations"), "Variation"):
+        for ean in set(_manufacturer_eans(variation)).intersection(requested_eans):
+            matches[ean] = "variation"
+    return matches
+
+
+def item_identifiers(item):
+    """Compact index values only; live GetItem remains mandatory before ending."""
+    values = {text(item, "SKU"), text(child(item, "ProductListingDetails"), "EAN")}
+    values.update(_specific_eans(child(item, "ItemSpecifics")))
+    values.update(_specific_eans(child(item, "ProductListingDetails")))
+    values.update(_manufacturer_eans(child(item, "ItemSpecifics")))
+    values.update(_manufacturer_eans(child(item, "ProductListingDetails")))
+    for variation in descendants(child(item, "Variations"), "Variation"):
+        values.add(text(variation, "SKU"))
+        values.update(_variation_eans(variation))
+        values.update(_manufacturer_eans(variation))
+    return sorted(value for value in values if valid_ean(value))
+
+
 def _variation_eans(variation):
     product_details = child(variation, "VariationProductListingDetails")
     return {
@@ -156,7 +201,8 @@ def item_summary(item, requested_eans, view_url=""):
         return None
     ean_matches = exact_listing_matches(item, requested_eans)
     sku_matches = exact_sku_matches(item, requested_eans)
-    if not ean_matches and not sku_matches:
+    mpn_matches = manufacturer_matches(item, requested_eans)
+    if not ean_matches and not sku_matches and not mpn_matches:
         return None
     seller_id = text(child(item, "Seller"), "UserID")
     listing_type, bid_count, auction_risky = auction_state(item)
@@ -167,6 +213,9 @@ def item_summary(item, requested_eans, view_url=""):
             continue
         variation_sku = text(variation, "SKU")
         matched_ids = _variation_eans(variation).intersection(requested_eans)
+        matched_ids.update(
+            set(_manufacturer_eans(variation)).intersection(requested_eans)
+        )
         if variation_sku in requested_eans:
             matched_ids.add(variation_sku)
         for ean in matched_ids:
@@ -180,32 +229,42 @@ def item_summary(item, requested_eans, view_url=""):
     if listing_ean:
         listing_eans.add(listing_ean)
     listing_sku = text(item, "SKU")
-    for ean in sorted(ean_matches.keys() | sku_matches.keys()):
-        kind = sku_matches.get(ean, {}).get("type", ean_matches.get(ean, "listing"))
+    for ean in sorted(ean_matches.keys() | sku_matches.keys() | mpn_matches.keys()):
+        kind = sku_matches.get(ean, {}).get(
+            "type", ean_matches.get(ean, mpn_matches.get(ean, "listing"))
+        )
         source = (
             "sku_and_ean"
             if ean in sku_matches and ean in ean_matches
             else "sku"
             if ean in sku_matches
             else "ean"
+            if ean in ean_matches
+            else "mpn"
         )
         matched_sku = sku_matches.get(ean, {}).get("sku", "")
         conflict = False
-        if source in {"sku", "sku_and_ean"} and kind == "listing":
+        if source in {"sku", "sku_and_ean", "mpn"} and kind == "listing":
             conflict = bool(listing_eans and ean not in listing_eans)
-        elif source in {"sku", "sku_and_ean"}:
+        elif source in {"sku", "sku_and_ean", "mpn"}:
             for variation in descendants(child(item, "Variations"), "Variation"):
-                if text(variation, "SKU") != ean:
+                variation_identifiers = (
+                    set(_manufacturer_eans(variation))
+                    if source == "mpn"
+                    else {text(variation, "SKU")}
+                )
+                if ean not in variation_identifiers:
                     continue
                 variation_eans = set(_variation_eans(variation)) - {""}
                 conflict = conflict or bool(
                     variation_eans and ean not in variation_eans
                 )
         identifier_conflict = identifier_conflict or conflict
+        identifier_type = "sku" if source in {"sku", "sku_and_ean"} else source
         match_type = (
-            f"exact_variation_{'sku' if source != 'ean' else 'ean'}"
+            f"exact_variation_{identifier_type}"
             if kind == "variation"
-            else f"exact_{'sku' if source != 'ean' else 'ean'}"
+            else f"exact_{identifier_type}"
         )
         matched_rows.append(
             {

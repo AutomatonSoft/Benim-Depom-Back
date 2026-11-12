@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from billiard.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Q, Subquery
 from django.utils import timezone
 
 from .audit import record_event
@@ -32,6 +32,7 @@ from .feed import (
     inspect_staged_inventory_report,
     iter_inventory_chunk,
 )
+from .identifiers import identifier_index, index_snapshot_identifiers
 from .managed_publications import managed_depotum_item_ids
 from .models import EbayInventoryListing, EbayInventorySnapshot
 from .staging import (
@@ -110,6 +111,7 @@ def snapshot_for_scan(*, account, environment, seller_id):
         EbayInventorySnapshot.objects.filter(
             **scope,
             complete=True,
+            includes_unlabelled_items=True,
             expires_at__gt=now,
         )
         .order_by("-completed_at")
@@ -827,15 +829,14 @@ def advance_inventory_snapshot_step(snapshot_id, job_id):
                     raise BulkEndError(
                         "eBay report contains listings for another marketplace."
                     )
-                if row["sku"]:
-                    batch.append(
-                        EbayInventoryListing(
-                            snapshot_id=snapshot.pk,
-                            item_id=row["item_id"],
-                            sku=row["sku"],
-                            marketplace_id=row["marketplace_id"],
-                        )
+                batch.append(
+                    EbayInventoryListing(
+                        snapshot_id=snapshot.pk,
+                        item_id=row["item_id"],
+                        sku=row["sku"],
+                        marketplace_id=row["marketplace_id"],
                     )
+                )
             with transaction.atomic():
                 current = EbayInventorySnapshot.objects.select_for_update().get(
                     pk=snapshot.pk
@@ -1054,7 +1055,13 @@ def run_inventory_scan_chunk(job):
             if (
                 snapshot
                 and snapshot.complete
-                and (not snapshot.expires_at or snapshot.expires_at <= now)
+                and (
+                    not snapshot.includes_unlabelled_items
+                    or (
+                        not job.get("identifier_cutoff")
+                        and (not snapshot.expires_at or snapshot.expires_at <= now)
+                    )
+                )
             ):
                 snapshot = None
                 job.pop("inventory_snapshot_id", None)
@@ -1175,10 +1182,40 @@ def run_inventory_scan_chunk(job):
                 "report_record_count": snapshot.record_count,
             }
         )
-        listing_rows = snapshot.listings.filter(sku__in=job["eans"])
-        job["indexed_eans"] = sorted(
-            listing_rows.order_by().values_list("sku", flat=True).distinct()
+        sku_count = (
+            snapshot.listings.filter(sku__in=job["eans"])
+            .order_by()
+            .values("item_id")
+            .distinct()
+            .count()
         )
+        if sku_count > MAX_MATCHES:
+            job["discovery_details"]["candidate_item_count"] = sku_count
+            _finish_scan(
+                job,
+                "incomplete",
+                f"Найдено больше {MAX_MATCHES} объявлений; сократите список EAN.",
+            )
+            return None
+        seller_username = job.get("seller_username") or verified_seller_username(
+            token, seller_id
+        )
+        job["seller_username"] = seller_username
+        if not index_snapshot_identifiers(snapshot, job, token, seller_username):
+            return 1
+        if "identifier_candidate_ids" in job:
+            listing_rows = snapshot.listings.filter(
+                item_id__in=job["identifier_candidate_ids"]
+            )
+        else:
+            identifier_query = Q()
+            for ean in job["eans"]:
+                identifier_query |= Q(identifiers__contains=[ean])
+            indexed_items = identifier_index(job).filter(identifier_query)
+            listing_rows = snapshot.listings.filter(
+                Q(sku__in=job["eans"])
+                | Q(item_id__in=Subquery(indexed_items.values("item_id")))
+            )
         candidate_count = listing_rows.order_by().values("item_id").distinct().count()
         job["discovery_details"]["candidate_item_count"] = candidate_count
         if candidate_count > MAX_MATCHES:
@@ -1189,13 +1226,18 @@ def run_inventory_scan_chunk(job):
             )
             return None
         candidates = _candidate_rows(listing_rows)
-        seller_username = (
-            verified_seller_username(token, seller_id) if candidates else ""
-        )
-        job["seller_username"] = seller_username
-
+        if "identifier_candidate_ids" not in job:
+            job["identifier_candidate_ids"] = [item_id for item_id, _ in candidates]
+            # Restart older SKU-only checkpoints against the expanded candidate set.
+            job["candidate_offset"] = 0
+            job["matches"] = []
         offset = int(job.get("candidate_offset", 0))
         batch = candidates[offset : offset + VERIFY_ITEMS_PER_TASK]
+        identifiers_by_item = dict(
+            identifier_index(job)
+            .filter(item_id__in=[item_id for item_id, _ in batch])
+            .values_list("item_id", "identifiers")
+        )
         matches_by_id = {row["item_id"]: row for row in job.get("matches", [])}
         for item_id, indexed_skus in batch:
             details = get_item(token, item_id)
@@ -1204,7 +1246,11 @@ def run_inventory_scan_chunk(job):
                     int(job["discovery_details"].get("stale_candidates", 0)) + 1
                 )
                 job["stale_candidate_eans"] = sorted(
-                    set(job.get("stale_candidate_eans", [])) | set(indexed_skus)
+                    set(job.get("stale_candidate_eans", []))
+                    | (
+                        (set(indexed_skus) | set(identifiers_by_item.get(item_id, [])))
+                        & set(job["eans"])
+                    )
                 )
                 continue
             actual_seller = text(child(details, "Seller"), "UserID")
@@ -1219,14 +1265,7 @@ def run_inventory_scan_chunk(job):
                 )
                 return None
             summary = item_summary(details, set(job["eans"]))
-            if (
-                summary is None
-                or summary["item_id"] != item_id
-                or not any(
-                    match.get("source") in {"sku", "sku_and_ean"}
-                    for match in summary["matches"]
-                )
-            ):
+            if summary is None or summary["item_id"] != item_id:
                 job["discovery_details"]["verification_failures"] = (
                     int(job["discovery_details"].get("verification_failures", 0)) + 1
                 )
@@ -1271,22 +1310,24 @@ def run_inventory_scan_chunk(job):
             ean: (
                 "verification_failed"
                 if ean in set(job.get("stale_candidate_eans", []))
-                else "not_found_in_sku_index"
+                else "not_found_in_identifier_index"
             )
             for ean in job["unmatched_eans"]
         }
-        # shortcut: the report has SKU, not EAN; add a verified GTIN source for wider EAN coverage.
-        job["unmatched_status"] = "not_found_in_sku_index"
+        job["unmatched_status"] = "not_found_in_identifier_index"
         job["discovery_complete"] = True
-        job["discovery_details"]["ean_search_complete"] = False
+        job["discovery_strategy"] = "sell_feed_verified_identifier_index"
+        job["discovery_details"]["coverage"] = "active_listings_by_sku_ean_mpn"
+        job["discovery_details"]["not_found_status"] = "not_found_in_identifier_index"
+        job["discovery_details"]["ean_search_complete"] = True
+        job["discovery_details"]["mpn_search_complete"] = True
+        job["discovery_details"]["ean_only_discovery_supported"] = True
         job["discovery_details"]["sku_search_complete"] = True
         job["discovery_details"]["snapshot_expires_at"] = (
             snapshot.expires_at.isoformat()
         )
         job["status"] = "preview"
-        job["message"] = (
-            "Отчёт по активным объявлениям обработан. Поиск выполнен по SKU; EAN в отчёте отсутствует."
-        )
+        job["message"] = "Активные объявления проверены по SKU, EAN и Herstellernummer."
         job["preview_expires_at"] = (
             timezone.now() + timedelta(seconds=15 * 60)
         ).isoformat()

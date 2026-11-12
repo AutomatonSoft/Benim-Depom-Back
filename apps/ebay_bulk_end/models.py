@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 
@@ -167,6 +168,7 @@ class EbayInventorySnapshot(models.Model):
     report_request_started_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=24, default="requested")
     complete = models.BooleanField(default=False)
+    includes_unlabelled_items = models.BooleanField(default=True)
     record_count = models.PositiveBigIntegerField(default=0)
     error_message = models.TextField(blank=True)
     report_completed_at = models.DateTimeField(null=True, blank=True)
@@ -261,4 +263,23 @@ class EbayInventoryListing(models.Model):
         indexes = [
             models.Index(fields=("snapshot", "sku"), name="ebulk_snapshot_sku_idx"),
             models.Index(fields=("item_id",), name="ebulk_snapshot_item_idx"),
+        ]
+
+
+class EbayListingIdentifiers(models.Model):
+    environment = models.CharField(max_length=16)
+    seller_id = models.CharField(max_length=255)
+    item_id = models.CharField(max_length=32)
+    identifiers = models.JSONField(default=list)
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("environment", "seller_id", "item_id"),
+                name="ebulk_identifier_seller_item",
+            )
+        ]
+        indexes = [
+            GinIndex(fields=("identifiers",), name="ebulk_identifier_values_idx")
         ]

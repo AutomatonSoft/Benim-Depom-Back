@@ -111,6 +111,12 @@ class ExactIdentifierTests(SimpleTestCase):
 
 class LargeInventoryLookupTests(TestCase):
     def setUp(self):
+        # These tests exercise candidate verification with an already populated index.
+        indexing = patch(
+            "apps.ebay_bulk_end.inventory.index_snapshot_identifiers", return_value=True
+        )
+        indexing.start()
+        self.addCleanup(indexing.stop)
         identity = patch(
             "apps.ebay_bulk_end.inventory.verified_seller_username",
             side_effect=lambda _token, user_id: user_id,
@@ -711,8 +717,8 @@ class LargeInventoryLookupTests(TestCase):
         self.assertEqual(job["status"], "preview")
         self.assertEqual(len(job["matches"]), 81)
         self.assertEqual(set(job["unmatched_eans"]), set(requested[80:]))
-        self.assertEqual(job["unmatched_status"], "not_found_in_sku_index")
-        self.assertFalse(job["discovery_details"]["ean_search_complete"])
+        self.assertEqual(job["unmatched_status"], "not_found_in_identifier_index")
+        self.assertTrue(job["discovery_details"]["ean_search_complete"])
 
     def test_stale_report_candidate_is_not_misreported_as_absent_from_the_index(self):
         snapshot = self._snapshot()
