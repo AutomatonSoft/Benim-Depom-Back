@@ -1,12 +1,10 @@
 """Local Depotum draft preparation shared by the manager form and common AI apply."""
 
 import re
-from decimal import Decimal
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
-from apps.marketplace.set_listing import _format_cm, iter_set_parts
 from apps.products.listing_images import public_generated_listing_urls
 from apps.products.pricing import safe_listing_price_eur
 
@@ -33,42 +31,7 @@ def manager_draft_values(product, *, draft=None, values=None):
     """Use card facts and agreed Depotum settings; never invent category/aspect choices."""
     values = dict(values or {})
     aspects = dict(values.get("aspects", getattr(draft, "aspects", {})))
-    category_id = values.get("category_id", getattr(draft, "category_id", ""))
     variants = list(product.variants.all())
-    main = variants[0] if variants else None
-    if category_id and main:
-        from .catalog import get_category_aspects
-
-        aspect_names = {
-            item["localizedAspectName"]
-            for item in get_category_aspects(category_id=category_id)["aspects"]
-        }
-        for name, field in (
-            ("Breite", "width_cm"),
-            ("Länge", "length_cm"),
-            ("Höhe", "height_cm"),
-        ):
-            value = getattr(main, field, None)
-            if name in aspect_names and value is not None and Decimal(str(value)) > 0:
-                aspects[name] = [f"{_format_cm(value)} cm"]
-        # Keep manager labels while replacing only our generated factual dimension rows.
-        for name in list(aspects):
-            if re.fullmatch(r"Maße Teil \d+ \(B × L × H\)", name):
-                del aspects[name]
-        for index, part in enumerate(iter_set_parts(product), start=2):
-            sizes = [
-                getattr(part, field, None)
-                for field in ("width_cm", "length_cm", "height_cm")
-            ]
-            if all(value is not None and Decimal(str(value)) > 0 for value in sizes):
-                dimensions = " × ".join(_format_cm(value) for value in sizes) + " cm"
-                if not any(
-                    name.startswith("Maße ")
-                    and not re.fullmatch(r"Maße Teil \d+ \(B × L × H\)", name)
-                    and dimensions in values
-                    for name, values in aspects.items()
-                ):
-                    aspects[f"Maße Teil {index} (B × L × H)"] = [dimensions]
     title = values.get("title", getattr(draft, "title", ""))
     values.update(
         title=listing_title(title),
@@ -116,12 +79,6 @@ def apply_ai_content(product, content, *, overwrite):
         if getattr(draft, field) != value:
             setattr(draft, field, value)
             changed = True
-    if content.get("color"):
-        if overwrite or not draft.aspects.get("Farbe"):
-            draft.aspects = {**draft.aspects, "Farbe": [content["color"]]}
-            changed = True
-        else:
-            skipped.append("color")
     # Category is deliberately left for the manager; card facts/settings sync on form save.
     if changed:
         draft.save()
