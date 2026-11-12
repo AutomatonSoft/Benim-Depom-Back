@@ -14,17 +14,24 @@ from apps.orchestrator.models import (
 from apps.products.models import ProductSetPart
 
 
-def test_set_dimension_sync_keeps_named_rows_without_duplicating_them(settings):
+@pytest.mark.parametrize(
+    "aspects",
+    [
+        {},
+        {
+            "Breite": ["123 cm"],
+            "Farbe": ["Rot"],
+            "Maße Teil 2 (B × L × H)": ["10 × 20 × 30 cm"],
+        },
+    ],
+)
+def test_product_sync_preserves_manual_aspects_without_autofilling(settings, aspects):
     main = SimpleNamespace(width_cm=50, length_cm=55, height_cm=90, quantity=2)
     part = SimpleNamespace(width_cm=70, length_cm=80, height_cm=90)
     product = SimpleNamespace(
         variants=SimpleNamespace(all=lambda: [main]), set_parts=[part, part]
     )
-    schema = {"aspects": []}
     with (
-        patch(
-            "apps.marketplace.ebay.catalog.get_category_aspects", return_value=schema
-        ),
         patch(
             "apps.marketplace.ebay.manager.public_generated_listing_urls",
             return_value=[],
@@ -33,28 +40,33 @@ def test_set_dimension_sync_keeps_named_rows_without_duplicating_them(settings):
             "apps.marketplace.ebay.manager.safe_listing_price_eur", return_value=None
         ),
     ):
-        rows = manager_draft_values(
-            product, values={"category_id": "38208", "aspects": {}}
-        )["aspects"]
+        draft = SimpleNamespace(aspects=aspects)
         assert (
-            len(rows) == 2
-        )  # Identical dimensions still belong to two different set pieces.
-        named = {"Maße Sessel (B × L × H)": ["70 × 80 × 90 cm"]}
+            manager_draft_values(product, draft=draft, values={"category_id": "38208"})[
+                "aspects"
+            ]
+            == aspects
+        )
         assert (
             manager_draft_values(
-                product, values={"category_id": "38208", "aspects": named}
+                product, draft=draft, values={"category_id": "38208", "aspects": {}}
             )["aspects"]
-            == named
+            == {}
         )
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("environment", ["sandbox", "production"])
+@pytest.mark.parametrize("aspects", [{}, {"Farbe": ["Rot"], "Breite": ["123 cm"]}])
 def test_common_ai_apply_saves_depotum_text_and_keeps_legacy_channel(
-    api_client, manager, product_factory, settings, environment
+    api_client, manager, product_factory, settings, environment, aspects
 ):
     settings.EBAY_ENVIRONMENT = environment
     product = product_factory(owner=manager)
+    if aspects:
+        EbayDraft.objects.create(
+            product=product, environment=environment, account="depotum", aspects=aspects
+        )
     targets = [
         {"marketplace": "otto", "account": "jv"},
         {"marketplace": "ebay", "account": "depotum"},
@@ -88,7 +100,7 @@ def test_common_ai_apply_saves_depotum_text_and_keeps_legacy_channel(
     assert draft.title == content["ebay_title"] + " BD"
     assert len(draft.title) == 78
     assert draft.description == content["description"]
-    assert draft.aspects == {"Farbe": ["Blau"]}
+    assert draft.aspects == aspects
     assert draft.category_id == ""
     assert EbayOfferPreparation.objects.count() == 0
     legacy = MarketplaceListingConfiguration.objects.get(
@@ -109,12 +121,13 @@ def test_common_ai_apply_saves_depotum_text_and_keeps_legacy_channel(
     assert response.status_code == 200
     draft.refresh_from_db()
     assert draft.title == "Manuell BD"
+    assert draft.aspects == aspects
     assert "title" in response.data["skipped_fields"]["ebay:depotum"]
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("environment", ["sandbox", "production"])
-def test_manager_save_uses_card_facts_jv_images_set_dimensions_and_environment_settings(
+def test_manager_save_uses_card_facts_jv_images_manual_aspects_and_environment_settings(
     api_client, manager, product_factory, settings, environment
 ):
     settings.EBAY_ENVIRONMENT = environment
@@ -171,7 +184,7 @@ def test_manager_save_uses_card_facts_jv_images_set_dimensions_and_environment_s
                 "title": "Sofagarnitur BD",
                 "description": "Beschreibung",
                 "category_id": "38208",
-                "aspects": {"Farbe": ["Blau"]},
+                "aspects": {"Farbe": ["Blau"], "Breite": ["123 cm"]},
                 "quantity": 999,
                 "price_eur": "1.00",
             },
@@ -186,10 +199,7 @@ def test_manager_save_uses_card_facts_jv_images_set_dimensions_and_environment_s
     assert draft.image_urls == urls
     assert draft.aspects == {
         "Farbe": ["Blau"],
-        "Breite": ["50 cm"],
-        "Länge": ["55 cm"],
-        "Höhe": ["90 cm"],
-        "Maße Teil 2 (B × L × H)": ["70 × 80 × 90 cm"],
+        "Breite": ["123 cm"],
     }
     assert draft.merchant_location_key == f"{environment}-warehouse"
     assert draft.regulatory["manufacturer"]["companyName"] == "AEA GmbH & Co. KG"
