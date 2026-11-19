@@ -269,9 +269,10 @@ def build_hood_payload(
 
     automatic_properties = {
         "Farbe": color,
-        "Breite": _format_cm(variant.width_cm),
+        # Seller length is the German Breite, seller width is the Tiefe.
+        "Breite": _format_cm(variant.length_cm),
         "Höhe": _format_cm(variant.height_cm),
-        "Länge": _format_cm(variant.length_cm),
+        "Tiefe": _format_cm(variant.width_cm),
     }
     if materials:
         automatic_properties["Material"] = ", ".join(materials)
