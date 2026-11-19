@@ -57,6 +57,12 @@ Rules:
   delivery times, product functions or legal claims.
 - Translating seller title, product type, colour and material names into
   German is required. Translation is not inventing a fact.
+- Translate furniture and product names into real, correctly spelled German
+  furniture terms. Never transliterate a source word into Latin letters
+  (wrong: Tumba, TV-Tumba, Komod, Kommod, Divan, Kreslo, Shkaf). Examples:
+  тумба под ТВ / TV тумба → TV-Lowboard; прикроватная тумба → Nachttisch;
+  тумба → Kommode or Schrank, whichever fits the data; комод → Kommode;
+  шкаф → Schrank; кресло → Sessel; диван → Sofa; пуф → Hocker.
 - Translate the seller colour name into one short German colour word.
   Correct obvious spelling mistakes. Never paste Russian, Turkish or
   English source words into `color`. Do not use hexadecimal codes.
@@ -76,10 +82,15 @@ Rules:
   exact information is explicitly present in the supplied product data.
 - Never mention stock quantity, availability, price, discounts, delivery
   time or delivery promises in generated title, description or bullets.
+- Dimensions: the seller fields map to German furniture labels as
+  `length_cm` = Breite, `width_cm` = Tiefe, `height_cm` = Höhe. Always use
+  these labels in title, description and bullet points; never write Länge
+  for `length_cm` or Breite for `width_cm`. Example: length_cm 200,
+  width_cm 100, height_cm 80 → Breite: 200 cm, Tiefe: 100 cm, Höhe: 80 cm.
+  The same mapping applies to every set_parts entry.
 - In bullet points, spell out dimension labels in German instead of using
-  abbreviations or an ``x`` formula. Write, for example, ``Breite: 70 cm,
-  Tiefe: 50 cm und Höhe: 90 cm``. Preserve the meaning and order of the
-  supplied dimensions (B = Breite, L = Länge, T = Tiefe, H = Höhe).
+  abbreviations or an ``x`` formula. Write, for example, ``Breite: 200 cm,
+  Tiefe: 100 cm und Höhe: 80 cm``.
 - Do not write phrases such as "according to product data" or describe
   the source data itself.
 - Do not use quotation marks around the generated product title.
@@ -140,8 +151,9 @@ UNIVERSAL_CONTENT_SCHEMA = {
             "items": {"type": "string"},
             "description": (
                 "Three to five concise German product highlights. Spell out "
-                "dimension labels as Breite, Länge, Tiefe or Höhe; do not "
-                "use abbreviations or an x formula."
+                "dimension labels as Breite (length_cm), Tiefe (width_cm) "
+                "and Höhe (height_cm); do not use abbreviations or an x "
+                "formula."
             ),
         },
         "materials": {
@@ -319,8 +331,10 @@ def build_universal_content_request(
             "such as a second sofa as German wording (zweites Sofa);\n"
             f"- set_item_names: exactly {piece_count} German names, main "
             "item first, then each set_parts entry in its original order. "
-            "Translate actual piece names; use Sessel for кресло and zweites "
-            "Sofa for второй диван, not Teil 2 or Teil 3. Keep each name "
+            "Translate actual piece names; use Sessel for кресло, zweites "
+            "Sofa for второй диван, TV-Lowboard for ТВ тумба and Kommode for "
+            "комод, not Teil 2, Teil 3 or transliterations such as Tumba or "
+            "Kommod. Keep each name "
             "associated with its own dimensions;\n"
             "- cover every piece and its given sizes;\n"
             "- bullet_points: first the set, then the most important pieces; "

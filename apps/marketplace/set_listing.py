@@ -70,7 +70,10 @@ def set_piece_count_from_snapshot(product_snapshot: dict[str, Any]) -> int:
 def dimensions_block_from_snapshot(
     product_snapshot: dict[str, Any], *, item_names: list[str] | None = None
 ) -> str:
-    """German size list for the main item and every extra piece."""
+    """German size list for the main item and every extra piece.
+
+    Seller length is the German Breite, seller width is the Tiefe.
+    """
     parts = product_snapshot.get("set_parts") or []
     if not parts:
         return ""
@@ -91,10 +94,10 @@ def dimensions_block_from_snapshot(
     lines = ["Lieferumfang & Maße:"]
     lines.append(
         "1. "
-        f"{main_label}: B/H/T ca. "
+        f"{main_label}: B/T/H ca. "
+        f"{main.get('length_cm', '')} x "
         f"{main.get('width_cm', '')} x "
-        f"{main.get('height_cm', '')} x "
-        f"{main.get('length_cm', '')} cm"
+        f"{main.get('height_cm', '')} cm"
     )
     for index, part in enumerate(parts, start=2):
         label = str(
@@ -103,10 +106,10 @@ def dimensions_block_from_snapshot(
         if not label or contains_source_language(label):
             label = f"Teil {index}"
         lines.append(
-            f"{index}. {label}: B/H/T ca. "
+            f"{index}. {label}: B/T/H ca. "
+            f"{part.get('length_cm', '')} x "
             f"{part.get('width_cm', '')} x "
-            f"{part.get('height_cm', '')} x "
-            f"{part.get('length_cm', '')} cm"
+            f"{part.get('height_cm', '')} cm"
         )
     return "\n".join(lines)
 
