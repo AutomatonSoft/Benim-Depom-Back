@@ -622,7 +622,11 @@ class OttoListingConfigurationSerializer(
     disposal = serializers.BooleanField(required=False, allow_null=True)
     electrical_product = serializers.BooleanField(
         required=False,
-        help_text="Electrical product: sends the account's WEEE-Reg.-Nr. DE to OTTO.",
+        help_text=(
+            "Electrical product: sends the account's WEEE-Reg.-Nr. DE to OTTO, plus "
+            "'Geräteart laut ElektroG' (lamps) and 'Relevanz Gefahrgut' (not dangerous "
+            "goods) when the OTTO category defines them."
+        ),
     )
 
     def validate_shipping_profile_id(self, value):
