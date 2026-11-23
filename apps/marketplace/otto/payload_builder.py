@@ -214,6 +214,45 @@ def _build_category_attributes(
 
 WEEE_ATTRIBUTE_NAME = "WEEE-Reg.-Nr. DE"
 WEEE_NUMBER_BY_ACCOUNT = {"jv": "46974041", "xl": "80120806"}
+# Fixed compliance values for electrical products (the lamps rule of ElektroG).
+ELECTRICAL_COMPLIANCE_ATTRIBUTES = (
+    (
+        "Geräteart laut ElektroG",
+        "Lampen, außer Gasentladungslampen, die in privaten Haushalten genutzt werden können.",
+    ),
+    (
+        "Relevanz Gefahrgut",
+        "Produkt fällt nicht unter die Gefahrgutvorschriften.",
+    ),
+)
+
+
+def _electrical_compliance_attributes(product) -> list[dict[str, Any]]:
+    """Return the ElektroG and dangerous-goods attributes the category supports.
+
+    OTTO rejects attributes that are not defined for the category group, so an
+    attribute is sent only when the group lists it and allows the fixed value.
+    """
+
+    if not product.otto_category_group_id:
+        return []
+    try:
+        catalog = get_otto_catalog()
+    except OttoCatalogError:
+        return []  # _build_category_attributes already reports this error.
+
+    definitions = catalog["attributes_by_id_by_group_id"].get(
+        product.otto_category_group_id, {}
+    )
+    return [
+        {"name": name, "values": [value]}
+        for name, value in ELECTRICAL_COMPLIANCE_ATTRIBUTES
+        if any(
+            definition.get("name") == name
+            and value in definition.get("allowedValues", [])
+            for definition in definitions.values()
+        )
+    ]
 
 
 def build_otto_payload(
@@ -323,6 +362,11 @@ def build_otto_payload(
         attributes.append(
             {"name": WEEE_ATTRIBUTE_NAME, "values": [WEEE_NUMBER_BY_ACCOUNT[account]]}
         )
+    if configuration.get("electrical_product") is True:
+        compliance = _electrical_compliance_attributes(product)
+        replaced = {attribute["name"] for attribute in compliance}
+        attributes = [a for a in attributes if a.get("name") not in replaced]
+        attributes.extend(compliance)
 
     product_description: dict[str, Any] = {
         "category": product.otto_category_name,
