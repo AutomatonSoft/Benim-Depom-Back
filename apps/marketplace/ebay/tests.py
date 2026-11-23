@@ -103,7 +103,9 @@ def test_catalog_navigation_aspects_and_cache(catalog_api):
 def test_sandbox_catalog_offers_chandeliers_next_to_furniture(settings):
     settings.EBAY_ENVIRONMENT = "sandbox"
     cache.clear()
-    assert [item["id"] for item in catalog.get_categories(parent_id="11700")["categories"]] == [
+    assert [
+        item["id"] for item in catalog.get_categories(parent_id="11700")["categories"]
+    ] == [
         "3197",
         "20697",
     ]
