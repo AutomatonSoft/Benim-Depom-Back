@@ -82,8 +82,18 @@ jobs:
           scp -p nginx/default.conf "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/nginx/default.conf"
 
       - name: Deploy stage
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "IMAGE_TAG='$IMAGE_TAG' DEPLOY_DIR='$DEPLOY_DIR' PROJECT_NAME='$PROJECT_NAME' APP_BIND_PORT='$APP_BIND_PORT' bash -s" <<'REMOTE'
+          registry_config=$(ssh "$DEPLOY_USER@$DEPLOY_HOST" 'mktemp -d /tmp/benim-back-registry.XXXXXXXX')
+          [[ "$registry_config" =~ ^/tmp/benim-back-registry\.[a-zA-Z0-9]+$ ]]
+          cleanup_registry() {
+            ssh "$DEPLOY_USER@$DEPLOY_HOST" "rm -f '$registry_config/config.json' && rmdir '$registry_config'"
+          }
+          trap cleanup_registry EXIT
+          printf '%s' "$GHCR_TOKEN" | ssh "$DEPLOY_USER@$DEPLOY_HOST" "docker --config '$registry_config' login ghcr.io --username '$GHCR_USER' --password-stdin"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "DOCKER_CONFIG='$registry_config' IMAGE_TAG='$IMAGE_TAG' DEPLOY_DIR='$DEPLOY_DIR' PROJECT_NAME='$PROJECT_NAME' APP_BIND_PORT='$APP_BIND_PORT' bash -s" <<'REMOTE'
           set -Eeuo pipefail
           cd "$DEPLOY_DIR"
 
