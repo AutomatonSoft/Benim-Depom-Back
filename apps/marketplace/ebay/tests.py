@@ -100,6 +100,29 @@ def test_catalog_navigation_aspects_and_cache(catalog_api):
     )
 
 
+def test_sandbox_catalog_offers_chandeliers_next_to_furniture(settings):
+    settings.EBAY_ENVIRONMENT = "sandbox"
+    cache.clear()
+    assert [
+        item["id"] for item in catalog.get_categories(parent_id="11700")["categories"]
+    ] == [
+        "3197",
+        "20697",
+    ]
+    assert catalog.get_categories(parent_id="20697")["categories"] == [
+        {"id": "117503", "name": "Deckenlampen & Kronleuchter", "is_leaf": True}
+    ]
+    result = catalog.get_category_aspects(category_id="117503")
+    assert result["required_aspects"] == ["Produktart"]
+    assert "Kronleuchter" in {
+        value["localizedValue"]
+        for aspect in result["aspects"]
+        if aspect["localizedAspectName"] == "Produktart"
+        for value in aspect["aspectValues"]
+    }
+    cache.clear()
+
+
 def test_furniture_catalog_translations_cover_categories_aspects_and_options():
     data_dir = Path(settings.BASE_DIR) / "data" / "ebay"
     categories = json.loads(
@@ -126,6 +149,9 @@ def test_furniture_catalog_translations_cover_categories_aspects_and_options():
         "Charakter",
         "Charakter Familie",
         "Smart Home Kompatibilit\u00e4t",
+        "Hersteller",  # manufacturer names
+        "Schutzart",  # IP codes
+        "LED String/Strip Typ",  # chip models such as WS2812
     }
     untranslated_values = {
         "A",
@@ -423,14 +449,19 @@ def local_catalog(settings, tmp_path, monkeypatch):
     categories = {
         **metadata,
         "rootCategoryNode": {
-            "category": {"categoryId": "3197", "categoryName": "Möbel"},
+            "category": {"categoryId": "11700", "categoryName": "Möbel & Wohnen"},
             "childCategoryTreeNodes": [
                 {
-                    "category": {
-                        "categoryId": "38208",
-                        "categoryName": category["name"],
-                    },
-                    "leafCategoryTreeNode": True,
+                    "category": {"categoryId": "3197", "categoryName": "Möbel"},
+                    "childCategoryTreeNodes": [
+                        {
+                            "category": {
+                                "categoryId": "38208",
+                                "categoryName": category["name"],
+                            },
+                            "leafCategoryTreeNode": True,
+                        }
+                    ],
                 }
             ],
         },
@@ -454,8 +485,11 @@ def local_catalog(settings, tmp_path, monkeypatch):
 
 
 def test_local_catalog_navigation_and_aspects_without_credentials(local_catalog):
-    """Сохраняет формат ответов и читает только мебель без токенов и внешнего API."""
+    """Сохраняет формат ответов и читает локальное дерево без токенов и внешнего API."""
     assert catalog.get_categories()["categories"] == [
+        {"id": "11700", "name": "Möbel & Wohnen", "is_leaf": False}
+    ]
+    assert catalog.get_categories(parent_id="11700")["categories"] == [
         {"id": "3197", "name": "Möbel", "is_leaf": False}
     ]
     assert catalog.get_categories(parent_id="3197")["categories"][0]["id"] == "38208"
@@ -464,7 +498,7 @@ def test_local_catalog_navigation_and_aspects_without_credentials(local_catalog)
     assert result["aspects"] == local_catalog.aspects["aspects"]
     assert result["required_aspects"] == ["Farbe"]
     with pytest.raises(NotFound):
-        catalog.get_categories(parent_id="11700")
+        catalog.get_categories(parent_id="20480")
     with pytest.raises(ValidationError):
         catalog.get_category_aspects(category_id="3197")
     local_catalog.network.assert_not_called()

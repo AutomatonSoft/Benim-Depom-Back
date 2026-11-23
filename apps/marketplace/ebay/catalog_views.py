@@ -59,7 +59,7 @@ class EbayCategoriesView(APIView):
         description=(
             "Без parent_id возвращает верхний уровень доступного каталога EBAY_DE; с parent_id — "
             "непосредственные дочерние категории. is_leaf=true обозначает конечную "
-            "категорию. Sandbox читает мебель из data/ebay/sandbox/ без внешних запросов; "
+            "категорию. Sandbox читает мебель и люстры из data/ebay/sandbox/ без внешних запросов; "
             "Production использует API и токен приложения своего окружения. "
             "Поиск getCategorySuggestions не вызывается: в Sandbox он не поддержан."
         ),
