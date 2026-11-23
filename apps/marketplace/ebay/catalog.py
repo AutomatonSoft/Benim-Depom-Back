@@ -19,6 +19,8 @@ from .client import (
 
 MARKETPLACE = "EBAY_DE"
 CATALOG_CACHE_SECONDS = 86400
+# Sandbox keeps a trimmed copy of "Möbel & Wohnen": Möbel plus Beleuchtung > Kronleuchter.
+LOCAL_ROOT_CATEGORY_ID = "11700"
 
 
 def _local_payload(relative_path):
@@ -129,14 +131,17 @@ def _children(node):
 
 
 def _category_tree():
-    """Читает мебель Sandbox из JSON, сохраняя загрузку каталога Production через API."""
+    """Читает каталог Sandbox из JSON, сохраняя загрузку каталога Production через API."""
     local = _local_payload("categories.json")
     key = None
     if local is not None:
         tree_id = local["category_tree_id"]
         root = local.get("rootCategoryNode")
-        if not isinstance(root, dict) or _category_summary(root)["id"] != "3197":
-            raise EbayConfigurationError("Local eBay furniture category is invalid.")
+        if (
+            not isinstance(root, dict)
+            or _category_summary(root)["id"] != LOCAL_ROOT_CATEGORY_ID
+        ):
+            raise EbayConfigurationError("Local eBay root category is invalid.")
         tree = {
             "categoryTreeId": tree_id,
             "categoryTreeVersion": local["category_tree_version"],
