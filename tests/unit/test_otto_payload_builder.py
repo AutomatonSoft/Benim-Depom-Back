@@ -203,6 +203,93 @@ def test_build_otto_payload_sends_variant_quantity_including_zero():
     assert item["quantity"] == 0
 
 
+ELEKTROG = "Geräteart laut ElektroG"
+GEFAHRGUT = "Relevanz Gefahrgut"
+ELEKTROG_LAMPS = "Lampen, außer Gasentladungslampen, die in privaten Haushalten genutzt werden können."
+NOT_DANGEROUS = "Produkt fällt nicht unter die Gefahrgutvorschriften."
+
+
+def product_in_group(*, with_attributes):
+    """Product whose OTTO group defines (or lacks) both compliance attributes."""
+    catalog = get_otto_catalog()
+    needed = {ELEKTROG, GEFAHRGUT}
+    for category in catalog["categories_by_id"].values():
+        group_id = category["category_group_id"]
+        definitions = catalog["attributes_by_id_by_group_id"].get(group_id)
+        if not definitions:
+            continue
+        names = {item["name"] for item in definitions.values()}
+        if needed <= names if with_attributes else not names & needed:
+            product = make_product()
+            product.otto_category_name = category["name"]
+            product.otto_category_group_id = int(group_id)
+            product.otto_attributes = {}
+            return product
+    raise AssertionError("no suitable OTTO category in the catalog")
+
+
+def attributes_of(product, **configuration):
+    config = {**valid_configuration(), **configuration}
+    item = build_otto_payload(product=product, account="jv", configuration=config)[0]
+    return {a["name"]: a["values"] for a in item["productDescription"]["attributes"]}
+
+
+def test_electrical_product_adds_elektrog_and_dangerous_goods_attributes():
+    attributes = attributes_of(
+        product_in_group(with_attributes=True), electrical_product=True
+    )
+    assert attributes[ELEKTROG] == [ELEKTROG_LAMPS]
+    assert attributes[GEFAHRGUT] == [NOT_DANGEROUS]
+    assert attributes["WEEE-Reg.-Nr. DE"] == ["46974041"]
+
+
+def test_electrical_product_uses_the_values_chosen_by_the_seller():
+    attributes = attributes_of(
+        product_in_group(with_attributes=True),
+        electrical_product=True,
+        elektrog_device_type="Produkt fällt nicht unter das ElektroG.",
+        dangerous_goods_relevance="Produkt fällt unter die Gefahrgutvorschriften.",
+    )
+    assert attributes[ELEKTROG] == ["Produkt fällt nicht unter das ElektroG."]
+    assert attributes[GEFAHRGUT] == ["Produkt fällt unter die Gefahrgutvorschriften."]
+
+
+def test_electrical_product_rejects_a_value_the_category_does_not_allow():
+    with pytest.raises(OttoPayloadValidationError) as error:
+        attributes_of(
+            product_in_group(with_attributes=True),
+            electrical_product=True,
+            dangerous_goods_relevance="Produkt fällt unter die Gefahrgutvorschriften "
+            "gemäß Sicherheitsdatenblatt (Abschnitt 14).",
+        )
+    assert "dangerous_goods_relevance" in error.value.errors
+
+
+def test_configuration_serializer_accepts_only_known_compliance_values():
+    serializer = OttoListingConfigurationSerializer(
+        data={
+            "elektrog_device_type": ELEKTROG_LAMPS,
+            "dangerous_goods_relevance": "frei erfunden",
+        }
+    )
+    assert not serializer.is_valid()
+    assert "dangerous_goods_relevance" in serializer.errors
+    assert "elektrog_device_type" not in serializer.errors
+
+
+def test_non_electrical_product_does_not_get_compliance_attributes():
+    for flag in ({}, {"electrical_product": False}):
+        attributes = attributes_of(product_in_group(with_attributes=True), **flag)
+        assert ELEKTROG not in attributes and GEFAHRGUT not in attributes
+
+
+def test_electrical_product_skips_attributes_the_category_does_not_define():
+    attributes = attributes_of(
+        product_in_group(with_attributes=False), electrical_product=True
+    )
+    assert ELEKTROG not in attributes and GEFAHRGUT not in attributes
+
+
 def test_otto_configuration_serializer_returns_dates_from_json_storage():
     serializer = OttoListingConfigurationSerializer(
         instance={

@@ -17,7 +17,11 @@ from apps.marketplace.materials import (
     composition_keeps_percent_format,
     contains_source_language,
 )
-from apps.marketplace.otto.payload_builder import OTTO_VAT_VALUES
+from apps.marketplace.otto.payload_builder import (
+    DANGEROUS_GOODS_RELEVANCE,
+    ELEKTROG_DEVICE_TYPES,
+    OTTO_VAT_VALUES,
+)
 from apps.products.pricing import fill_marketplace_price
 
 from .capabilities import supports_operation
@@ -622,7 +626,27 @@ class OttoListingConfigurationSerializer(
     disposal = serializers.BooleanField(required=False, allow_null=True)
     electrical_product = serializers.BooleanField(
         required=False,
-        help_text="Electrical product: sends the account's WEEE-Reg.-Nr. DE to OTTO.",
+        help_text=(
+            "Electrical product: sends the account's WEEE-Reg.-Nr. DE to OTTO, plus "
+            "'Geräteart laut ElektroG' and 'Relevanz Gefahrgut' (see the two fields "
+            "below) when the OTTO category defines them."
+        ),
+    )
+    elektrog_device_type = serializers.ChoiceField(
+        choices=ELEKTROG_DEVICE_TYPES,
+        required=False,
+        help_text=(
+            "OTTO attribute 'Geräteart laut ElektroG', used for electrical products. "
+            "Defaults to the lamps value when empty."
+        ),
+    )
+    dangerous_goods_relevance = serializers.ChoiceField(
+        choices=DANGEROUS_GOODS_RELEVANCE,
+        required=False,
+        help_text=(
+            "OTTO attribute 'Relevanz Gefahrgut', used for electrical products. "
+            "Defaults to 'not dangerous goods' when empty."
+        ),
     )
 
     def validate_shipping_profile_id(self, value):
