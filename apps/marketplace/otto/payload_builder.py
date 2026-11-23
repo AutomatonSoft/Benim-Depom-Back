@@ -404,9 +404,7 @@ def build_otto_payload(
             {"name": WEEE_ATTRIBUTE_NAME, "values": [WEEE_NUMBER_BY_ACCOUNT[account]]}
         )
     if configuration.get("electrical_product") is True:
-        compliance = _electrical_compliance_attributes(
-            product, configuration, errors
-        )
+        compliance = _electrical_compliance_attributes(product, configuration, errors)
         replaced = {attribute["name"] for attribute in compliance}
         attributes = [a for a in attributes if a.get("name") not in replaced]
         attributes.extend(compliance)
