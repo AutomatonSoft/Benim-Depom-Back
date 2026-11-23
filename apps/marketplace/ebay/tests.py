@@ -111,7 +111,8 @@ def test_sandbox_catalog_offers_chandeliers_next_to_furniture(settings):
         "20697",
     ]
     lighting = {
-        item["id"]: item for item in catalog.get_categories(parent_id="20697")["categories"]
+        item["id"]: item
+        for item in catalog.get_categories(parent_id="20697")["categories"]
     }
     assert lighting["117503"] == {
         "id": "117503",
