@@ -315,7 +315,10 @@ def build_otto_payload(
             errors["bullet_points"] = "OTTO accepts at most five bullet points."
 
     attributes = _build_category_attributes(product, errors, configuration)
-    if configuration.get("electrical_product") is True and account in WEEE_NUMBER_BY_ACCOUNT:
+    if (
+        configuration.get("electrical_product") is True
+        and account in WEEE_NUMBER_BY_ACCOUNT
+    ):
         attributes = [a for a in attributes if a.get("name") != WEEE_ATTRIBUTE_NAME]
         attributes.append(
             {"name": WEEE_ATTRIBUTE_NAME, "values": [WEEE_NUMBER_BY_ACCOUNT[account]]}
