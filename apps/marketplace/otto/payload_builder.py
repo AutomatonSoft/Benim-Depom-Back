@@ -212,6 +212,10 @@ def _build_category_attributes(
     return attributes
 
 
+WEEE_ATTRIBUTE_NAME = "WEEE-Reg.-Nr. DE"
+WEEE_NUMBER_BY_ACCOUNT = {"jv": "46974041", "xl": "80120806"}
+
+
 def build_otto_payload(
     *, product, account: str, configuration: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -311,6 +315,11 @@ def build_otto_payload(
             errors["bullet_points"] = "OTTO accepts at most five bullet points."
 
     attributes = _build_category_attributes(product, errors, configuration)
+    if configuration.get("electrical_product") is True and account in WEEE_NUMBER_BY_ACCOUNT:
+        attributes = [a for a in attributes if a.get("name") != WEEE_ATTRIBUTE_NAME]
+        attributes.append(
+            {"name": WEEE_ATTRIBUTE_NAME, "values": [WEEE_NUMBER_BY_ACCOUNT[account]]}
+        )
 
     product_description: dict[str, Any] = {
         "category": product.otto_category_name,
