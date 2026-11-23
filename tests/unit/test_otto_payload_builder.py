@@ -243,6 +243,40 @@ def test_electrical_product_adds_elektrog_and_dangerous_goods_attributes():
     assert attributes["WEEE-Reg.-Nr. DE"] == ["46974041"]
 
 
+def test_electrical_product_uses_the_values_chosen_by_the_seller():
+    attributes = attributes_of(
+        product_in_group(with_attributes=True),
+        electrical_product=True,
+        elektrog_device_type="Produkt fällt nicht unter das ElektroG.",
+        dangerous_goods_relevance="Produkt fällt unter die Gefahrgutvorschriften.",
+    )
+    assert attributes[ELEKTROG] == ["Produkt fällt nicht unter das ElektroG."]
+    assert attributes[GEFAHRGUT] == ["Produkt fällt unter die Gefahrgutvorschriften."]
+
+
+def test_electrical_product_rejects_a_value_the_category_does_not_allow():
+    with pytest.raises(OttoPayloadValidationError) as error:
+        attributes_of(
+            product_in_group(with_attributes=True),
+            electrical_product=True,
+            dangerous_goods_relevance="Produkt fällt unter die Gefahrgutvorschriften "
+            "gemäß Sicherheitsdatenblatt (Abschnitt 14).",
+        )
+    assert "dangerous_goods_relevance" in error.value.errors
+
+
+def test_configuration_serializer_accepts_only_known_compliance_values():
+    serializer = OttoListingConfigurationSerializer(
+        data={
+            "elektrog_device_type": ELEKTROG_LAMPS,
+            "dangerous_goods_relevance": "frei erfunden",
+        }
+    )
+    assert not serializer.is_valid()
+    assert "dangerous_goods_relevance" in serializer.errors
+    assert "elektrog_device_type" not in serializer.errors
+
+
 def test_non_electrical_product_does_not_get_compliance_attributes():
     for flag in ({}, {"electrical_product": False}):
         attributes = attributes_of(product_in_group(with_attributes=True), **flag)

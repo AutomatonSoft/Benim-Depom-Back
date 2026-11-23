@@ -214,24 +214,47 @@ def _build_category_attributes(
 
 WEEE_ATTRIBUTE_NAME = "WEEE-Reg.-Nr. DE"
 WEEE_NUMBER_BY_ACCOUNT = {"jv": "46974041", "xl": "80120806"}
-# Fixed compliance values for electrical products (the lamps rule of ElektroG).
-ELECTRICAL_COMPLIANCE_ATTRIBUTES = (
-    (
-        "Geräteart laut ElektroG",
-        "Lampen, außer Gasentladungslampen, die in privaten Haushalten genutzt werden können.",
-    ),
-    (
-        "Relevanz Gefahrgut",
-        "Produkt fällt nicht unter die Gefahrgutvorschriften.",
-    ),
+ELEKTROG_ATTRIBUTE_NAME = "Geräteart laut ElektroG"
+DANGEROUS_GOODS_ATTRIBUTE_NAME = "Relevanz Gefahrgut"
+# Values copied from the OTTO catalog; the seller picks one when the product is electrical.
+ELEKTROG_DEVICE_TYPES = (
+    "Produkt fällt nicht unter das ElektroG.",
+    "Kleingeräte, die in privaten Haushalten genutzt werden können.",
+    "Kleingeräte für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Großgeräte, die in privaten Haushalten genutzt werden können.",
+    "Großgeräte für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Lampen, außer Gasentladungslampen, die in privaten Haushalten genutzt werden können.",
+    "Lampen für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Gasentladungslampen, die in privaten Haushalten genutzt werden können.",
+    "Bildschirmgeräte, die in privaten Haushalten genutzt werden können.",
+    "Bildschirmgeräte für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Kleine Geräte der Informations- und Telekommunikationstechnik, die in privaten Haushalten genutzt werden können.",
+    "Kleine Geräte der Informations- und Telekommunikationstechnik für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Wärmeüberträger, die in privaten Haushalten genutzt werden können.",
+    "Wärmeüberträger für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Kleine Photovoltaikmodule, die in privaten Haushalten genutzt werden können.",
+    "Kleine Photovoltaikmodule für die ausschließliche Nutzung in anderen als privaten Haushalten.",
+    "Große Photovoltaikmodule, die in privaten Haushalten genutzt werden können.",
+    "Große Photovoltaikmodule für die ausschließliche Nutzung in anderen als privaten Haushalten.",
 )
+DANGEROUS_GOODS_RELEVANCE = (
+    "Produkt fällt nicht unter die Gefahrgutvorschriften.",
+    "Produkt fällt unter die Gefahrgutvorschriften.",
+    "Produkt fällt unter die Gefahrgutvorschriften gemäß Sicherheitsdatenblatt (Abschnitt 14).",
+)
+# Used when an electrical product has no explicit choice saved yet.
+DEFAULT_ELEKTROG_DEVICE_TYPE = ELEKTROG_DEVICE_TYPES[5]
+DEFAULT_DANGEROUS_GOODS_RELEVANCE = DANGEROUS_GOODS_RELEVANCE[0]
 
 
-def _electrical_compliance_attributes(product) -> list[dict[str, Any]]:
+def _electrical_compliance_attributes(
+    product, configuration: dict[str, Any], errors: dict[str, str]
+) -> list[dict[str, Any]]:
     """Return the ElektroG and dangerous-goods attributes the category supports.
 
     OTTO rejects attributes that are not defined for the category group, so an
-    attribute is sent only when the group lists it and allows the fixed value.
+    attribute is skipped when the group does not list it. A chosen value that
+    the group does not allow is reported instead of being sent.
     """
 
     if not product.otto_category_group_id:
@@ -244,15 +267,33 @@ def _electrical_compliance_attributes(product) -> list[dict[str, Any]]:
     definitions = catalog["attributes_by_id_by_group_id"].get(
         product.otto_category_group_id, {}
     )
-    return [
-        {"name": name, "values": [value]}
-        for name, value in ELECTRICAL_COMPLIANCE_ATTRIBUTES
-        if any(
-            definition.get("name") == name
-            and value in definition.get("allowedValues", [])
-            for definition in definitions.values()
+    chosen = (
+        (
+            ELEKTROG_ATTRIBUTE_NAME,
+            "elektrog_device_type",
+            configuration.get("elektrog_device_type") or DEFAULT_ELEKTROG_DEVICE_TYPE,
+        ),
+        (
+            DANGEROUS_GOODS_ATTRIBUTE_NAME,
+            "dangerous_goods_relevance",
+            configuration.get("dangerous_goods_relevance")
+            or DEFAULT_DANGEROUS_GOODS_RELEVANCE,
+        ),
+    )
+    result = []
+    for name, field, value in chosen:
+        definition = next(
+            (item for item in definitions.values() if item.get("name") == name), None
         )
-    ]
+        if definition is None:
+            continue
+        if value not in definition.get("allowedValues", []):
+            errors[field] = (
+                f"This value is not allowed for '{name}' in the selected OTTO category."
+            )
+            continue
+        result.append({"name": name, "values": [value]})
+    return result
 
 
 def build_otto_payload(
@@ -363,7 +404,9 @@ def build_otto_payload(
             {"name": WEEE_ATTRIBUTE_NAME, "values": [WEEE_NUMBER_BY_ACCOUNT[account]]}
         )
     if configuration.get("electrical_product") is True:
-        compliance = _electrical_compliance_attributes(product)
+        compliance = _electrical_compliance_attributes(
+            product, configuration, errors
+        )
         replaced = {attribute["name"] for attribute in compliance}
         attributes = [a for a in attributes if a.get("name") not in replaced]
         attributes.extend(compliance)
