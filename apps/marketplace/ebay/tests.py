@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
@@ -109,9 +110,21 @@ def test_sandbox_catalog_offers_chandeliers_next_to_furniture(settings):
         "3197",
         "20697",
     ]
-    assert catalog.get_categories(parent_id="20697")["categories"] == [
-        {"id": "117503", "name": "Deckenlampen & Kronleuchter", "is_leaf": True}
-    ]
+    lighting = {
+        item["id"]: item
+        for item in catalog.get_categories(parent_id="20697")["categories"]
+    }
+    assert lighting["117503"] == {
+        "id": "117503",
+        "name": "Deckenlampen & Kronleuchter",
+        "is_leaf": True,
+    }
+    assert len(lighting) == 10 and lighting["185044"]["is_leaf"] is False
+    for category_id in lighting:
+        if lighting[category_id]["is_leaf"]:
+            assert catalog.get_category_aspects(category_id=category_id)["aspects"]
+    smart = catalog.get_categories(parent_id="185044")["categories"]
+    assert len(smart) == 6 and all(item["is_leaf"] for item in smart)
     result = catalog.get_category_aspects(category_id="117503")
     assert result["required_aspects"] == ["Produktart"]
     assert "Kronleuchter" in {
@@ -250,6 +263,11 @@ def test_furniture_catalog_translations_cover_categories_aspects_and_options():
                         continue
                     if value in untranslated_values:  # proper names stay canonical
                         continue
+                    if re.fullmatch(
+                        r"[A-Z0-9][A-Z0-9/.,\- ]*|[A-Za-z/]{1,4}[0-9][A-Za-z0-9/.,\- ]*",
+                        value,
+                    ):
+                        continue  # technical codes and acronyms: E27, BA15d, GU10, KNX
                     assert value in labels, (language, name, value)
 
 

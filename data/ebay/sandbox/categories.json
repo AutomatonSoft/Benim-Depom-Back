@@ -5,8 +5,8 @@
   "category_tree_version": "135",
   "downloaded_at": "2026-10-16T10:08:23.306469+00:00",
   "root_category_id": "11700",
-  "category_count": 35,
-  "leaf_category_count": 31,
+  "category_count": 50,
+  "leaf_category_count": 45,
   "rootCategoryNode": {
     "category": {
       "categoryId": "11700",
@@ -314,8 +314,144 @@
         "childCategoryTreeNodes": [
           {
             "category": {
+              "categoryId": "20702",
+              "categoryName": "Nachtlichter"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "20705",
+              "categoryName": "Lampenteile"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "20706",
+              "categoryName": "Leuchtmittel"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "20708",
+              "categoryName": "Lampenschirme"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "112581",
+              "categoryName": "Lampen"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "116022",
+              "categoryName": "Lichtschläuche & -ketten"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "116880",
+              "categoryName": "Wandleuchten"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
               "categoryId": "117503",
               "categoryName": "Deckenlampen & Kronleuchter"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "categoryTreeNodeLevel": 3,
+            "leafCategoryTreeNode": true
+          },
+          {
+            "category": {
+              "categoryId": "185044",
+              "categoryName": "Smart Home-Beleuchtungen"
+            },
+            "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
+            "childCategoryTreeNodes": [
+              {
+                "category": {
+                  "categoryId": "185045",
+                  "categoryName": "Smart-Leuchtmittel"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              },
+              {
+                "category": {
+                  "categoryId": "185046",
+                  "categoryName": "Smart-Beleuchtungskörper"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              },
+              {
+                "category": {
+                  "categoryId": "185047",
+                  "categoryName": "Smart Home-Beleuchtungskits & -hubs"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              },
+              {
+                "category": {
+                  "categoryId": "185071",
+                  "categoryName": "Smart-Lichtbänder"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              },
+              {
+                "category": {
+                  "categoryId": "257932",
+                  "categoryName": "Smart Home-Beleuchtungsteile"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              },
+              {
+                "category": {
+                  "categoryId": "260154",
+                  "categoryName": "Smart Home-Beleuchtungszubehör"
+                },
+                "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=185044",
+                "categoryTreeNodeLevel": 4,
+                "leafCategoryTreeNode": true
+              }
+            ],
+            "categoryTreeNodeLevel": 3
+          },
+          {
+            "category": {
+              "categoryId": "260153",
+              "categoryName": "Lampenzubehör"
             },
             "parentCategoryTreeNodeHref": "https://api.sandbox.ebay.com/commerce/taxonomy/v1/category_tree/77/get_category_subtree?category_id=20697",
             "categoryTreeNodeLevel": 3,
