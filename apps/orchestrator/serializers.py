@@ -620,6 +620,10 @@ class OttoListingConfigurationSerializer(
     multi_pack = serializers.BooleanField(required=False, allow_null=True)
     fsc_certified = serializers.BooleanField(required=False, allow_null=True)
     disposal = serializers.BooleanField(required=False, allow_null=True)
+    electrical_product = serializers.BooleanField(
+        required=False,
+        help_text="Electrical product: sends the account's WEEE-Reg.-Nr. DE to OTTO.",
+    )
 
     def validate_shipping_profile_id(self, value):
         account = self.context.get("account")
