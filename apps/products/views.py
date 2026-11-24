@@ -58,6 +58,7 @@ from .serializers import (
     ProductSerializer,
     ProductSubmitSerializer,
     SellerSalesStatsSerializer,
+    WarehouseLocationSerializer,
 )
 from .services import (
     confirm_product_availability,
@@ -1042,3 +1043,20 @@ class SellerSalesStatsView(APIView):
             query_params=request.query_params,
         )
         return Response(SellerSalesStatsSerializer(payload).data)
+
+
+class WarehouseLocationListView(APIView):
+    """Warehouse locations a product can be stored at, so clients need no hardcoded list."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: WarehouseLocationSerializer(many=True)},
+        description="Allowed values for a product's warehouse_city, in display order.",
+    )
+    def get(self, request):
+        locations = [
+            {"code": choice.value, "name": choice.label}
+            for choice in Product.WarehouseCity
+        ]
+        return Response(WarehouseLocationSerializer(locations, many=True).data)
