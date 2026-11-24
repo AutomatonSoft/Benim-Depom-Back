@@ -561,12 +561,14 @@ def test_seller_can_delete_the_last_product_image(
 @pytest.mark.integration
 @pytest.mark.django_db
 def test_warehouse_locations_list_matches_model_choices(api_client, seller):
-    assert api_client.get("/api/v2/products/warehouse-locations/").status_code in (401, 403)
+    assert api_client.get("/api/v2/products/warehouse-locations/").status_code in (
+        401,
+        403,
+    )
     authenticate(api_client, seller)
     response = api_client.get("/api/v2/products/warehouse-locations/")
     assert response.status_code == 200
     assert response.data == [
-        {"code": choice.value, "name": choice.label}
-        for choice in Product.WarehouseCity
+        {"code": choice.value, "name": choice.label} for choice in Product.WarehouseCity
     ]
     assert {"code": "ITA", "name": "Italy"} in response.data
