@@ -714,7 +714,12 @@ class ProductGeneratedImageReplaceView(ManagerMutationThrottleMixin, APIView):
         serializer.is_valid(raise_exception=True)
         old_file = generated.image
         generated.image = serializer.validated_data["image"]
-        generated.save(update_fields=("image",))
+        update_fields = ["image"]
+        if generated.regen_status == ProductGeneratedImage.RegenStatus.FAILED:
+            generated.regen_status = ProductGeneratedImage.RegenStatus.IDLE
+            generated.regen_error = ""
+            update_fields += ["regen_status", "regen_error"]
+        generated.save(update_fields=update_fields)
         if generated.mode == ProductGeneratedImage.Mode.WHITE:
             ProductImage.objects.filter(pk=image_pk).update(
                 processed_image=generated.image.name
@@ -753,6 +758,16 @@ class ProductXLCoverGenerateView(ManagerMutationThrottleMixin, APIView):
                 raise ValidationError(
                     {"detail": "Generate the JV cover before the XL cover."}
                 )
+            if image.generated_images.filter(
+                mode=ProductGeneratedImage.Mode.WHITE,
+                regen_status__in=(
+                    ProductGeneratedImage.RegenStatus.PENDING,
+                    ProductGeneratedImage.RegenStatus.PROCESSING,
+                ),
+            ).exists():
+                raise ValidationError(
+                    {"detail": "Wait until the JV cover regeneration has finished."}
+                )
             if image.xl_cover_status in {
                 ProductImage.XLCoverStatus.PENDING,
                 ProductImage.XLCoverStatus.PROCESSING,
@@ -768,6 +783,74 @@ class ProductXLCoverGenerateView(ManagerMutationThrottleMixin, APIView):
             transaction.on_commit(lambda: generate_product_xl_cover.delay(image.pk))
         return Response(
             ProductImageSerializer(image, context={"request": request}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ProductGeneratedImageRegenerateView(ManagerMutationThrottleMixin, APIView):
+    """Regenerate one JV cover / interior / human photo with Gemini."""
+
+    permission_classes = [IsManager]
+
+    @extend_schema(request=None, responses={202: ProductGeneratedImageSerializer})
+    def post(self, request, product_pk: int, image_pk: int, generated_pk: int):
+        from django.utils import timezone
+
+        from apps.common.gemini_set_image_service import REGENERATABLE_MODES
+
+        product = get_object_or_404(
+            Product.objects.exclude(status=Product.Status.ARCHIVED),
+            pk=product_pk,
+        )
+        if product.status != Product.Status.APPROVED:
+            raise ValidationError(
+                {"detail": "Approve the product before generating images."}
+            )
+        active = {
+            ProductImage.ProcessingStatus.PENDING,
+            ProductImage.ProcessingStatus.PROCESSING,
+            ProductImage.ProcessingStatus.RESULT_RECEIVED,
+        }
+        with transaction.atomic():
+            source = get_object_or_404(
+                ProductImage.objects.select_for_update(),
+                pk=image_pk,
+                product=product,
+                is_primary=True,
+            )
+            generated = get_object_or_404(
+                ProductGeneratedImage.objects.select_for_update(),
+                pk=generated_pk,
+                source_image=source,
+            )
+            if generated.mode not in REGENERATABLE_MODES or not generated.image:
+                raise ValidationError({"detail": "This photo cannot be regenerated."})
+            if source.processing_status in active:
+                raise ValidationError(
+                    {"detail": "Wait until the photo generation has finished."}
+                )
+            if generated.regen_status in {
+                ProductGeneratedImage.RegenStatus.PENDING,
+                ProductGeneratedImage.RegenStatus.PROCESSING,
+            }:
+                raise ValidationError(
+                    {"detail": "This photo is already being regenerated."}
+                )
+            generated.regen_status = ProductGeneratedImage.RegenStatus.PENDING
+            generated.regen_error = ""
+            generated.regen_claimed_at = timezone.now()
+            generated.save(
+                update_fields=("regen_status", "regen_error", "regen_claimed_at")
+            )
+            from apps.notifications.tasks import regenerate_product_generated_image
+
+            transaction.on_commit(
+                lambda: regenerate_product_generated_image.delay(generated.pk)
+            )
+        return Response(
+            ProductGeneratedImageSerializer(
+                generated, context={"request": request}
+            ).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
