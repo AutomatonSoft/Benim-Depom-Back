@@ -395,6 +395,13 @@ class ProductGeneratedImage(models.Model):
         HUMAN = "human", "Human"
         XL_COVER = "xl_cover", "XL white background"
 
+    class RegenStatus(models.TextChoices):
+        IDLE = "idle", "Idle"
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
     source_image = models.ForeignKey(
         ProductImage,
         on_delete=models.CASCADE,
@@ -415,6 +422,15 @@ class ProductGeneratedImage(models.Model):
         blank=True,
         null=True,
     )
+    # Single-slot Gemini regeneration state, separate from the batch status
+    # on the source image.
+    regen_status = models.CharField(
+        max_length=20,
+        choices=RegenStatus.choices,
+        default=RegenStatus.IDLE,
+    )
+    regen_error = models.TextField(blank=True)
+    regen_claimed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

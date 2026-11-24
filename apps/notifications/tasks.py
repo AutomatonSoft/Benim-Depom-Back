@@ -431,6 +431,8 @@ def process_product_image(image_id: int) -> dict:
                 thumbnail,
                 save=False,
             )
+            generated_image.regen_status = ProductGeneratedImage.RegenStatus.IDLE
+            generated_image.regen_error = ""
             generated_image.save()
             if mode == ProductGeneratedImage.Mode.WHITE:
                 with transaction.atomic():
@@ -859,6 +861,8 @@ def check_product_image_generation(
                 thumbnail,
                 save=False,
             )
+            generated_image.regen_status = ProductGeneratedImage.RegenStatus.IDLE
+            generated_image.regen_error = ""
             generated_image.save()
 
             if mode == ProductGeneratedImage.Mode.WHITE:
@@ -990,11 +994,27 @@ def recover_stale_product_image_processing() -> dict[str, int]:
         )
         resumed_count += 1
 
+    # Single-slot regeneration cannot be resumed safely (it is a paid Gemini
+    # call), so an abandoned run is marked failed and the old photo stays.
+    from apps.products.models import ProductGeneratedImage
+
+    regen_failed_count = ProductGeneratedImage.objects.filter(
+        regen_status__in=(
+            ProductGeneratedImage.RegenStatus.PENDING,
+            ProductGeneratedImage.RegenStatus.PROCESSING,
+        ),
+        regen_claimed_at__lt=stale_before,
+    ).update(
+        regen_status=ProductGeneratedImage.RegenStatus.FAILED,
+        regen_error="Photo regeneration stopped unexpectedly. Try again.",
+    )
+
     return {
         "candidates": len(candidate_ids),
         "resumed": resumed_count,
         "failed": failed_count,
         "skipped": skipped_count,
+        "regen_failed": regen_failed_count,
     }
 
 
@@ -1072,3 +1092,119 @@ def generate_product_xl_cover(image_id: int) -> dict:
             xl_cover_error="XL cover generation failed. Try again.",
         )
         return {"status": "failed"}
+
+
+@shared_task(name="apps.notifications.tasks.regenerate_product_generated_image")
+def regenerate_product_generated_image(generated_id: int) -> dict:
+    """Regenerate one white/interior/human slot with Gemini.
+
+    The old file stays in place until the new one is saved, so a failed run
+    never leaves the slot empty.
+    """
+    from django.core.files.base import ContentFile
+
+    from apps.common.gemini_set_image_service import (
+        REGENERATABLE_MODES,
+        GeminiSetImageServiceError,
+        regenerate_listing_image,
+    )
+    from apps.products.image_optimization import make_product_image_variants
+    from apps.products.models import Product, ProductGeneratedImage, ProductImage
+
+    Status = ProductGeneratedImage.RegenStatus
+
+    def mark_failed(error: str) -> dict:
+        ProductGeneratedImage.objects.filter(
+            pk=generated_id,
+            regen_status__in=(Status.PENDING, Status.PROCESSING),
+        ).update(regen_status=Status.FAILED, regen_error=error[:500])
+        return {"status": "failed"}
+
+    with transaction.atomic():
+        generated = (
+            ProductGeneratedImage.objects.select_for_update(skip_locked=True)
+            .select_related("source_image")
+            .filter(pk=generated_id)
+            .first()
+        )
+        if generated is None:
+            return {"status": "skipped", "reason": "not_found_or_locked"}
+        if generated.regen_status != Status.PENDING:
+            return {"status": "skipped", "reason": "not_pending"}
+        generated.regen_status = Status.PROCESSING
+        generated.regen_error = ""
+        generated.regen_claimed_at = timezone.now()
+        generated.save(
+            update_fields=("regen_status", "regen_error", "regen_claimed_at")
+        )
+
+    source = generated.source_image
+    mode = generated.mode
+    if mode not in REGENERATABLE_MODES:
+        return mark_failed("This photo cannot be regenerated.")
+    if not source.is_primary:
+        return mark_failed("This photo is no longer the product cover.")
+
+    product = Product.objects.prefetch_related("images", "set_parts", "variants").get(
+        pk=source.product_id
+    )
+    white_cover = (
+        source.generated_images.filter(mode=ProductGeneratedImage.Mode.WHITE)
+        .exclude(pk=generated.pk)
+        .first()
+    )
+    try:
+        content = regenerate_listing_image(
+            product=product,
+            source_image=source,
+            mode=mode,
+            current_image=generated.image,
+            white_cover=white_cover.image if white_cover else None,
+            is_set=product.set_parts.exists(),
+        )
+    except (GeminiSetImageServiceError, ImproperlyConfigured) as error:
+        logger.warning(
+            "Photo regeneration failed generated_id=%s mode=%s: %s",
+            generated_id,
+            mode,
+            error,
+        )
+        return mark_failed("Photo regeneration failed. Try again.")
+    except Exception:
+        logger.exception("Photo regeneration crashed generated_id=%s", generated_id)
+        return mark_failed("Photo regeneration failed. Try again.")
+
+    optimized_image, thumbnail = make_product_image_variants(
+        ContentFile(content, name=f"{mode}-{source.pk}")
+    )
+
+    with transaction.atomic():
+        locked = (
+            ProductGeneratedImage.objects.select_for_update()
+            .filter(pk=generated_id)
+            .first()
+        )
+        if locked is None or locked.regen_status != Status.PROCESSING:
+            # The slot was deleted or replaced while Gemini was running.
+            return {"status": "skipped", "reason": "state_changed"}
+        old_files = [locked.image, locked.preview, locked.thumbnail]
+        old_names = [file.name for file in old_files if file]
+        locked.image.save(optimized_image.name, optimized_image, save=False)
+        locked.thumbnail.save(thumbnail.name, thumbnail, save=False)
+        locked.preview = None
+        locked.regen_status = Status.SUCCEEDED
+        locked.regen_error = ""
+        locked.save()
+        if mode == ProductGeneratedImage.Mode.WHITE:
+            ProductImage.objects.filter(pk=source.pk).update(
+                processed_image=locked.image.name
+            )
+        storage = locked.image.storage
+        new_names = {locked.image.name, locked.thumbnail.name}
+        transaction.on_commit(
+            lambda: [
+                storage.delete(name) for name in old_names if name not in new_names
+            ]
+        )
+
+    return {"status": "completed", "generated_id": generated_id}

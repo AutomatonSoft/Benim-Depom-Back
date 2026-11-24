@@ -1235,6 +1235,16 @@ def request_product_image_processing(
     if locked_image.processing_status == ProductImage.ProcessingStatus.PROCESSING:
         raise ValidationError({"detail": "Image processing is already in progress"})
 
+    if locked_image.generated_images.filter(
+        regen_status__in=(
+            ProductGeneratedImage.RegenStatus.PENDING,
+            ProductGeneratedImage.RegenStatus.PROCESSING,
+        )
+    ).exists():
+        raise ValidationError(
+            {"detail": "Wait until the photo regeneration has finished."}
+        )
+
     locked_image.processing_status = ProductImage.ProcessingStatus.PENDING
     locked_image.processing_error = ""
     locked_image.processing_result = {}
