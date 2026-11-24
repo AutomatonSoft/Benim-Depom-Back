@@ -405,6 +405,7 @@ CELERY_TASK_ROUTES = {
     "apps.orchestrator.tasks.generate_marketplace_content": {"queue": "ai"},
     "apps.notifications.tasks.process_product_image": {"queue": "images"},
     "apps.notifications.tasks.generate_product_xl_cover": {"queue": "images"},
+    "apps.notifications.tasks.regenerate_product_generated_image": {"queue": "images"},
     "apps.notifications.tasks.check_product_image_generation": {"queue": "images"},
     "apps.notifications.tasks.send_notification_push": {"queue": "notifications"},
     "apps.notifications.tasks.send_product_availability_reminders": {
@@ -432,6 +433,11 @@ CELERY_TASK_ANNOTATIONS = {
         "time_limit": 300,
     },
     "apps.notifications.tasks.process_product_image": {
+        "soft_time_limit": 360,
+        "time_limit": 420,
+    },
+    # Below IMAGE_PROCESSING_LEASE_SECONDS so recovery never races a live run.
+    "apps.notifications.tasks.regenerate_product_generated_image": {
         "soft_time_limit": 360,
         "time_limit": 420,
     },
@@ -824,7 +830,8 @@ BULK_WHITE_IMAGE_SERVICE_POLL_INTERVAL_SECONDS = env.int(
 )
 BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS = env.int(
     "BULK_WHITE_IMAGE_SERVICE_MAX_POLL_ATTEMPTS",
-    default=60,
+    # 10 s first wait + 18 polls x 10 s ≈ 3 minutes before giving up.
+    default=18,
 )
 EAN_LOW_STOCK_THRESHOLD = env.int("EAN_LOW_STOCK_THRESHOLD", default=20)
 

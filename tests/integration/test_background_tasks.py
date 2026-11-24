@@ -605,6 +605,7 @@ def test_image_recovery_resumes_known_generation_and_fails_unknown_one(
         "resumed": 1,
         "failed": 1,
         "skipped": 0,
+        "regen_failed": 0,
     }
 
     assert resumable.processing_status == ProductImage.ProcessingStatus.PROCESSING

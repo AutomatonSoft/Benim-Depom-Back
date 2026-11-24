@@ -275,6 +275,8 @@ class ProductGeneratedImageSerializer(serializers.ModelSerializer):
             "image",
             "preview",
             "thumbnail",
+            "regen_status",
+            "regen_error",
             "created_at",
         )
         read_only_fields = fields

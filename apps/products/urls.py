@@ -6,6 +6,7 @@ from .views import (
     ProductDeactivateView,
     ProductDetailView,
     ProductGeneratedImageDeleteView,
+    ProductGeneratedImageRegenerateView,
     ProductGeneratedImageReplaceView,
     ProductGeneratedImageUploadView,
     ProductImageDeleteView,
@@ -73,6 +74,11 @@ urlpatterns = [
         "<int:product_pk>/images/<int:image_pk>/generated/<int:generated_pk>/replace/",
         ProductGeneratedImageReplaceView.as_view(),
         name="product-generated-image-replace",
+    ),
+    path(
+        "<int:product_pk>/images/<int:image_pk>/generated/<int:generated_pk>/regenerate/",
+        ProductGeneratedImageRegenerateView.as_view(),
+        name="product-generated-image-regenerate",
     ),
     path(
         "<int:product_pk>/images/<int:image_pk>/replace/",
