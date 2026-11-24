@@ -20,6 +20,7 @@ from .views import (
     ProductWithdrawView,
     ProductXLCoverGenerateView,
     SellerSalesStatsView,
+    WarehouseLocationListView,
 )
 
 app_name = "products"
@@ -37,6 +38,11 @@ urlpatterns = [
     ),
     path("", ProductListCreateView.as_view(), name="product-list-create"),
     path("sales-stats/", SellerSalesStatsView.as_view(), name="seller-sales-stats"),
+    path(
+        "warehouse-locations/",
+        WarehouseLocationListView.as_view(),
+        name="warehouse-locations",
+    ),
     path("<int:pk>/", ProductDetailView.as_view(), name="product-detail"),
     path(
         "<int:product_pk>/images/",
