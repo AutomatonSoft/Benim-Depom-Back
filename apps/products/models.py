@@ -41,6 +41,8 @@ class Product(models.Model):
         BUR = "BUR", "Bursa"
         KSY = "KSY", "Kars"
         INE = "INE", "Inegol"
+        ITA = "ITA", "Italy"
+        POL = "POL", "Poland"
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
