@@ -22,7 +22,7 @@ def _box_cbm(width, height, length) -> Decimal:
     ) / CM3_PER_M3
 
 
-def packed_cbm(product: Product) -> Decimal:
+def calculated_cbm(product: Product) -> Decimal:
     """Main variant CBM plus every extra set piece. Colors are alternatives."""
     volumes = [
         _box_cbm(variant.width_cm, variant.height_cm, variant.length_cm)
@@ -34,6 +34,22 @@ def packed_cbm(product: Product) -> Decimal:
     for part in product.set_parts.all():
         total += _box_cbm(part.width_cm, part.height_cm, part.length_cm)
     return total
+
+
+def packed_cbm(product: Product) -> Decimal:
+    """Manager-entered volume if set, otherwise the volume from dimensions."""
+    if product.cbm_override is not None:
+        return Decimal(str(product.cbm_override))
+    return calculated_cbm(product)
+
+
+def safe_cbm(product: Product, *, calculated: bool = False) -> str | None:
+    """CBM rounded to 3 decimals for display, or None without dimensions."""
+    try:
+        value = calculated_cbm(product) if calculated else packed_cbm(product)
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+    return f"{value.quantize(Decimal('0.001'), ROUND_HALF_UP):f}"
 
 
 def percent_factor(catalog: dict) -> Decimal:

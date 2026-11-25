@@ -76,6 +76,15 @@ class Product(models.Model):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     pricing_overrides = models.JSONField(default=dict, blank=True)
+    # Manager-entered packed volume in m³. When set it replaces the volume
+    # computed from variant and set-part dimensions everywhere CBM is used.
+    cbm_override = models.DecimalField(
+        max_digits=9,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.001"))],
+    )
     otto_category_id = models.PositiveIntegerField(
         null=True,
         blank=True,

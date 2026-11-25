@@ -4,11 +4,13 @@ import pytest
 
 from apps.products.models import ExchangeRate, ProductSetPart
 from apps.products.pricing import (
+    calculated_cbm,
     de_delivery_eur,
     listing_price_eur,
     packed_cbm,
     percent_factor,
     round_to_49_or_99,
+    safe_cbm,
 )
 from apps.products.pricing_catalog import get_pricing_catalog
 
@@ -131,3 +133,25 @@ def test_set_parts_add_their_volume_to_packed_cbm_and_listing_price(
     )
     assert packed_cbm(product) == Decimal("0.5675")
     assert listing_price_eur(product) > without_parts
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_manual_cbm_override_replaces_dimension_volume_in_pricing(
+    seller, product_factory
+):
+    ExchangeRate.objects.create(
+        as_of="2026-09-01",
+        eur_to_usd="1.16",
+        eur_to_try="50",
+        source="test",
+    )
+    product = product_factory(owner=seller, unit_price=Decimal("100.00"))
+    calculated_price = listing_price_eur(product)
+    product.cbm_override = Decimal("3.500")
+    product.save(update_fields=["cbm_override"])
+    assert packed_cbm(product) == Decimal("3.500")
+    assert calculated_cbm(product) == Decimal("0.2475")
+    assert listing_price_eur(product) > calculated_price
+    assert safe_cbm(product) == "3.500"
+    assert safe_cbm(product, calculated=True) == "0.248"
