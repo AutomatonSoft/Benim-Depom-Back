@@ -525,3 +525,90 @@ def test_manager_status_change_respects_listings_and_rejected(
     )
     assert live_blocked.status_code == 400
     assert "Deactivate marketplace listings" in str(live_blocked.data["detail"])
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_quick_edits_price_volume_and_warehouse_from_product_table(
+    api_client, seller, manager, product_factory
+):
+    product = product_factory(owner=seller, status=Product.Status.APPROVED)
+    authenticate(api_client, manager)
+
+    listed = api_client.get(f"/api/v2/manager/products/?owner_id={seller.id}")
+    assert listed.status_code == 200
+    row = next(item for item in listed.data["results"] if item["id"] == product.id)
+    assert row["cbm"] == row["cbm_calculated"] == "0.248"
+    assert row["cbm_override"] is None
+
+    response = api_client.patch(
+        f"/api/v2/products/{product.id}/",
+        {
+            "unit_price": "3775.00",
+            "currency": "USD",
+            "warehouse_city": "ITA",
+            "cbm_override": "5.991",
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["cbm"] == "5.991"
+    assert response.data["cbm_calculated"] == "0.248"
+    product.refresh_from_db()
+    assert product.unit_price == Decimal("3775.00")
+    assert product.currency == Product.Currency.USD
+    assert product.warehouse_city == Product.WarehouseCity.ITA
+    assert product.cbm_override == Decimal("5.991")
+    assert product.pending_changes == {}
+
+    response = api_client.patch(
+        f"/api/v2/products/{product.id}/", {"cbm_override": None}, format="json"
+    )
+    assert response.status_code == 200
+    assert response.data["cbm"] == "0.248"
+
+    authenticate(api_client, seller)
+    draft = product_factory(owner=seller, status=Product.Status.REJECTED)
+    response = api_client.patch(
+        f"/api/v2/products/{draft.id}/", {"cbm_override": "1.000"}, format="json"
+    )
+    assert response.status_code == 400
+    assert "cbm_override" not in api_client.get(f"/api/v2/products/{draft.id}/").data
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_manager_product_table_sorts_by_price_in_eur_stock_and_availability(
+    api_client, seller, manager, product_factory
+):
+    from apps.products.models import ExchangeRate
+
+    ExchangeRate.objects.create(
+        as_of="2026-09-01", eur_to_usd="1.00", eur_to_try="50", source="test"
+    )
+    cheap_try = product_factory(owner=seller, unit_price="1000.00")  # 20 EUR
+    mid_eur = product_factory(
+        owner=seller, unit_price="500.00", currency=Product.Currency.EUR
+    )
+    top_usd = product_factory(
+        owner=seller, unit_price="900.00", currency=Product.Currency.USD
+    )
+    mid_eur.variants.update(quantity=10)
+    top_usd.is_available = False
+    top_usd.save(update_fields=["is_available"])
+    authenticate(api_client, manager)
+
+    def ids(ordering):
+        response = api_client.get(
+            f"/api/v2/manager/products/?owner_id={seller.id}&ordering={ordering}"
+        )
+        assert response.status_code == 200, response.data
+        return [item["id"] for item in response.data["results"]]
+
+    assert ids("price") == [cheap_try.id, mid_eur.id, top_usd.id]
+    assert ids("-price") == [top_usd.id, mid_eur.id, cheap_try.id]
+    assert ids("-stock")[0] == mid_eur.id
+    assert ids("available")[0] == top_usd.id
+    assert ids("-active_listings")
+    assert ids("created_at") == [cheap_try.id, mid_eur.id, top_usd.id]
+    assert api_client.get("/api/v2/manager/products/?ordering=bogus").status_code == 400

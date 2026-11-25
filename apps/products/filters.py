@@ -1,4 +1,4 @@
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import F, OuterRef, Q, Subquery
 from rest_framework.exceptions import ValidationError
 
 from apps.moderation.models import ModerationDecision
@@ -27,7 +27,8 @@ def _get_integer(query_params, name: str) -> int | None:
         raise ValidationError({name: "This value must be an integer."}) from error
 
 
-def filter_products(*, queryset, query_params):
+def filter_products(*, queryset, query_params, extra_ordering=None):
+    """extra_ordering maps public sort keys to annotated fields of the queryset."""
     latest_decision = ModerationDecision.objects.filter(
         product_id=OuterRef("pk")
     ).order_by("-created_at")
@@ -82,10 +83,25 @@ def filter_products(*, queryset, query_params):
         queryset = queryset.filter(is_available=values[normalized_value])
 
     ordering = query_params.get("ordering", "-created_at")
+    extra_ordering = extra_ordering or {}
+    allowed = ALLOWED_ORDERING | {
+        f"{prefix}{key}" for key in extra_ordering for prefix in ("", "-")
+    }
 
-    if ordering not in ALLOWED_ORDERING:
+    if ordering not in allowed:
         raise ValidationError(
-            {"ordering": (f"Allowed values: {', '.join(sorted(ALLOWED_ORDERING))}.")}
+            {"ordering": (f"Allowed values: {', '.join(sorted(allowed))}.")}
         )
 
-    return queryset.order_by(ordering).distinct()
+    key = ordering.lstrip("-")
+    if key in extra_ordering:
+        field = F(extra_ordering[key])
+        expression = (
+            field.desc(nulls_last=True)
+            if ordering.startswith("-")
+            else field.asc(nulls_last=True)
+        )
+        # Ties (same price, same count) need a stable order across pages.
+        return queryset.order_by(expression, "-id").distinct()
+
+    return queryset.order_by(ordering, "-id").distinct()
