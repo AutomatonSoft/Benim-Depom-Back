@@ -1,6 +1,20 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import (
+    Case,
+    Count,
+    DecimalField,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -25,7 +39,7 @@ from apps.orchestrator.models import MarketplacePublication
 from apps.orchestrator.serializers import MarketplaceJobSerializer
 from apps.orchestrator.tasks import execute_marketplace_job
 from apps.products.filters import filter_products
-from apps.products.models import Product
+from apps.products.models import Product, ProductVariant
 from apps.products.pricing import latest_rate
 from apps.products.serializers import (
     PriceNegotiationCreateSerializer,
@@ -217,6 +231,34 @@ class ProductModerationHistoryView(generics.ListAPIView):
         )
 
 
+MANAGER_PRODUCT_ORDERING = {
+    "price": "seller_price_eur",
+    "active_listings": "active_listing_count",
+    "stock": "stock_quantity",
+    "available": "is_available",
+}
+
+
+def _seller_price_eur(rate):
+    """Seller price converted to EUR in SQL so mixed currencies sort correctly."""
+    money = DecimalField(max_digits=20, decimal_places=6)
+    whens = [When(currency=Product.Currency.EUR, then=F("unit_price"))]
+    if rate is not None:
+        for currency, divisor in (
+            (Product.Currency.TRY, rate.eur_to_try),
+            (Product.Currency.USD, rate.eur_to_usd),
+        ):
+            if divisor:
+                whens.append(
+                    When(
+                        currency=currency,
+                        then=F("unit_price")
+                        / Value(Decimal(str(divisor)), output_field=money),
+                    )
+                )
+    return Case(*whens, default=None, output_field=money)
+
+
 class ManagerProductListView(generics.ListAPIView):
     serializer_class = ManagerProductListSerializer
     permission_classes = [IsManager]
@@ -281,9 +323,26 @@ class ManagerProductListView(generics.ListAPIView):
                     {"owner_id": "This value must be an integer."}
                 ) from error
 
+        ordering_key = self.request.query_params.get("ordering", "").lstrip("-")
+        if ordering_key == "price":
+            queryset = queryset.annotate(
+                seller_price_eur=_seller_price_eur(latest_rate())
+            )
+        elif ordering_key == "stock":
+            stock = (
+                ProductVariant.objects.filter(product=OuterRef("pk"))
+                .values("product")
+                .annotate(total=Sum("quantity"))
+                .values("total")[:1]
+            )
+            queryset = queryset.annotate(
+                stock_quantity=Subquery(stock, output_field=IntegerField())
+            )
+
         return filter_products(
             queryset=queryset,
             query_params=self.request.query_params,
+            extra_ordering=MANAGER_PRODUCT_ORDERING,
         )
 
 

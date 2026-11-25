@@ -386,6 +386,20 @@ class ProductSerializer(serializers.ModelSerializer):
     )
     pricing_overrides = serializers.JSONField(required=False)
     pricing_formula = serializers.SerializerMethodField()
+    cbm = serializers.SerializerMethodField(
+        help_text="Packed volume in m³ used for pricing: manual value or calculated."
+    )
+    cbm_calculated = serializers.SerializerMethodField(
+        help_text="Volume in m³ computed from variant and set-part dimensions."
+    )
+    cbm_override = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=3,
+        min_value=Decimal("0.001"),
+        required=False,
+        allow_null=True,
+        help_text="Manager-only manual volume in m³. null restores the calculated value.",
+    )
     otto_category_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -464,6 +478,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "listing_price_eur_override",
             "pricing_overrides",
             "pricing_formula",
+            "cbm",
+            "cbm_calculated",
+            "cbm_override",
             "total_amount",
             "otto_category_id",
             "otto_category_group_id",
@@ -524,6 +541,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "latest_price_negotiation",
             "listing_price_eur",
             "pricing_formula",
+            "cbm",
+            "cbm_calculated",
         )
 
     @extend_schema_field(serializers.IntegerField)
@@ -543,6 +562,22 @@ class ProductSerializer(serializers.ModelSerializer):
         if price is None:
             return None
         return f"{price:.2f}"
+
+    @extend_schema_field(
+        serializers.DecimalField(max_digits=9, decimal_places=3, allow_null=True)
+    )
+    def get_cbm(self, product):
+        from .pricing import safe_cbm
+
+        return safe_cbm(product)
+
+    @extend_schema_field(
+        serializers.DecimalField(max_digits=9, decimal_places=3, allow_null=True)
+    )
+    def get_cbm_calculated(self, product):
+        from .pricing import safe_cbm
+
+        return safe_cbm(product, calculated=True)
 
     @extend_schema_field(serializers.DictField)
     def get_pricing_formula(self, product):
@@ -609,6 +644,8 @@ class ProductSerializer(serializers.ModelSerializer):
             data.pop("pricing_overrides", None)
             data.pop("pricing_formula", None)
             data.pop("listing_price_eur_override", None)
+            data.pop("cbm_override", None)
+            data.pop("cbm_calculated", None)
             data.pop("last_moderation_decision", None)
 
         return data
@@ -709,13 +746,20 @@ class ProductSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         manager_only = {
             field
-            for field in ("pricing_overrides", "listing_price_eur_override")
+            for field in (
+                "pricing_overrides",
+                "listing_price_eur_override",
+                "cbm_override",
+            )
             if field in attrs
         }
         if manager_only and (not request or not is_manager(request.user)):
             raise serializers.ValidationError(
                 {
-                    field: "Only managers can change the listing formula or euro price."
+                    field: (
+                        "Only managers can change the listing formula, "
+                        "euro price or volume."
+                    )
                     for field in manager_only
                 }
             )
