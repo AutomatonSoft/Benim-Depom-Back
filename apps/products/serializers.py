@@ -204,6 +204,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "quantity",
         )
         read_only_fields = ("id",)
+        extra_kwargs = {
+            "width_cm": {"min_value": Decimal("1")},
+            "height_cm": {"min_value": Decimal("1")},
+            "length_cm": {"min_value": Decimal("1")},
+        }
 
     def validate_color(self, value):
         color = value.strip()
@@ -256,6 +261,11 @@ class ProductSetPartSerializer(serializers.ModelSerializer):
             "length_cm",
         )
         read_only_fields = ("id", "position")
+        extra_kwargs = {
+            "width_cm": {"min_value": Decimal("1")},
+            "height_cm": {"min_value": Decimal("1")},
+            "length_cm": {"min_value": Decimal("1")},
+        }
 
     def validate_description(self, value):
         """Reject an empty description after trimming."""
