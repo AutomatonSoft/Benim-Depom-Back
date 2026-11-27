@@ -197,7 +197,11 @@ def min_set_unit_price(product: Product) -> Decimal | None:
         if hundreds + step + ending >= MIN_SET_LISTING_PRICE_EUR
     )
     threshold = first_ok - 25
-    needed_eur = threshold / percent_factor(catalog) - tariff * cbm - de_delivery_eur(cbm, catalog)
+    needed_eur = (
+        threshold / percent_factor(catalog)
+        - tariff * cbm
+        - de_delivery_eur(cbm, catalog)
+    )
     currency_rate = {
         Product.Currency.EUR: Decimal("1"),
         Product.Currency.TRY: fx.eur_to_try,
