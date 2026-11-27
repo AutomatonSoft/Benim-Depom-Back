@@ -176,6 +176,19 @@ class Product(models.Model):
                 name="product_status_date_idx",
             ),
         ]
+        constraints = [
+            # One EAN belongs to one product; empty means not assigned yet.
+            models.UniqueConstraint(
+                fields=("ean_jv",),
+                condition=~models.Q(ean_jv=""),
+                name="unique_product_ean_jv",
+            ),
+            models.UniqueConstraint(
+                fields=("ean_xl",),
+                condition=~models.Q(ean_xl=""),
+                name="unique_product_ean_xl",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.title} ({self.owner.username})"
