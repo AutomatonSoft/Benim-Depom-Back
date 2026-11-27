@@ -292,6 +292,8 @@ class EbayDraftSerializer(serializers.ModelSerializer):
                     *LISTING_SETTINGS_FIELDS,
                 )
                 if getattr(obj, field) in ("", None, [])
+                # A zero or negative price must never reach eBay.
+                or (field == "price_eur" and obj.price_eur <= 0)
             ],
             "aspects": [
                 name for name in obj.required_aspects if not obj.aspects.get(name)
