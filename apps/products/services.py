@@ -73,6 +73,9 @@ def create_product(
     )
     _replace_set_parts(product, set_parts_data or [])
 
+    from .pricing import ensure_set_min_listing_price
+
+    ensure_set_min_listing_price(product)
     return product
 
 
@@ -134,6 +137,14 @@ def update_product(
     if set_parts_data is not None:
         _replace_set_parts(product, set_parts_data)
 
+    prefetched = getattr(product, "_prefetched_objects_cache", None)
+    if prefetched is not None:
+        prefetched.pop("variants", None)
+        prefetched.pop("set_parts", None)
+
+    from .pricing import ensure_set_min_listing_price
+
+    ensure_set_min_listing_price(product)
     return product
 
 

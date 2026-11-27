@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 from .models import ExchangeRate, Product
@@ -165,6 +165,74 @@ def safe_listing_price_eur(
         return listing_price_eur(product, rate=rate)
     except (ValueError, KeyError, TypeError, ArithmeticError):
         return None
+
+
+MIN_SET_LISTING_PRICE_EUR = Decimal("1500")
+
+
+def _listing_with_unit_price(product: Product, amount: Decimal) -> Decimal | None:
+    saved = product.unit_price, product.listing_price_eur_override
+    product.unit_price, product.listing_price_eur_override = amount, None
+    try:
+        return safe_listing_price_eur(product)
+    finally:
+        product.unit_price, product.listing_price_eur_override = saved
+
+
+def min_set_unit_price(product: Product) -> Decimal | None:
+    """Smallest whole card price (product currency) giving a set listing >= minimum."""
+    fx = resolved_rate(product)
+    if fx is None:
+        return None
+    catalog = catalog_for_product(product)
+    cbm = packed_cbm(product)
+    tariff = Decimal(str(catalog["city_tariffs_eur_per_cbm"][product.warehouse_city]))
+    # Listing is rounded to the nearest xx49/xx99: aim at the midpoint below
+    # the first such price that is not under the minimum.
+    hundreds = (int(MIN_SET_LISTING_PRICE_EUR) // 100) * 100
+    first_ok = next(
+        Decimal(hundreds + step + ending)
+        for step in (0, 100)
+        for ending in (49, 99)
+        if hundreds + step + ending >= MIN_SET_LISTING_PRICE_EUR
+    )
+    threshold = first_ok - 25
+    needed_eur = threshold / percent_factor(catalog) - tariff * cbm - de_delivery_eur(cbm, catalog)
+    currency_rate = {
+        Product.Currency.EUR: Decimal("1"),
+        Product.Currency.TRY: fx.eur_to_try,
+        Product.Currency.USD: fx.eur_to_usd,
+    }[product.currency]
+    amount = max(needed_eur * currency_rate, Decimal("1")).quantize(
+        Decimal("1"), ROUND_CEILING
+    )
+    for _ in range(100):
+        price = _listing_with_unit_price(product, amount)
+        if price is None:
+            return None
+        if price >= MIN_SET_LISTING_PRICE_EUR:
+            return amount
+        amount += 1
+    return None
+
+
+def ensure_set_min_listing_price(product: Product) -> None:
+    """Reject a set (product with extra pieces) listed below the minimum."""
+    from rest_framework.exceptions import ValidationError
+
+    if not product.set_parts.exists():
+        return
+    price = safe_listing_price_eur(product)
+    if price is None or price >= MIN_SET_LISTING_PRICE_EUR:
+        return
+    try:
+        minimum = min_set_unit_price(product)
+    except (ValueError, KeyError, TypeError, ArithmeticError):
+        minimum = None
+    message = "Set price is too low."
+    if minimum is not None:
+        message += f" Minimum price for this set: {minimum} {product.currency}."
+    raise ValidationError({"unit_price": message})
 
 
 def effective_pricing_formula(
